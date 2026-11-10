@@ -218,6 +218,23 @@ class Taken:
         return not any((package_id, t) in self.pairs for t in targets)
 
 
+def taken_elsewhere(records: list[dict], logs: dict, package_id: str, target: str,
+                    own_slot: str) -> str | None:
+    """Who holds (package, target) as taken apart from slot `own_slot`: "the poster record",
+    "slot KEY", or None when it is free for that slot. A retry and the attention items use this
+    so they never offer a target that another slot's attempt may have posted (§9.3)."""
+    pair = (package_id, target)
+    others = {k: v for k, v in logs.items() if k != own_slot}
+    if pair not in Taken(records, others).pairs:
+        return None
+    if pair in Taken(records, {}).pairs:
+        return "the poster record"
+    for key, log in others.items():
+        if pair in Taken(records, {key: log}).pairs:
+            return f"slot {key}"
+    return "another slot"
+
+
 def variant_targets(rule, entry) -> list:
     """The rule's targets that the package has a variant for, in the rule's order."""
     networks = entry.networks()

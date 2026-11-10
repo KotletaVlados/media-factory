@@ -48,7 +48,9 @@ def items(inputs, plan, heartbeat: dict | None, now: _dt.datetime) -> list[str]:
                 if result == "unknown" and row and claim.get("ts") and \
                         planner.row_older_than(row, _parse(claim["ts"])):
                     now_status = None     # an older row is not this attempt's answer
-                if result == "failed" and now_status == "failed":
+                if result == "failed" and now_status in ("failed", None) and \
+                        not planner.taken_elsewhere(inputs.records, logs, claim.get("package"),
+                                                    target, key):
                     out.append(f"slot {key}: {target} failed; fix the cause, then "
                                f"factory retry {key}")
                 elif result == "unknown" and now_status in ("unknown", None):

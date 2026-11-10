@@ -79,9 +79,10 @@ class Runner:
 
     # ------------------------------------------------------------ reconcile (§9.3)
 
-    def outcome_from_record(self, claim: dict, records: list) -> dict | None:
-        """Per-target status from poster record rows written at or after the claim, or None
-        when a target has no such row."""
+    @staticmethod
+    def rows_since_claim(claim: dict, records: list) -> dict:
+        """target -> status of the latest poster record row written at or after the claim, for
+        the claim's own package and targets."""
         since = config.parse_utc(claim["ts"])
         found = {}
         for row in records:
@@ -93,6 +94,12 @@ class Runner:
                 continue
             if ts >= since and row.get("target") in claim.get("targets", []):
                 found[row["target"]] = row.get("status", "unknown")
+        return found
+
+    def outcome_from_record(self, claim: dict, records: list) -> dict | None:
+        """Per-target status from poster record rows written at or after the claim, or None
+        when a target has no such row."""
+        found = self.rows_since_claim(claim, records)
         if all(t in found for t in claim.get("targets", [])):
             return {t: found[t] for t in claim["targets"]}
         return None
@@ -441,14 +448,28 @@ class Runner:
                          "or unreadable")
                 return 2
             rule = inputs.ruleset.get(claim.get("rule") or "")
-            self.out(f"retry {slot_key}: {', '.join(failed)}")
             # only the targets that failed: the poster skips a target only when its latest row
             # is `published`, so a post the operator deleted would go out again
-            sent = [t for t in claim.get("targets") or [] if t in failed] or failed
+            wanted = [t for t in claim.get("targets") or [] if t in failed] or failed
+            # a target that the record or another slot's attempt holds as taken is not sent
+            # again, whatever this slot's own outcome says (§9.3)
+            logs = fjournal.index(inputs.journal)
+            sent, blocked = [], []
+            for t in wanted:
+                holder = planner.taken_elsewhere(inputs.records, logs, entry.id, t, slot_key)
+                if holder:
+                    blocked.append(t)
+                    self.out(f"error: {t} is held as taken by {holder}; it is not sent again "
+                             "(see factory status for that slot)")
+                else:
+                    sent.append(t)
+            if not sent:
+                return 2
+            self.out(f"retry {slot_key}: {', '.join(sent)}")
             result = self.publish_slot(rule, slot_key, entry, sent, retry=True, prior=outcome)
             if result.status == "refused" and not result.claimed:
                 return 2
-            return 1 if result.bad else 0
+            return 1 if result.bad or blocked else 0
 
     def resolve(self, slot_key: str, published: bool) -> int:
         log = fjournal.index(self.journal.rows()).get(slot_key)
@@ -456,11 +477,40 @@ class Runner:
             state = log.status if log else "not in the journal"
             self.out(f"error: slot {slot_key} is {state}; resolve takes an interrupted slot")
             return 2
+        if not published:
+            partial = self._partial_outcome(log)
+            if partial is not None:
+                # part of the package already went out (or this was a retry of a done slot):
+                # the slot ends `done` with what is known, so the rest stays retryable and
+                # the sent targets stay taken, instead of being released and lost
+                self.journal.append({"slot": slot_key, "status": "done", "exit": None,
+                                     "outcome": partial, "resolved": True})
+                sent = [t for t, v in partial.items() if v in fjournal.SENT_OUTCOMES]
+                owed = [t for t, v in partial.items() if v == "failed"]
+                self.out(f"{slot_key}: resolved as not published, but {', '.join(sent) or 'nothing'} "
+                         f"already went out and stays taken"
+                         + (f"; {', '.join(owed)} not sent: factory retry {slot_key}" if owed else ""))
+                return 0
         self.journal.append({"slot": slot_key, "status": "resolved", "published": published})
         what = ("the package stays taken for those targets" if published
                 else "the package is released to the next slot")
         self.out(f"{slot_key}: resolved as {'published' if published else 'not published'}; {what}")
         return 0
+
+    def _partial_outcome(self, log) -> dict | None:
+        """The slot's outcome when its interrupted claim cannot simply be released: the poster
+        record shows a target of the claim sent after the claim, or the claim is a retry (the
+        slot had a `done` outcome before it). None when nothing went out."""
+        claim = log.claimed
+        found = self.rows_since_claim(claim, self.records())
+        retry = bool(claim.get("retry"))
+        if not retry and not any(v in planner.RECORD_TAKEN for v in found.values()):
+            return None
+        done_before = log.last_with("done")
+        prior = dict((done_before or {}).get("outcome") or {}) if retry else {}
+        outcome = {t: found.get(t, "failed") for t in claim.get("targets") or []}
+        outcome.update({t: fjournal.SKIPPED_BUDGET for t in claim.get("skipped") or {}})
+        return prior | outcome
 
 
 def find_entry(stock: fstock.Stock, folder: str, file: str):
