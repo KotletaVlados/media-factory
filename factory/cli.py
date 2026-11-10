@@ -59,6 +59,16 @@ def _days_arg(value: str) -> int:
     return n
 
 
+def _port_arg(value: str) -> int:
+    try:
+        n = int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError("must be a port number") from None
+    if not 0 <= n <= 65535:
+        raise argparse.ArgumentTypeError("must be between 0 and 65535")
+    return n
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="python3 -m factory",
                                 description="Stock, rules, plan and timed publishing.")
@@ -102,6 +112,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     tm = sub.add_parser("timer", help="systemd user units for the tick")
     tm.add_argument("--print", action="store_true", required=True, dest="print_units")
+    pn = sub.add_parser("panel", help="local web panel on 127.0.0.1")
+    pn.add_argument("--port", type=_port_arg, default=8770)
     return p
 
 
@@ -462,7 +474,14 @@ def cmd_timer(app: App) -> int:
     return 0
 
 
+# ---------------------------------------------------------------- panel
+
+def cmd_panel(app: App) -> int:
+    from factory.panel import server   # the panel imports this module
+    return server.serve(app, app.args.port)
+
+
 COMMANDS = {"check": cmd_check, "plan": cmd_plan, "tick": cmd_tick, "status": cmd_status,
-            "retry": cmd_retry, "resolve": cmd_resolve, "timer": cmd_timer}
+            "retry": cmd_retry, "resolve": cmd_resolve, "timer": cmd_timer, "panel": cmd_panel}
 RULE_COMMANDS = {"new": cmd_rule_new, "set": cmd_rule_set, "start": cmd_rule_start,
                  "stop": cmd_rule_stop}

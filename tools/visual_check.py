@@ -1,0 +1,295 @@
+"""Visual check of the panel (design factory.md §13.3 items 4 and 5; panel brief §5).
+
+    python3 tools/visual_check.py --out DIR [--widths 390,900,1280,1440,1600,1920] [--only TEXT]
+
+It builds the data, empty and error fixtures under DIR/fixture, starts one panel per fixture
+on 127.0.0.1 port 0 (in this process, frozen clock, nothing publishes), and for each tab and
+state at each width:
+
+- saves a viewport PNG and a whole-page PNG with the cached chrome-headless-shell
+  (`--screenshot`), as DIR/<state>-<width>.png and DIR/<state>-<width>-full.png;
+- runs `--dump-dom --virtual-time-budget=2000` on the same URL with `?probe=1` and reads the
+  probe's JSON (text cut by its box, elements wider than the viewport, anchors under the
+  sticky bar, overlapping controls, targets under 24 x 24).
+
+It also computes the WCAG contrast of every text colour pair from panel.css. It prints the
+snapshot build time (`snapshot_ms`, budget 1000 ms) and exits 1 on any finding.
+
+Chrome: MF_CHROME, default the newest
+~/.cache/ms-playwright/chromium_headless_shell-*/chrome-headless-shell-linux64/chrome-headless-shell.
+MF_CHROME_LIBS adds a library folder (for machines missing libnspr4, libnss3 or libasound).
+Chrome's own TMPDIR, HOME and profile live in a short folder under DIR (its socket path limit
+is about 107 characters).
+"""
+
+from __future__ import annotations
+
+import argparse
+import concurrent.futures
+import glob
+import html
+import http.client
+import io
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import threading
+import time
+import urllib.parse
+
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, REPO)
+
+from factory.panel import server  # noqa: E402
+from tests import panel_fixture  # noqa: E402
+
+WIDTHS = {390: 844, 900: 900, 1280: 800, 1440: 900, 1600: 900, 1920: 1080}
+BUDGET_MS = 1000
+FULL_MAX = 7000
+CSS = os.path.join(REPO, "factory", "panel", "static", "panel.css")
+TEXT_PAIRS = [
+    ("--text", "--app"), ("--text", "--surface"), ("--text", "--surface-2"), ("--text", "--head"),
+    ("--text", "--tab-active"), ("--text", "--hour-on-bg"),
+    ("--muted", "--app"), ("--muted", "--surface"), ("--muted", "--surface-2"), ("--muted", "--head"),
+    ("--green", "--app"), ("--green", "--surface"), ("--green", "--surface-2"),
+    ("--green", "--day-on-bg"), ("--on-green", "--green"), ("--on-green", "--red"),
+    ("--red", "--app"), ("--red", "--surface"), ("--red", "--surface-2"),
+    ("--day-on", "--day-on-bg"), ("--hour-on", "--surface"), ("--hour-on", "--surface-2"),
+    ("--lane-photo", "--surface"), ("--lane-photo", "--surface-2"), ("--lane-text", "--surface-2"),
+] + [(f"--n-{n}", "--head") for n in ("fb", "ig", "x", "in", "tg", "th", "yt", "tt", "pi")]
+
+
+# ---------------------------------------------------------------- contrast (WCAG 2.x)
+
+def _lum(hex_colour: str) -> float:
+    h = hex_colour.lstrip("#")
+    rgb = [int(h[i:i + 2], 16) / 255 for i in (0, 2, 4)]
+    lin = [c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4 for c in rgb]
+    return 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2]
+
+
+def contrast(a: str, b: str) -> float:
+    la, lb = sorted((_lum(a), _lum(b)), reverse=True)
+    return (la + 0.05) / (lb + 0.05)
+
+
+def check_contrast(css_text: str) -> list:
+    tokens = dict(re.findall(r"(--[a-z0-9-]+):\s*(#[0-9a-fA-F]{6})\s*;", css_text))
+    out = []
+    for fg, bg in TEXT_PAIRS:
+        ratio = contrast(tokens[fg], tokens[bg])
+        out.append((fg, bg, ratio))
+    return out
+
+
+# ---------------------------------------------------------------- chrome
+
+def find_chrome() -> str:
+    if os.environ.get("MF_CHROME"):
+        return os.environ["MF_CHROME"]
+    pattern = os.path.expanduser("~/.cache/ms-playwright/chromium_headless_shell-*/"
+                                 "chrome-headless-shell-linux64/chrome-headless-shell")
+    found = sorted(glob.glob(pattern), key=lambda p: int(re.search(r"-(\d+)/", p).group(1)))
+    if not found:
+        sys.exit("no chrome-headless-shell found; set MF_CHROME")
+    return found[-1]
+
+
+class Chrome:
+    def __init__(self, binary: str, scratch: str):
+        self.binary, self.scratch = binary, scratch
+        self.env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+                    "HOME": os.path.join(scratch, "home"), "TMPDIR": scratch}
+        libs = os.environ.get("MF_CHROME_LIBS")
+        if libs:
+            self.env["LD_LIBRARY_PATH"] = libs
+        os.makedirs(self.env["HOME"], exist_ok=True)
+        self._n = 0
+        self._lock = threading.Lock()
+
+    def _profile(self) -> str:
+        with self._lock:
+            self._n += 1
+            return os.path.join(self.scratch, f"p{self._n}")
+
+    def run(self, args: list, timeout: int = 60) -> subprocess.CompletedProcess:
+        profile = self._profile()
+        cmd = [self.binary, "--no-sandbox", "--disable-gpu", "--hide-scrollbars",
+               "--force-device-scale-factor=1", "--no-first-run", "--mute-audio",
+               "--disable-extensions", f"--user-data-dir={profile}"] + args
+        try:
+            return subprocess.run(cmd, env=self.env, capture_output=True, timeout=timeout)
+        finally:
+            shutil.rmtree(profile, ignore_errors=True)
+
+    def screenshot(self, url: str, out: str, w: int, h: int) -> None:
+        r = self.run([f"--window-size={w},{h}", "--virtual-time-budget=2000",
+                      f"--screenshot={out}", url])
+        if not os.path.exists(out):
+            raise RuntimeError(f"screenshot failed for {url}: {r.stderr.decode()[-400:]}")
+
+    def probe(self, url: str, w: int, h: int) -> dict:
+        r = self.run([f"--window-size={w},{h}", "--virtual-time-budget=2000", "--dump-dom", url])
+        m = re.search(r'<pre id="probe">(.*?)</pre>', r.stdout.decode("utf-8", "replace"), re.S)
+        if not m:
+            raise RuntimeError(f"no probe output for {url}: {r.stderr.decode()[-400:]}")
+        return json.loads(html.unescape(m.group(1)))
+
+
+# ---------------------------------------------------------------- states
+
+def with_probe(url: str) -> str:
+    parts = urllib.parse.urlsplit(url)
+    query = parts.query + ("&" if parts.query else "") + "probe=1"
+    return urllib.parse.urlunsplit(parts._replace(query=query))
+
+
+def start(fixture):
+    srv = server.make_server(fixture.paths, fixture.clock, fixture.machine_tz, 0,
+                             log=io.StringIO())
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    return srv
+
+
+def post_page(srv, path: str, fields: dict, out_file: str) -> str:
+    """POST a form and save the answer (with a <base> to the server) as a local file."""
+    host = f"127.0.0.1:{srv.port}"
+    body = urllib.parse.urlencode(dict(fields, csrf=srv.panel.csrf))
+    conn = http.client.HTTPConnection("127.0.0.1", srv.port, timeout=30)
+    conn.request("POST", path, body=body, headers={
+        "Host": host, "Content-Type": "application/x-www-form-urlencoded"})
+    resp = conn.getresponse()
+    page = resp.read().decode("utf-8")
+    conn.close()
+    page = page.replace("<head>", f'<head>\n<base href="http://{host}/">', 1)
+    with open(out_file, "w", encoding="utf-8") as fh:
+        fh.write(page)
+    return resp.status
+
+
+def main(argv=None) -> int:
+    ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    ap.add_argument("--out", required=True)
+    ap.add_argument("--widths", default=",".join(map(str, WIDTHS)))
+    ap.add_argument("--only", default="", help="only states whose name contains this text")
+    ap.add_argument("--jobs", type=int, default=4)
+    args = ap.parse_args(argv)
+    out = os.path.abspath(args.out)
+    os.makedirs(out, exist_ok=True)
+    widths = [int(w) for w in args.widths.split(",") if w]
+    fixtures_root = os.path.join(out, "fixture")
+    shutil.rmtree(fixtures_root, ignore_errors=True)
+    scratch = os.path.join(out, "t")
+    shutil.rmtree(scratch, ignore_errors=True)
+    os.makedirs(scratch)
+
+    data = panel_fixture.build_data(os.path.join(fixtures_root, "data"))
+    empty = panel_fixture.build_empty(os.path.join(fixtures_root, "empty"))
+    bad_rules = panel_fixture.build_data(os.path.join(fixtures_root, "bad-rules"))
+    with open(bad_rules.paths.rules, "w", encoding="utf-8") as fh:
+        fh.write('{"schema": 1, "rules": [{"id": "Bad Id", "folder": "city"}]}\n')
+    no_env = panel_fixture.build_empty(os.path.join(fixtures_root, "no-env"))
+    os.remove(no_env.paths.env_file)
+
+    servers = {name: start(fx) for name, fx in
+               (("data", data), ("empty", empty), ("bad-rules", bad_rules), ("no-env", no_env))}
+    t0 = time.perf_counter()
+    snap = servers["data"].panel.holder.get()
+    snapshot_ms = snap.build_ms
+    print(f"snapshot_ms={snapshot_ms:.0f} (data fixture, budget {BUDGET_MS}; "
+          f"wall {1000 * (time.perf_counter() - t0):.0f})")
+
+    def url(name, path):
+        return f"http://127.0.0.1:{servers[name].port}{path}"
+
+    states = [
+        ("connection", url("data", "/connection")),
+        ("connection-net", url("data", "/connection?net=linkedin")),
+        ("attention", url("data", "/connection?attention=1")),
+        ("files", url("data", "/files")),
+        ("files-folder", url("data", "/files?folder=city")),
+        ("rules", url("data", "/rules")),
+        ("calendar", url("data", "/calendar")),
+        ("calendar-day", url("data", "/calendar?day=2026-11-06")),
+        ("calendar-plan", url("data", "/calendar?day=2026-11-12")),
+        ("calendar-runout", url("data", "/calendar?day=2026-12-18")),
+        ("calendar-budget", url("data", "/calendar?day=2026-10-26")),
+        ("calendar-missed", url("data", "/calendar?day=2026-10-19")),
+        ("reach", url("data", "/reach")),
+        ("reach-weak", url("data", "/reach?sort=weak")),
+        ("followers", url("data", "/followers")),
+        ("followers-week", url("data", "/followers?period=week")),
+        ("dialogs", url("data", "/dialogs")),
+    ] + [(f"empty-{tab}", url("empty", f"/{tab}")) for tab in
+         ("connection", "files", "rules", "calendar", "reach", "followers")] + [
+        ("error-rules", url("bad-rules", "/rules")),
+        ("error-rules-connection", url("bad-rules", "/connection")),
+        ("error-env", url("no-env", "/files")),
+    ]
+    # the 409 refusal: starting the draft with validation problems
+    pages = os.path.join(scratch, "pages")
+    os.makedirs(pages)
+    refuse = os.path.join(pages, "rules-409.html")
+    refuse_probe = os.path.join(pages, "rules-409-probe.html")
+    fields = {"rule": "tips-ig", "rev": snap.inputs.ruleset.revision}
+    status = post_page(servers["data"], "/rules/start", fields, refuse)
+    post_page(servers["data"], "/rules/start?probe=1", fields, refuse_probe)
+    print(f"rules-409: POST /rules/start answered {status}")
+    states.append(("rules-409", "file://" + refuse))
+    probe_urls = {"rules-409": "file://" + refuse_probe}
+    if args.only:
+        states = [s for s in states if args.only in s[0]]
+
+    chrome = Chrome(find_chrome(), scratch)
+    findings: dict = {}
+    heights: dict = {}
+
+    def one(state, address, w):
+        h = WIDTHS.get(w, 900)
+        result = chrome.probe(probe_urls.get(state, with_probe(address)), w, h)
+        chrome.screenshot(address, os.path.join(out, f"{state}-{w}.png"), w, h)
+        full_h = min(max(h, int(result.get("height", h))), FULL_MAX)
+        if full_h > h:
+            chrome.screenshot(address, os.path.join(out, f"{state}-{w}-full.png"), w, full_h)
+        return state, w, result, full_h
+
+    jobs = [(s, a, w) for s, a in states for w in widths]
+    with concurrent.futures.ThreadPoolExecutor(max_workers=args.jobs) as pool:
+        for state, w, result, full_h in pool.map(lambda j: one(*j), jobs):
+            heights[(state, w)] = full_h
+            if result["findings"]:
+                findings[f"{state}-{w}"] = result["findings"]
+
+    failed = False
+    for key in sorted(findings):
+        failed = True
+        print(f"FINDINGS {key}:")
+        grouped: dict = {}
+        for f in findings[key]:
+            line = f"{f['kind']}: {f['el']} {f['detail']} «{f['text']}»"
+            grouped[line] = grouped.get(line, 0) + 1
+        for line, n in grouped.items():
+            print(f"  - {line}" + (f"  (x{n})" if n > 1 else ""))
+    with open(CSS, encoding="utf-8") as fh:
+        pairs = check_contrast(fh.read())
+    for fg, bg, ratio in pairs:
+        if ratio < 4.5:
+            failed = True
+            print(f"CONTRAST {fg} on {bg}: {ratio:.2f} < 4.5")
+    print(f"contrast: {len(pairs)} pairs, lowest {min(r for _, _, r in pairs):.2f}")
+    if snapshot_ms > BUDGET_MS:
+        failed = True
+        print(f"snapshot_ms {snapshot_ms:.0f} over the {BUDGET_MS} ms budget")
+    print(f"{len(jobs)} state x width pages probed, {len(findings)} with findings; PNGs in {out}")
+    for srv in servers.values():
+        srv.shutdown()
+        srv.server_close()
+    shutil.rmtree(scratch, ignore_errors=True)
+    return 1 if failed else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
