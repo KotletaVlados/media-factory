@@ -127,6 +127,49 @@ class FilesTest(pf.PanelCase):
         self.assertIn("не одобрено", nature)
 
 
+LONG_TITLE = "Фотографии с городских прогулок"
+PANEL_CSS = os.path.join(os.path.dirname(pf.__file__), "..", "factory", "panel", "static", "panel.css")
+
+
+def css_rule(css: str, selector: str) -> str:
+    """The declarations of the one rule whose selector list is exactly `selector`."""
+    m = re.search(r"(?m)^" + re.escape(selector) + r"\s*\{([^}]*)\}", css)
+    assert m, selector
+    return m.group(1)
+
+
+class LongTitleTest(pf.PanelCase):
+    """A folder title of 31+ characters, read by a rule, is clamped with an ellipsis on the
+    Files card and the Rules source card, and the count beside it stays on one line."""
+
+    def test_fixture_folder_is_long_and_read_by_a_rule(self):
+        self.assertGreaterEqual(len(LONG_TITLE), 31)
+        with open(os.path.join(self.fx.paths.stock, "city", "folder.json"), encoding="utf-8") as fh:
+            folder = json.load(fh)
+        self.assertEqual(folder["title"], LONG_TITLE)
+        self.assertTrue(any(r["folder"] == "city" for r in self.rules_doc()["rules"]))
+
+    def test_both_cards_carry_the_whole_title(self):
+        files = main_of(self.get("/files")[2])
+        self.assertIn(f'title="{LONG_TITLE}">{LONG_TITLE}</a>', files)
+        rules = main_of(self.get("/rules")[2])
+        self.assertIn(f'title="{LONG_TITLE}">{LONG_TITLE}</a>', rules)
+        self.assertIn('<span class="mono num-s">39</span>', rules)
+
+    def test_clamped_boxes_are_block_level_and_numbers_do_not_wrap(self):
+        with open(PANEL_CSS, encoding="utf-8") as fh:
+            css = fh.read()
+        for selector in (".mini-title", ".fcard-title a"):
+            rule = css_rule(css, selector)
+            self.assertIn("text-overflow: ellipsis", rule, selector)
+            self.assertIn("overflow: hidden", rule, selector)
+            self.assertRegex(rule, r"display:\s*block\b", selector)   # flex ignores ellipsis
+        self.assertRegex(css_rule(css, ".num-s"), r"flex:\s*none")
+        numbers = css_rule(css, ".num, .num-s, .n, .big, .fnum, .mv, .dnum")
+        self.assertIn("white-space: nowrap", numbers)
+        self.assertIn("overflow-wrap: normal", numbers)
+
+
 class RulesTabTest(pf.PanelCase):
     def test_data(self):
         body = main_of(self.get("/rules")[2])

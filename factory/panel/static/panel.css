@@ -219,7 +219,7 @@ label.check input { min-height: 0; width: 16px; height: 16px; }
 .fcard.lane-photo, .mini.lane-photo { border-top-color: var(--lane-photo); }
 .fcard.lane-text, .mini.lane-text { border-top-color: var(--lane-text); }
 .fcard-title { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.fcard-title a { text-decoration: none; display: inline-flex; align-items: center;
+.fcard-title a { text-decoration: none; display: block; line-height: 24px;
                  min-height: 24px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
 .fcard-title a:hover { text-decoration: underline; }
 .tiles { display: flex; gap: 4px; }
@@ -278,9 +278,11 @@ label.check input { min-height: 0; width: 16px; height: 16px; }
         border-radius: 8px; padding: 8px; display: flex; flex-direction: column; gap: 6px; }
 .mini-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .mini-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-decoration: none;
-              min-height: 24px; display: inline-flex; align-items: center; min-width: 0; }
+              min-height: 24px; line-height: 24px; display: block; min-width: 0; flex: 1 1 auto; }
 .mini-title:hover { text-decoration: underline; }
-.num-s { font-size: 15px; font-weight: 600; }
+.num-s { font-size: 15px; font-weight: 600; flex: none; }
+/* a number is one token: it never wraps or shrinks inside a flex row */
+.num, .num-s, .n, .big, .fnum, .mv, .dnum { overflow-wrap: normal; white-space: nowrap; }
 .lchip { font-size: 11px; padding: 1px 6px; border-radius: 4px; background: var(--surface-2);
          border: 1px solid var(--head); white-space: nowrap; }
 .lchip.lane-photo { color: var(--lane-photo); }

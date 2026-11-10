@@ -48,6 +48,8 @@ from factory.panel import server  # noqa: E402
 from tests import panel_fixture  # noqa: E402
 
 WIDTHS = {390: 844, 900: 900, 1280: 800, 1440: 900, 1600: 900, 1920: 1080}
+LONG_TITLE = "Фотографии с городских прогулок"
+ELLIPSIS_STATES = ("files", "rules")   # the Files card and the Rules source card clamp it
 BUDGET_MS = 1000
 FULL_MAX = 7000
 CSS = os.path.join(REPO, "factory", "panel", "static", "panel.css")
@@ -256,6 +258,7 @@ def main(argv=None) -> int:
     chrome = Chrome(find_chrome(), scratch)
     findings: dict = {}
     heights: dict = {}
+    ellipsis_at: dict = {}
 
     def one(state, address, w):
         h = WIDTHS.get(w, 900)
@@ -272,8 +275,26 @@ def main(argv=None) -> int:
             heights[(state, w)] = full_h
             if result["findings"]:
                 findings[f"{state}-{w}"] = result["findings"]
+            # the long fixture title is either whole or cut with a rendered "…", never cut bare
+            if state in ELLIPSIS_STATES:
+                if LONG_TITLE in result.get("ellipsis", []):
+                    ellipsis_at.setdefault(state, []).append(w)
+                elif state == "files" and w >= 900:   # a fixed 220 px card always cuts it
+                    findings.setdefault(f"{state}-{w}", []).append(
+                        {"kind": "no-ellipsis", "el": "", "text": LONG_TITLE,
+                         "detail": "the fixed-width Files card shows no ellipsis"})
+                elif LONG_TITLE not in result.get("whole", []):
+                    findings.setdefault(f"{state}-{w}", []).append(
+                        {"kind": "title-not-clamped-or-whole", "el": "", "text": LONG_TITLE,
+                         "detail": "neither whole nor cut with an ellipsis"})
 
     failed = False
+    for state in ELLIPSIS_STATES:
+        shown = sorted(ellipsis_at.get(state, []))
+        print(f"ellipsis: {state} cuts the long title with \u2026 at widths {shown}")
+        if not shown and not args.only:   # the 220 px Files card and the narrower Rules cells clamp
+            failed = True
+            print(f"  - {state}: the long title never shows an ellipsis at any width")
     for key in sorted(findings):
         failed = True
         print(f"FINDINGS {key}:")

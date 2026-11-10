@@ -232,7 +232,7 @@ def build_data(root: str) -> Fixture:
     os.makedirs(library, exist_ok=True)
 
     # ------------------------------------------------------------ stock: 2 lanes, 5 folders
-    city = _folder(paths.stock, "city", "Город", "photo")
+    city = _folder(paths.stock, "city", "Фотографии с городских прогулок", "photo")
     for k in range(40):
         image = f"city-{k + 1:02d}.jpg"
         with open(os.path.join(library, image), "wb") as fh:

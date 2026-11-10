@@ -32,6 +32,43 @@
     return r.width > 0 && r.height > 0;
   }
 
+  var BLOCKS = ["block", "inline-block", "flow-root", "list-item", "table-cell", "-webkit-box"];
+
+  // text-overflow: ellipsis (and a line clamp) only render on a block-level container that
+  // clips its overflow; flex, grid and plain inline boxes ignore it
+  function cs_noEllipsis(cs) {
+    if (cs.webkitLineClamp && cs.webkitLineClamp !== "none" && cs.textOverflow !== "ellipsis") {
+      return false;
+    }
+    return BLOCKS.indexOf(cs.display) < 0 || cs.overflowX === "visible";
+  }
+
+  function clampText(e) {
+    return e.textContent.trim().slice(0, 60);
+  }
+
+  var splits = [];
+  var ellipsized = [];
+  var whole = [];
+
+  // a number (digits, thin-space groups, decimal mark) must stay on one line
+  function splitNumbers(node, el) {
+    var re = /\d[\d\u00a0\u202f.,]*\d|\d/g, m;
+    while ((m = re.exec(node.textContent))) {
+      var r = document.createRange();
+      r.setStart(node, m.index);
+      r.setEnd(node, m.index + m[0].length);
+      var rs = Array.prototype.filter.call(r.getClientRects(), function (t) { return t.width > 0; });
+      if (rs.length > 1) {
+        var tops = rs.map(function (t) { return t.top; });
+        if (Math.max.apply(null, tops) - Math.min.apply(null, tops) > rs[0].height / 2) {
+          splits.push([el, m[0]]);
+          break;
+        }
+      }
+    }
+  }
+
   function run() {
     var findings = [];
     var W = document.documentElement.clientWidth;
@@ -78,6 +115,20 @@
         }
       }
       if (clamped) {
+        // an ellipsis only renders on a block container that clips: a flex/grid/inline box
+        // or an unclipped one cuts or spills the text with no "…"
+        var ccs = getComputedStyle(clamped);
+        if (!cs_noEllipsis(ccs) && ccs.textOverflow === "ellipsis") {
+          // truncated: the "…" really renders here; otherwise the whole text is visible
+          var list = clamped.scrollWidth > clamped.clientWidth + 0.5 ? ellipsized : whole;
+          if (list.indexOf(clamped) < 0) {
+            list.push(clamped);
+          }
+        }
+        if (cs_noEllipsis(ccs)) {
+          add("clamp-cannot-ellipsize", clamped, "display " + ccs.display + ", overflow " +
+            ccs.overflowX);
+        }
         if (!clamped.hasAttribute("title") && !clamped.closest("[title]") &&
             !clamped.closest('[aria-hidden="true"]')) {
           add("clamp-without-title", clamped);
@@ -87,6 +138,7 @@
       var range = document.createRange();
       range.selectNodeContents(node);
       var rects = Array.prototype.slice.call(range.getClientRects());
+      splitNumbers(node, el);
       var own = el.getBoundingClientRect();
       var bad = rects.some(function (t) {
         return t.width > 0 && (t.right > own.right + 1 || t.left < own.left - 1);
@@ -112,6 +164,8 @@
         }
       }
     }
+
+    splits.forEach(function (pair) { add("number-split", pair[0], pair[1]); });
 
     // anchors that a link jumps to must not land under the sticky tab bar
     var bar = document.querySelector(".topbar");
@@ -164,7 +218,9 @@
     var pre = document.createElement("pre");
     pre.id = "probe";
     pre.textContent = JSON.stringify({width: W, height: document.documentElement.scrollHeight,
-                                      controls: controls.length, findings: findings});
+                                      controls: controls.length, findings: findings,
+                                      ellipsis: ellipsized.map(clampText),
+                                      whole: whole.map(clampText)});
     document.body.appendChild(pre);
   }
 
