@@ -3,6 +3,7 @@
 (function () {
   "use strict";
   var MAX = 60;
+  var measured = [];   // reported in the JSON, so a run shows what was measured
 
   function name(el) {
     var s = el.tagName.toLowerCase();
@@ -71,6 +72,7 @@
 
   function run() {
     var findings = [];
+    var startY = window.scrollY;   // where a #fragment left the page; the checks restore it
     var W = document.documentElement.clientWidth;
     function add(kind, el, detail) {
       if (findings.length < MAX) {
@@ -178,7 +180,7 @@
             Math.round(bar.getBoundingClientRect().bottom));
         }
       });
-      window.scrollTo(0, 0);
+      window.scrollTo(0, startY);
     }
 
     // a page-level alert (a refusal or error banner) is read on the first screen: measure
@@ -209,24 +211,153 @@
         var p = boxes[i], q = boxes[j];
         var w = Math.min(p.right, q.right) - Math.max(p.left, q.left);
         var h = Math.min(p.bottom, q.bottom) - Math.max(p.top, q.top);
-        if (w > 0.5 && h > 0.5 && !controls[i].contains(controls[j]) &&
+        // content scrolled under the opaque sticky bar is covered, not overlapped
+        var bar = document.querySelector(".topbar");
+        var underBar = bar && getComputedStyle(bar).position === "sticky" &&
+          bar.contains(controls[i]) !== bar.contains(controls[j]);
+        if (w > 0.5 && h > 0.5 && !underBar && !controls[i].contains(controls[j]) &&
             !controls[j].contains(controls[i])) {
           add("overlap", controls[i], "with " + name(controls[j]));
         }
       }
     }
-    var pre = document.createElement("pre");
-    pre.id = "probe";
-    pre.textContent = JSON.stringify({width: W, height: document.documentElement.scrollHeight,
-                                      controls: controls.length, findings: findings,
-                                      ellipsis: ellipsized.map(clampText),
-                                      whole: whole.map(clampText)});
-    document.body.appendChild(pre);
+    measureLayout(add, W, modal);
+    expanders(add, startY, function () {
+      var pre = document.createElement("pre");
+      pre.id = "probe";
+      pre.textContent = JSON.stringify({width: W, height: document.documentElement.scrollHeight,
+                                        controls: controls.length, findings: findings, scrollY: window.scrollY,
+                                        hash: location.hash, expanders: measured,
+                                        ellipsis: ellipsized.map(clampText),
+                                        whole: whole.map(clampText)});
+      document.body.appendChild(pre);
+    });
+  }
+
+  function stickyBottom() {
+    var bar = document.querySelector(".topbar");
+    return bar && getComputedStyle(bar).position === "sticky" ?
+      bar.getBoundingClientRect().bottom : 0;
+  }
+
+  // Layout facts the panel promises: the Files preview strip fits its card, the Rules unit
+  // word sits under its number, and a tapped ring node leaves the detail's heading and first
+  // line on the first screen (the page is loaded with the node link's #net-detail fragment).
+  function measureLayout(add, W, modal) {
+    document.querySelectorAll(".fcard .tiles").forEach(function (strip) {
+      var card = strip.closest(".fcard"), tiles = strip.children;
+      if (!tiles.length || !shown(strip)) {
+        return;
+      }
+      var box = card.getBoundingClientRect(), cs = getComputedStyle(card);
+      var inner = box.right - parseFloat(cs.borderRightWidth) - parseFloat(cs.paddingRight);
+      var last = tiles[tiles.length - 1].getBoundingClientRect();
+      if (last.right > inner + 0.5) {
+        add("strip-overflows", strip, Math.round(last.right * 10) / 10 + " > " +
+          Math.round(inner * 10) / 10);
+      }
+      var left = tiles[0].getBoundingClientRect().left - box.left;
+      var right = box.right - last.right;
+      if (box.width <= 240 && tiles.length >= 4 && Math.abs(left - right) > 1.5) {
+        add("strip-insets-unequal", strip, Math.round(left * 10) / 10 + " vs " +
+          Math.round(right * 10) / 10);
+      }
+    });
+    document.querySelectorAll(".mini-count").forEach(function (box) {
+      var num = box.querySelector(".num-s"), unit = box.querySelector(".muted");
+      if (!num || !unit || !shown(box)) {
+        return;
+      }
+      var a = num.getBoundingClientRect(), b = unit.getBoundingClientRect();
+      var across = Math.min(a.right, b.right) - Math.max(a.left, b.left);
+      if (b.top < a.bottom - 1 || across < 1) {
+        add("unit-detached-from-number", box, "number " + Math.round(a.top) + ".." +
+          Math.round(a.bottom) + ", unit " + Math.round(b.top));
+      }
+    });
+    document.querySelectorAll("a.node").forEach(function (node) {
+      var href = node.getAttribute("href") || "";
+      if (href.indexOf("#net-detail") < 0) {
+        add("node-link-without-fragment", node, href);
+      }
+    });
+    var detail = document.getElementById("net-detail");
+    if (!detail && location.hash === "#net-detail") {
+      add("net-detail-missing", document.body, "the fragment names no element");
+    }
+    if (detail && !modal && location.hash === "#net-detail") {
+      var heading = detail.querySelector("h2"), line = heading && heading.nextElementSibling;
+      [heading, line].forEach(function (el) {
+        if (!el) {
+          return;
+        }
+        var range = document.createRange();
+        range.selectNodeContents(el);
+        var r = range.getBoundingClientRect();
+        measured.push("net-detail " + el.tagName.toLowerCase() + ": " + Math.round(r.top) + ".." +
+          Math.round(r.bottom) + " of " + window.innerHeight + " (scrollY " +
+          Math.round(window.scrollY) + ")");
+        if (r.top < stickyBottom() - 1 || r.bottom > window.innerHeight) {
+          add("net-detail-off-screen", el, Math.round(r.top) + ".." + Math.round(r.bottom) +
+            " of " + window.innerHeight +
+            " (scrollY " + Math.round(window.scrollY) + ", detail top " +
+            Math.round(detail.getBoundingClientRect().top) + ", page " +
+            document.documentElement.scrollHeight + ")");
+        }
+      });
+    }
+  }
+
+  // An expander opened with its summary's top 40 px above the bottom edge must show its form's top
+  // inside the viewport (the toggle handler in panel.js scrolls it into view).
+  function expanders(add, startY, done) {
+    var boxes = Array.prototype.filter.call(
+      document.querySelectorAll("details.newcard, details.newrule"),
+      function (d) { return !d.open && shown(d.querySelector("summary")); });
+    var i = 0;
+    function next() {
+      if (i >= boxes.length) {
+        window.scrollTo(0, startY);
+        done();
+        return;
+      }
+      var box = boxes[i++];
+      var sum = box.querySelector("summary");
+      var y = window.scrollY + sum.getBoundingClientRect().top + 40 - window.innerHeight;
+      window.scrollTo(0, Math.max(0, y));
+      var settled = false;
+      function measure() {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        var form = box.querySelector("form"), r = form.getBoundingClientRect();
+        var field = form.querySelector("input:not([type=hidden]), select, textarea, button");
+        var f = field.getBoundingClientRect();
+        measured.push(name(box) + ": form top " + Math.round(r.top) + ", control bottom " +
+          Math.round(f.bottom) + " of " + window.innerHeight);
+        if (r.top < stickyBottom() - 1 || r.top >= window.innerHeight ||
+            f.bottom > window.innerHeight) {
+          add("expander-form-off-screen", box, "form top " + Math.round(r.top * 10) / 10 +
+            ", first control bottom " + Math.round(f.bottom) + " of " + window.innerHeight);
+        }
+        box.open = false;
+        setTimeout(next, 0);
+      }
+      box.addEventListener("toggle", function () { setTimeout(measure, 50); }, {once: true});
+      box.open = true;
+    }
+    next();
+  }
+
+  // after the load event, so the browser has already scrolled to a #fragment
+  function later() {
+    setTimeout(run, 100);
   }
 
   if (document.readyState === "complete") {
-    run();
+    later();
   } else {
-    window.addEventListener("load", run);
+    window.addEventListener("load", later);
   }
 })();

@@ -268,7 +268,7 @@ def connection(ctx: Ctx) -> str:
             state = S.ST_NOT_BUILT
         cls = f"node n-{DOMAINS[net]}" + ("" if built else " dim") + (" sel" if net == selected else "")
         nodes.append(
-            f'<a class="{cls}" href="/connection?net={net}" aria-label="{esc(S.NET_NAME[net])} — '
+            f'<a class="{cls}" href="/connection?net={net}#net-detail" aria-label="{esc(S.NET_NAME[net])} — '
             f'{esc(state)}"{" aria-current=\"true\"" if net == selected else ""}>'
             f'<circle class="node-disc" cx="{x:.1f}" cy="{y:.1f}" r="{NODE_R}"/>'
             f'<text class="node-mono" x="{x:.1f}" y="{y + 5:.1f}">{esc(S.MONO[net])}</text>'
@@ -298,6 +298,12 @@ def connection(ctx: Ctx) -> str:
     return page(ctx, "connection", body, sub=sub)
 
 
+def _local_time(snap, ts) -> str:
+    """A stored UTC stamp as local time in the panel's zone, like every other time on the page."""
+    when = M.parse_ts(ts)
+    return when.astimezone(snap.zone).strftime("%Y-%m-%d %H:%M") if when else "—"
+
+
 def _vars_list(names, env) -> str:
     items = []
     for name in names:
@@ -324,23 +330,22 @@ def _connection_card(ctx: Ctx, c: dict, net: str) -> str:
         return f'<div class="card details hint"><p class="muted">{esc(S.PICK_NODE)}</p></div>'
     head = f'<h2>{disc(net)} {esc(S.NET_NAME[net])}</h2>'
     if net not in S.BUILT:
-        return (f'<div class="card details">{head}<p><span class="st k-muted">'
+        return (f'<div class="card details" id="net-detail">{head}<p><span class="st k-muted">'
                 f'{esc(S.ST_NOT_BUILT)}</span> {esc(S.NOT_BUILT_TEXT)}</p></div>')
     blocks = []
     for t in [t for t in c["targets"] if t.network == net]:
         st = c["states"][t.id]
         pub = c["last_pub"].get(t.id)
         if pub:
-            when = M.parse_ts(pub.get("ts"))
-            when_text = when.astimezone(snap.zone).strftime("%Y-%m-%d %H:%M") if when else "—"
+            when_text = _local_time(snap, pub.get("ts"))
             link = (f' · <a href="{esc(pub["url"])}" target="_blank" rel="noopener">'
                     f'{esc(S.OPEN)}</a>' if pub.get("url") else "")
             pub_html = f'<span class="mono">{esc(when_text)}</span>{link}'
         else:
             pub_html = esc(S.NONE_YET)
         result = c["collect"].get(t.id)
-        stats_html = (f'<span class="mono">{esc(snap.red(c["collect_ts"] or ""))}</span> · '
-                      f'<span class="core">{esc(snap.red(result))}</span>'
+        stats_html = (f'<span class="mono">{esc(_local_time(snap, c["collect_ts"]))}</span> · '
+                      f'<span class="core">{esc(S.collect_result(snap.red(result)))}</span>'
                       if result is not None else esc(S.NONE_YET))
         blocks.append(
             f'<div class="tblock"><h3>{target_chip(t.id)} <span class="st k-{STATE_KIND[st]}">'
@@ -361,7 +366,7 @@ def _connection_card(ctx: Ctx, c: dict, net: str) -> str:
                  f'<span class="mono">{esc(S.HOW_LINKEDIN)}</span></p>')
     else:
         extra = f'<p><span class="label">{esc(S.HOW_TO)}:</span> {esc(S.HOW_ENV)}</p>'
-    return f'<div class="card details">{head}{"".join(blocks)}{extra}</div>'
+    return f'<div class="card details" id="net-detail">{head}{"".join(blocks)}{extra}</div>'
 
 
 # ---------------------------------------------------------------- Файлы (§11.5)
@@ -581,10 +586,10 @@ def _rule_row(ctx: Ctx, rule, refusal) -> str:
     source = _cell("source", S.COL_SOURCE,
                    f'<div class="mini lane-{lane or "none"}"><div class="mini-top">'
                    f'<a class="mini-title" href="/files?folder={esc(rule.folder)}" title="{esc(title)}">'
-                   f'{esc(title)}</a><span class="mono num-s">{S.group(n)}</span></div>'
+                   f'{esc(title)}</a><span class="mini-count"><span class="mono num-s">{S.group(n)}</span>'
+                   f'<span class="muted small">{esc(S.plural(n, S.PACKAGE_WORDS))}</span></span></div>'
                    f'<p class="small"><span class="lchip lane-{lane or "none"}">'
-                   f'{esc(S.LANES.get(lane or "", S.LANE_NONE))}</span> '
-                   f'<span class="muted">{esc(S.plural(n, S.PACKAGE_WORDS))}</span></p>'
+                   f'{esc(S.LANES.get(lane or "", S.LANE_NONE))}</span></p>'
                    f'{bar(fill, "good")}<p class="mono small{" green" if good else ""}">'
                    f'{esc(runway)}</p></div>')
     # Куда

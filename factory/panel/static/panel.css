@@ -225,6 +225,8 @@ label.check input { min-height: 0; width: 16px; height: 16px; }
 .tiles { display: flex; gap: 4px; }
 .tile { width: 48px; height: 72px; border-radius: 4px; object-fit: cover; flex: none;
         background: var(--surface-2); }
+/* four tiles and three gaps fill the 196 px content box of a 220 px card exactly */
+.fcard .tiles .tile { width: 46px; }
 .tile-text { display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical;
              overflow: hidden; padding: 4px; font-size: 9px; line-height: 1.25; color: var(--muted);
              border: 1px solid var(--head); overflow-wrap: normal; word-break: normal;
@@ -242,6 +244,8 @@ label.check input { min-height: 0; width: 16px; height: 16px; }
                    justify-content: center; min-height: 180px; list-style: none; }
 .newcard summary::-webkit-details-marker { display: none; }
 .newcard[open] summary { min-height: 0; }
+.newcard, .newrule { scroll-margin-bottom: 16px; }
+#net-detail { scroll-margin-top: 8px; }
 .newcard .plus { font-weight: 600; }
 .newfolder { display: flex; flex-direction: column; gap: 8px; }
 .fview-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin-bottom: 16px; }
@@ -280,6 +284,8 @@ label.check input { min-height: 0; width: 16px; height: 16px; }
 .mini-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-decoration: none;
               min-height: 24px; line-height: 24px; display: block; min-width: 0; flex: 1 1 auto; }
 .mini-title:hover { text-decoration: underline; }
+.mini-count { display: flex; flex-direction: column; align-items: flex-end; flex: none;
+              line-height: 1.2; }
 .num-s { font-size: 15px; font-weight: 600; flex: none; }
 /* a number is one token: it never wraps or shrinks inside a flex row */
 .num, .num-s, .n, .big, .fnum, .mv, .dnum { overflow-wrap: normal; white-space: nowrap; }

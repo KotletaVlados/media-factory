@@ -87,9 +87,39 @@ class ConnectionTest(pf.PanelCase):
         self.assertIn('href="https://example.com/li/', body)
         body = main_of(self.get("/connection?net=facebook")[2])
         self.assertIn("fb:demo", body)
-        self.assertIn("token rejected", body)          # the last stats read, as written
+        self.assertIn("токен отклонён", body)          # the last stats read, in words
+        self.assertNotIn("token rejected", body)
         body = main_of(self.get("/connection?net=tiktok")[2])
         self.assertIn("Постер не публикует в эту сеть", body)
+
+    def test_node_links_land_on_the_detail(self):
+        """Tapping a ring node must show its detail, not leave it below the first screen:
+        every node link carries the fragment and the card it names exists once selected."""
+        body = self.get("/connection?net=linkedin")[2]
+        links = re.findall(r'<a class="node[^"]*" href="([^"]+)"', body)
+        self.assertEqual(len(links), 9)
+        self.assertTrue(all(href.endswith("#net-detail") for href in links), links)
+        self.assertEqual(body.count('id="net-detail"'), 1)
+        self.assertIn('<div class="card details" id="net-detail"><h2>', body)
+        # an unbuilt network gets the same anchor; with nothing selected there is no target
+        self.assertEqual(self.get("/connection?net=tiktok")[2].count('id="net-detail"'), 1)
+        self.assertEqual(self.get("/connection")[2].count('id="net-detail"'), 0)
+
+    def test_last_stats_time_is_local_and_in_russian(self):
+        import zoneinfo
+        local = dt.datetime(2026, 11, 11, 6, 1, tzinfo=dt.timezone.utc).astimezone(
+            zoneinfo.ZoneInfo(pf.MACHINE_TZ)).strftime("%Y-%m-%d %H:%M")
+        for net, words in (("linkedin", "не построено"), ("facebook", "токен отклонён"),
+                           ("instagram", "нет разрешения instagram_manage_insights")):
+            text = text_of(main_of(self.get(f"/connection?net={net}")[2]))
+            line = [l for l in text.splitlines() if "Последний сбор статистики" in l]
+            self.assertTrue(line, net)
+            stats = " ".join(line)
+            self.assertIn(f"{local} · ", stats, net)
+            self.assertIn(words, stats, net)
+            self.assertNotRegex(text, r"\d{4}-\d\d-\d\dT", net)
+            self.assertNotRegex(text, r"\d\d:\d\d:\d\dZ", net)
+            self.assertNotRegex(stats, r"(?i)\b(not built|token rejected|no-permission|off)\b", net)
 
     def test_expired_linkedin_token_needs_login(self):
         self.panel_clock.now = dt.datetime(2027, 1, 6, tzinfo=dt.timezone.utc)
@@ -168,6 +198,43 @@ class LongTitleTest(pf.PanelCase):
         numbers = css_rule(css, ".num, .num-s, .n, .big, .fnum, .mv, .dnum")
         self.assertIn("white-space: nowrap", numbers)
         self.assertIn("overflow-wrap: normal", numbers)
+
+
+class UnitAndStripTest(pf.PanelCase):
+    def test_rules_source_card_keeps_the_unit_under_its_number(self):
+        rules = main_of(self.get("/rules")[2])
+        self.assertIn('<span class="mini-count"><span class="mono num-s">39</span>'
+                      '<span class="muted small">пакетов</span></span>', rules)
+        # the second line carries the lane chip only; no unit word floats there
+        self.assertNotRegex(rules, r'</span></span></div><p class="small"><span class="lchip[^>]*>'
+                                   r'[^<]*</span> <span')
+        with open(PANEL_CSS, encoding="utf-8") as fh:
+            rule = css_rule(fh.read(), ".mini-count")
+        self.assertRegex(rule, r"flex-direction:\s*column")
+
+    def test_files_strip_fits_the_card_content_box(self):
+        with open(PANEL_CSS, encoding="utf-8") as fh:
+            css = fh.read()
+        card = css_rule(css, ".cards")
+        self.assertIn("repeat(auto-fill, 220px)", card)
+        pad = int(re.search(r"padding:\s*(\d+)px", css_rule(css, ".fcard")).group(1))
+        gap = int(re.search(r"gap:\s*(\d+)px", css_rule(css, ".tiles")).group(1))
+        tile = int(re.search(r"width:\s*(\d+)px", css_rule(css, ".fcard .tiles .tile")).group(1))
+        shown = 4                                  # three previews and the "+N" tile
+        self.assertLessEqual(shown * tile + (shown - 1) * gap, 220 - 2 * pad)
+        body = main_of(self.get("/files")[2])
+        for strip in re.findall(r'<div class="tiles">(.*?)</div>', body):
+            self.assertLessEqual(len(re.findall(r'class="tile', strip)), shown)
+
+    def test_expanders_scroll_their_form_into_view(self):
+        with open(os.path.join(os.path.dirname(PANEL_CSS), "panel.js"), encoding="utf-8") as fh:
+            js = fh.read()
+        self.assertIn('"toggle"', js)
+        self.assertIn("details.newcard, details.newrule", js)
+        self.assertIn('scrollIntoView({block: "nearest"', js)
+        files = self.get("/files")[2]
+        self.assertEqual(files.count('<details class="fcard newcard'), 2)
+        self.assertIn('<details class="newrule"', self.get("/rules")[2])
 
 
 class RulesTabTest(pf.PanelCase):
@@ -406,6 +473,14 @@ class ErrorStatesTest(pf.PanelCase):
 
 
 class StringsTest(unittest.TestCase):
+    def test_collect_results_in_russian(self):
+        for raw, words in (("ok", "собрано"), ("off", "выключено"), ("not built", "не построено"),
+                           ("token rejected", "токен отклонён"),
+                           ("no-permission read_insights", "нет разрешения read_insights"),
+                           ("HTTP 400 code 100", "ошибка HTTP 400, код 100"),
+                           ("HTTP 502", "ошибка HTTP 502"), ("something new", "something new")):
+            self.assertEqual(S.collect_result(raw), words)
+
     def test_plural(self):
         words = ("папка", "папки", "папок")
         for n, w in ((1, "папка"), (2, "папки"), (5, "папок"), (11, "папок"), (21, "папка"),

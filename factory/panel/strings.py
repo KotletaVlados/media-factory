@@ -8,6 +8,7 @@ Russian label, so no logic from `factory.checks` or `factory.attention` is copie
 from __future__ import annotations
 
 import datetime as _dt
+import re
 
 TABS = (
     ("connection", "Подключение"),
@@ -80,6 +81,11 @@ TOKEN_NONE = "Токена нет"
 LAST_PUBLISH = "Последняя публикация"
 LAST_STATS = "Последний сбор статистики"
 NONE_YET = "ещё не было"
+COLLECT_OK = "собрано"
+COLLECT_OFF = "выключено"
+COLLECT_TOKEN = "токен отклонён"
+COLLECT_NO_PERMISSION = "нет разрешения {name}"
+COLLECT_HTTP = "ошибка HTTP {status}"
 HOW_TO = "Как подключить"
 HOW_ENV = "Впишите переменные в файл ключей .env (имена — в KEYS.md), значения не показываются здесь."
 HOW_LINKEDIN = "python3 -m poster login linkedin"
@@ -242,6 +248,23 @@ MONTHS_SHORT = ("янв.", "февр.", "мар.", "апр.", "мая", "июн.
                 "окт.", "нояб.", "дек.")
 NBSP = " "
 MINUS = "−"
+
+
+def collect_result(result: str) -> str:
+    """A stats/collect.json per-target result (design §5: ok, off, not built, token rejected,
+    no-permission <name>, HTTP n code c) in Russian; an unknown value is shown as stored."""
+    text = str(result).strip()
+    fixed = {"ok": COLLECT_OK, "off": COLLECT_OFF, "not built": ST_NOT_BUILT,
+             "token rejected": COLLECT_TOKEN}
+    if text in fixed:
+        return fixed[text]
+    if text.startswith("no-permission "):
+        return COLLECT_NO_PERMISSION.format(name=text[len("no-permission "):].strip())
+    m = re.match(r"HTTP (\d+)(?: code (\S+))?$", text)
+    if m:
+        out = COLLECT_HTTP.format(status=m.group(1))
+        return out + (f", код {m.group(2)}" if m.group(2) else "")
+    return text
 
 
 def plural(n: int, forms: tuple) -> str:

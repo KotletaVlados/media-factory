@@ -11,7 +11,10 @@ state at each width:
 - runs `--dump-dom --virtual-time-budget=2000` on the same URL with `?probe=1` and reads the
   probe's JSON (text cut by its box, elements wider than the viewport, anchors under the
   sticky bar, overlapping controls, targets under 24 x 24, a page-level error banner whose
-  text is not on the first screen).
+  text is not on the first screen, a Files preview strip wider than its card or off-centre in
+  it, a Rules unit word detached from its number, a Connection detail whose heading and first
+  line are below the first screen after a ring-node link, and an expander whose form top lands
+  outside the viewport when it opens with its summary 40 px above the bottom edge).
 
 It also computes the WCAG contrast of every text colour pair from panel.css. It prints the
 snapshot build time (`snapshot_ms`, budget 1000 ms) and exits 1 on any finding.
@@ -47,7 +50,7 @@ sys.path.insert(0, REPO)
 from factory.panel import server  # noqa: E402
 from tests import panel_fixture  # noqa: E402
 
-WIDTHS = {390: 844, 900: 900, 1280: 800, 1440: 900, 1600: 900, 1920: 1080}
+WIDTHS = {390: 844, 900: 900, 1000: 700, 1280: 800, 1440: 900, 1600: 900, 1920: 1080}
 LONG_TITLE = "Фотографии с городских прогулок"
 ELLIPSIS_STATES = ("files", "rules")   # the Files card and the Rules source card clamp it
 BUDGET_MS = 1000
@@ -210,7 +213,7 @@ def main(argv=None) -> int:
 
     states = [
         ("connection", url("data", "/connection")),
-        ("connection-net", url("data", "/connection?net=linkedin")),
+        ("connection-net", url("data", "/connection?net=linkedin#net-detail")),
         ("attention", url("data", "/connection?attention=1")),
         ("files", url("data", "/files")),
         ("files-folder", url("data", "/files?folder=city")),

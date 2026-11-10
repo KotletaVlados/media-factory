@@ -60,6 +60,15 @@
     });
   }
 
+  // An expander that opens below the fold (a new-folder card, the new-rule form) brings its
+  // content into view; "nearest" leaves a form that is already visible where it is.
+  document.addEventListener("toggle", function (ev) {
+    var box = ev.target;
+    if (box.open && box.matches && box.matches("details.newcard, details.newrule")) {
+      box.scrollIntoView({block: "nearest", inline: "nearest"});
+    }
+  }, true);
+
   // A form submits once: a second click before the page reloads would carry the same rules
   // revision and be refused as stale.
   document.addEventListener("submit", function (ev) {
