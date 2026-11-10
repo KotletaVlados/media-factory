@@ -38,7 +38,8 @@ Instagram, `IG_<NAME>_USER_ID` give the targets `fb:<name>` and `ig:<name>`.
 |---|---|
 | `GEMINI_API_KEY` | Google Gemini, for text and image generation (not used by the code yet) |
 
-## Poster paths (process environment, not secrets)
+## Poster and factory paths (process environment, not secrets)
 
-`MF_ENV_FILE` (another env file), `MF_STATE_DIR` (state folder), `MF_IMAGE_LIBRARY`
-(image library).
+`MF_ENV_FILE` (another env file), `MF_STATE_DIR` (poster state folder), `MF_IMAGE_LIBRARY`
+(image library), `MF_CONTENT_DIR` (factory content folder holding `stock/` and `rules.json`),
+`MF_FACTORY_STATE_DIR` (factory state folder).

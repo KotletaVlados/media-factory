@@ -26,7 +26,7 @@ def _ensure_dir(path: str) -> None:
     os.chmod(path, 0o700)
 
 
-def _read_jsonl(path: str) -> list[dict]:
+def read_jsonl(path: str) -> list[dict]:
     try:
         with open(path, encoding="utf-8") as fh:
             rows = []
@@ -45,7 +45,7 @@ def _read_jsonl(path: str) -> list[dict]:
         return []
 
 
-def _append_jsonl(path: str, rows: list[dict]) -> None:
+def append_jsonl(path: str, rows: list[dict]) -> None:
     fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_APPEND, 0o600)
     with os.fdopen(fd, "a+", encoding="utf-8") as fh:
         # A crash or a full disk can leave a last line without its newline. End it first, so
@@ -61,7 +61,7 @@ def _append_jsonl(path: str, rows: list[dict]) -> None:
 
 
 @contextlib.contextmanager
-def _locked(state_dir: str, lock_name: str):
+def locked(state_dir: str, lock_name: str):
     _ensure_dir(state_dir)
     fd = os.open(os.path.join(state_dir, lock_name), os.O_RDWR | os.O_CREAT, 0o600)
     try:
@@ -70,6 +70,13 @@ def _locked(state_dir: str, lock_name: str):
     finally:
         fcntl.flock(fd, fcntl.LOCK_UN)
         os.close(fd)
+
+
+# Public names for other tools (the factory, design factory.md §5.4); the private names stay
+# as aliases so nothing inside the poster changes.
+_read_jsonl = read_jsonl
+_append_jsonl = append_jsonl
+_locked = locked
 
 
 # ---------------------------------------------------------------- post record
