@@ -17,6 +17,20 @@ TIMER_SILENT = _dt.timedelta(minutes=30)
 X_WARN_SHARE = Decimal("0.8")
 
 
+def _parse(ts: str):
+    try:
+        return config.parse_utc(ts)
+    except (ValueError, TypeError):
+        return _dt.datetime.max.replace(tzinfo=_dt.timezone.utc)
+
+
+def _recent(row: dict, now: _dt.datetime) -> bool:
+    try:
+        return now - config.parse_utc(row.get("ts", "")) <= _dt.timedelta(days=REFUSED_DAYS)
+    except (ValueError, TypeError):
+        return False
+
+
 def items(inputs, plan, heartbeat: dict | None, now: _dt.datetime) -> list[str]:
     out: list[str] = []
     logs = fjournal.index(inputs.journal)
@@ -29,7 +43,11 @@ def items(inputs, plan, heartbeat: dict | None, now: _dt.datetime) -> list[str]:
         if status == "done":
             outcome = log.last.get("outcome") or {}
             for target, result in sorted(outcome.items()):
-                now_status = (latest.get((claim.get("package"), target)) or {}).get("status")
+                row = latest.get((claim.get("package"), target)) or {}
+                now_status = row.get("status")
+                if result == "unknown" and row and claim.get("ts") and \
+                        planner.row_older_than(row, _parse(claim["ts"])):
+                    now_status = None     # an older row is not this attempt's answer
                 if result == "failed" and now_status == "failed":
                     out.append(f"slot {key}: {target} failed; fix the cause, then "
                                f"factory retry {key}")
@@ -38,15 +56,14 @@ def items(inputs, plan, heartbeat: dict | None, now: _dt.datetime) -> list[str]:
                                f"python3 -m poster publish ... --force-target {target}")
                 elif result == fjournal.SKIPPED_BUDGET and key.split("@", 1)[-1][:7] == month:
                     budget_skips += 1
+            if log.last.get("retry_refused") and _recent(log.last, now):
+                out.append(f"slot {key}: the last retry was refused: "
+                           f"{log.last['retry_refused']}; fix the cause, then factory retry {key}")
         elif status == "interrupted":
             out.append(f"slot {key}: interrupted; check the account, then "
                        f"factory resolve {key} --published|--not-published")
         elif status == "refused":
-            try:
-                when = config.parse_utc(log.last.get("ts", ""))
-            except (ValueError, TypeError):
-                continue
-            if now - when <= _dt.timedelta(days=REFUSED_DAYS):
+            if _recent(log.last, now):
                 out.append(f"slot {key}: refused: {log.last.get('reason', '')}")
     if budget_skips:
         out.append(f"X skipped on {budget_skips} slot(s) this month (budget); ask the operator "

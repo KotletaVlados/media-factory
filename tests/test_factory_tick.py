@@ -602,6 +602,138 @@ class JournalOutcomeTests(TickFixture):
         self.assertEqual(self.next_package(), "001-q.json")
 
 
+class OlderRowTests(TickFixture):
+    """An older `failed` row in the record is not the result of a later attempt whose poster
+    could not write its row."""
+
+    silent_poster = JournalOutcomeTests.silent_poster
+
+    def failed_then_silent_retry(self):
+        self.poster.statuses = {"linkedin": "failed"}
+        self.assertEqual(self.factory("tick")[0], 1)
+        self.poster.statuses = {}
+        quiet = self.silent_poster()
+        self.clock.now = utc(2026, 11, 11, 9, 30)
+        code, out, _ = self.factory("retry", SLOT, publish=quiet)
+        return quiet, code, out
+
+    def test_retry_without_a_new_row_is_unknown_not_failed(self):
+        quiet, code, out = self.failed_then_silent_retry()
+        self.assertEqual(code, 1)
+        self.assertEqual(len(quiet.calls), 1)
+        self.assertEqual(self.journal()[-1]["outcome"]["linkedin"], "unknown")
+        self.assertEqual(self.journal()[-1]["outcome"]["fb:kotleta"], "published")
+        code, out, _ = self.factory("status")
+        self.assertNotIn(f"factory retry {SLOT}", out)
+        self.assertIn(f"slot {SLOT}: linkedin ended unknown", out)
+        code, out, err = self.factory("retry", SLOT, publish=quiet)
+        self.assertEqual(code, 2)
+        self.assertEqual(len(quiet.calls), 1)                  # nothing sent a second time
+        self.assertEqual(len(self.poster.calls), 1)
+
+    def test_no_later_slot_is_offered_the_package_for_that_target(self):
+        self.failed_then_silent_retry()
+        self.assertEqual(self.next_package(), "002-q.json")     # 001-q is taken on every target
+        self.clock.now = utc(2026, 11, 13, 9, 0, 30)
+        self.assertEqual(self.factory("tick")[0], 0)
+        argv = self.poster.calls[1]
+        self.assertTrue(argv[3].endswith("quotes/002-q.json"), argv)
+
+    def test_tick_after_a_failed_slot_with_a_silent_poster_is_unknown_and_holds_the_package(self):
+        self.poster.statuses = {t: "failed" for t in ALL4}
+        self.assertEqual(self.factory("tick")[0], 1)
+        quiet = self.silent_poster()
+        self.clock.now = utc(2026, 11, 13, 9, 0, 30)
+        self.factory("tick", publish=quiet)                     # 001-q again: failure frees it
+        self.assertTrue(quiet.calls[0][3].endswith("quotes/001-q.json"))
+        self.assertEqual(self.journal()[-1]["outcome"], {t: "unknown" for t in ALL4})
+        code, out, _ = self.factory("status")
+        self.assertNotIn("factory retry " + FRI_SLOT, out)
+        self.assertEqual(self.factory("retry", FRI_SLOT, publish=quiet)[0], 2)
+        self.assertEqual(len(quiet.calls), 1)
+        self.clock.now = utc(2026, 11, 16, 9, 0, 30)
+        self.factory("tick", publish=quiet)
+        self.assertTrue(quiet.calls[1][3].endswith("quotes/002-q.json"))
+
+    def test_a_published_row_from_before_is_already(self):
+        entry = type("E", (), {"id": "001-q"})()
+        rows = [{"package": "001-q", "target": "linkedin", "status": "published"},
+                {"package": "001-q", "target": "x", "status": "failed"}]
+        out = frunner.Runner.attempt_outcome(entry, ["linkedin", "x", "fb:kotleta"], rows, 2)
+        self.assertEqual(out, {"linkedin": "already", "x": "unknown", "fb:kotleta": "unknown"})
+        rows.append({"package": "001-q", "target": "x", "status": "published"})
+        out = frunner.Runner.attempt_outcome(entry, ["x"], rows, 2)
+        self.assertEqual(out, {"x": "published"})
+
+
+class RetryRefusedTests(TickFixture):
+    def refusing_poster(self):
+        calls = []
+
+        def publish(argv, *, environ, stdout, stderr, clock):
+            calls.append(argv)
+            stdout.write("refused:\n  - linkedin: the LinkedIn token expired; run login\n")
+            return 2
+        publish.calls = calls
+        return publish
+
+    def test_a_refused_retry_leaves_the_slot_retryable_with_its_outcome(self):
+        self.poster.statuses = {"linkedin": "failed"}
+        self.assertEqual(self.factory("tick")[0], 1)
+        refuse = self.refusing_poster()
+        self.clock.now = utc(2026, 11, 11, 9, 30)
+        code, out, _ = self.factory("retry", SLOT, publish=refuse)
+        self.assertEqual(code, 1)
+        self.assertIn("LinkedIn token expired", out)
+        last = self.journal()[-1]
+        self.assertEqual(last["status"], "done")
+        self.assertEqual(last["outcome"]["linkedin"], "failed")
+        self.assertEqual(last["outcome"]["fb:kotleta"], "published")
+        # the failed target stays in attention, long after the usual refusal window
+        self.clock.now = utc(2026, 11, 25, 9, 30)
+        code, out, _ = self.factory("status")
+        self.assertIn(f"slot {SLOT}: linkedin failed; fix the cause, then factory retry {SLOT}", out)
+        # the operator re-logs in; the second retry sends only the failed target
+        self.clock.now = utc(2026, 11, 11, 10, 0)
+        self.poster.statuses = {}
+        code, out, _ = self.factory("retry", SLOT)
+        self.assertEqual(code, 0, out)
+        argv = self.poster.calls[1]
+        self.assertEqual(argv[argv.index("--targets") + 1], "linkedin")
+        self.assertEqual(len(refuse.calls), 1)
+        self.assertEqual(self.journal()[-1]["status"], "done")
+        self.assertEqual(self.journal()[-1]["outcome"], {t: "published" for t in ALL4})
+        self.assertNotIn("linkedin failed", self.factory("status")[1])
+
+    def test_a_refused_retry_keeps_the_earlier_published_targets_taken(self):
+        self.poster.statuses = {"linkedin": "failed"}
+        self.factory("tick")
+        self.clock.now = utc(2026, 11, 11, 9, 30)
+        self.factory("retry", SLOT, publish=self.refusing_poster())
+        logs = fjournal.index(self.journal())
+        done = fjournal.done_pairs(logs)
+        self.assertIn(("001-q", "fb:kotleta"), done)
+        self.assertEqual(logs[SLOT].status, "done")
+
+
+class RetryCrashTests(TickFixture):
+    def test_a_retry_that_dies_after_recording_keeps_the_slots_whole_outcome(self):
+        self.poster.statuses = {"linkedin": "failed"}
+        self.factory("tick")
+        self.clock.now = utc(2026, 11, 11, 9, 30)
+
+        def record_then_raise(argv, *, environ, stdout, stderr, clock):
+            poster_state_records = __import__("poster.state", fromlist=["x"]).Records(
+                environ["MF_STATE_DIR"], clock)
+            poster_state_records.append({"package": "001-q", "target": "linkedin",
+                                         "network": "linkedin", "status": "published"})
+            raise RuntimeError("boom")
+        self.factory("retry", SLOT, publish=record_then_raise)
+        last = self.journal()[-1]
+        self.assertEqual(last["status"], "done")
+        self.assertEqual(last["outcome"], {t: "published" for t in ALL4})
+
+
 class XBudgetRaceTests(FactoryTestCase):
     RESERVE = r"""
 import datetime as dt, sys

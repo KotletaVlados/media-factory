@@ -19,7 +19,7 @@ import os
 from dataclasses import dataclass, field
 
 from poster import state as poster_state
-from poster.config import iso_utc
+from poster.config import iso_utc, parse_utc
 
 RUNS = "runs.jsonl"
 RUNS_LOCK = "runs.lock"
@@ -105,18 +105,21 @@ SENT_OUTCOMES = ("published", "already", "unknown")
 
 
 def done_pairs(logs: dict) -> dict:
-    """(package, target) -> outcome for the targets a `done` slot journals as sent: published,
-    already published, or ended unknown. The planner counts them as taken where the poster
-    record has no row, so a poster that could not write its record never gets the same package
-    sent again (§8.2)."""
+    """(package, target) -> (outcome, claim time) for the targets a `done` slot journals as
+    sent: published, already published, or ended unknown. The claim time lets the planner tell
+    a poster row written by that attempt from an older one (see planner.journal_sent)."""
     out: dict = {}
     for log in logs.values():
         claim = log.claimed
         if not claim or log.status != "done":
             continue
+        try:
+            since = parse_utc(claim.get("ts", ""))
+        except (ValueError, TypeError):
+            since = None
         for target, result in (log.last.get("outcome") or {}).items():
             if result in SENT_OUTCOMES:
-                out[(claim.get("package"), target)] = result
+                out[(claim.get("package"), target)] = (result, since)
     return out
 
 

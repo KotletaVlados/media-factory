@@ -86,6 +86,27 @@ def record_latest(records: list[dict]) -> dict:
     return latest
 
 
+def row_older_than(row: dict, since) -> bool:
+    """True when a poster record row was written before `since` (a claim time)."""
+    try:
+        return config.parse_utc(row.get("ts", "")) < since
+    except (ValueError, TypeError):
+        return False
+
+
+def journal_sent(logs: dict, latest: dict) -> dict:
+    """(package, target) -> outcome that a `done` slot journals as sent and the poster record
+    does not answer: the record has no row for the pair, or its latest row is older than the
+    attempt's claim (a poster that could not write its row leaves the old `failed` row as the
+    latest). A row at or after the claim is the attempt's own result and wins (§8.2)."""
+    out = {}
+    for pair, (result, since) in fjournal.done_pairs(logs).items():
+        row = latest.get(pair)
+        if row is None or (since is not None and row_older_than(row, since)):
+            out[pair] = result
+    return out
+
+
 def record_publications(records: list[dict]) -> list:
     """(network, UTC time) of every real publication in the poster record, manual ones too."""
     out = []
@@ -135,7 +156,7 @@ def package_states(ruleset, stock, records: list[dict], logs: dict, extra_active
     latest = record_latest(records)
     resolved_published = fjournal.taken_pairs(
         {k: v for k, v in logs.items() if v.status == "resolved"})
-    journal_sent = fjournal.done_pairs(logs)
+    sent_by_journal = journal_sent(logs, latest)
     interrupted = {log.package for log in logs.values() if log.status == "interrupted"}
     log_list = list(logs.values())
     states = {}
@@ -156,14 +177,13 @@ def package_states(ruleset, stock, records: list[dict], logs: dict, extra_active
             elif entry.id in interrupted or any(
                     (latest.get((entry.id, t)) or {}).get("status") == "unknown"
                     for t in _record_targets(latest, entry.id)) or any(
-                    result == "unknown" and (p, t) not in latest
-                    for (p, t), result in journal_sent.items() if p == entry.id):
+                    result == "unknown"
+                    for (p, t), result in sent_by_journal.items() if p == entry.id):
                 st = PackageState("check-account")
             elif active and all(
                     (latest.get((entry.id, t)) or {}).get("status") in ("published", "deleted")
                     or (entry.id, t) in resolved_published
-                    or (journal_sent.get((entry.id, t)) in ("published", "already")
-                        and (entry.id, t) not in latest)
+                    or sent_by_journal.get((entry.id, t)) in ("published", "already")
                     for r in active for t in r.targets
                     if config.parse_target(t).network in entry.networks()):
                 st = PackageState("used")
@@ -188,7 +208,7 @@ class Taken:
         self.pairs |= fjournal.taken_pairs(logs)
         latest = record_latest(records)
         # the journal fills in where the record is silent (the poster could not write its row)
-        self.pairs |= {pair for pair in fjournal.done_pairs(logs) if pair not in latest}
+        self.pairs |= set(journal_sent(logs, latest))
 
     def add(self, package_id: str, targets) -> None:
         for t in targets:

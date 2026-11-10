@@ -106,15 +106,19 @@ class Runner:
         for log in fjournal.index(self.journal.rows()).values():
             if log.status != "claimed":
                 continue
-            results.append(self._settle_unknown_end(log.claimed, records,
-                                                    "the tick stopped after claiming"))
+            done = log.last_with("done")
+            results.append(self._settle_unknown_end(
+                log.claimed, records, "the tick stopped after claiming",
+                prior=(done or {}).get("outcome") if log.claimed.get("retry") else None))
         return results
 
-    def _settle_unknown_end(self, claim: dict, records: list, why: str) -> Outcome:
+    def _settle_unknown_end(self, claim: dict, records: list, why: str,
+                            prior: dict | None = None) -> Outcome:
         outcome = self.outcome_from_record(claim, records)
         skipped = {t: fjournal.SKIPPED_BUDGET for t in (claim.get("skipped") or {})}
         if outcome is not None:
-            outcome.update(skipped)
+            # a retry claims only the retried targets: the slot's earlier outcome stays
+            outcome = dict(prior or {}) | outcome | skipped
             self.journal.append({"slot": claim["slot"], "status": "done", "exit": None,
                                  "outcome": outcome, "reconciled": True})
             self.out(f"  {claim['slot']}  done (from the poster record after: {why})")
@@ -195,6 +199,7 @@ class Runner:
                                  "outcome": prior | skipped_out})
             return Outcome(slot_key, "done", prior | skipped_out)
 
+        n_before = 0 if self.dry_run else len(self.records())
         code, text = self._call_poster(entry, targets)
         if (not self.dry_run and code == 2 and "x" in targets
                 and (problems := self._problems(text))
@@ -222,23 +227,7 @@ class Runner:
             return Outcome(slot_key, "done", {t: "dry-run" for t in targets} | skipped_out)
 
         if code in (0, 1):
-            records = self.records()
-            since = config.parse_utc(claim["ts"])
-            outcome = {}
-            for t in targets:
-                latest = None
-                for row in records:
-                    if row.get("package") == entry.id and row.get("target") == t:
-                        latest = row
-                if latest is None:
-                    outcome[t] = "unknown"
-                    continue
-                status = latest.get("status", "unknown")
-                try:
-                    before = config.parse_utc(latest.get("ts", "")) < since
-                except (ValueError, TypeError):
-                    before = False
-                outcome[t] = "already" if before and status == "published" else status
+            outcome = self.attempt_outcome(entry, targets, self.records(), n_before)
             outcome.update(skipped_out)
             outcome = prior | outcome
             self.journal.append({"slot": slot_key, "status": "done", "exit": code,
@@ -253,13 +242,49 @@ class Runner:
             reason = self.redactor.redact(reason)[:500]
             held = ("the package is invalid" in text
                     or any(not any(m in p for m in ACCOUNT_SIDE) for p in problems))
+            if retry:
+                # the slot stays retryable: its `done` entry is written again as it was, so the
+                # earlier outcome, `retry` and the attention items all keep working
+                self.journal.append({"slot": slot_key, "status": "done", "exit": 2,
+                                     "outcome": prior, "retry_refused": reason,
+                                     "summary": summary})
+                self.out(f"  {slot_key}  retry REFUSED: {reason}")
+                return Outcome(slot_key, "refused", prior, reason=reason)
             self.journal.append({"slot": slot_key, "status": "refused", "exit": 2,
                                  "reason": reason, "held": held, "summary": summary})
             self.out(f"  {slot_key}  REFUSED{' (package held until its file changes)' if held else ''}"
                      f": {reason}")
             return Outcome(slot_key, "refused", reason=reason)
         return self._settle_unknown_end(claim, self.records(),
-                                        f"the poster ended without an exit code ({summary[-200:]})")
+                                        f"the poster ended without an exit code ({summary[-200:]})",
+                                        prior=prior if retry else None)
+
+    @staticmethod
+    def attempt_outcome(entry, targets: list, records: list, n_before: int) -> dict:
+        """Per-target result of one poster call. Only record rows appended after the call began
+        (`records[n_before:]`) are this attempt's result. A target without such a row: a row
+        from before that says `published` is `already`; otherwise it is `unknown`: a poster that
+        could not write its row leaves the account to be checked, and an older `failed` row
+        must not stand in for this attempt (it would invite a second post, §8.2)."""
+        def latest(rows, target):
+            found = None
+            for row in rows:
+                if row.get("package") == entry.id and row.get("target") == target:
+                    found = row
+            return found
+
+        outcome = {}
+        for t in targets:
+            new = latest(records[n_before:], t)
+            if new is not None:
+                outcome[t] = new.get("status", "unknown")
+                continue
+            old = latest(records[:n_before], t)
+            if old is not None and old.get("status") == "published":
+                outcome[t] = "already"
+            else:
+                outcome[t] = "unknown"
+        return outcome
 
     @staticmethod
     def _claim_row(rule, slot_key, entry, targets, skipped, retry) -> dict:
