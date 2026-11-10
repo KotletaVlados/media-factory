@@ -339,9 +339,14 @@ class FailureTests(TickFixture):
         code, out, _ = self.factory("retry", SLOT)
         self.assertEqual(code, 0, out)
         self.assertEqual(len(self.poster.calls), 2)
-        self.assertEqual(self.poster.calls[1], self.poster.calls[0])
+        retry_argv = self.poster.calls[1]          # only the failed target is sent again
+        self.assertEqual(retry_argv[retry_argv.index("--targets") + 1], "linkedin")
+        self.assertEqual(retry_argv[:5], self.poster.calls[0][:5])
         self.assertEqual(self.statuses()[SLOT], ["claimed", "done", "claimed", "done"])
         self.assertTrue(self.journal()[-2]["retry"])
+        self.assertEqual(self.journal()[-1]["outcome"],      # the slot's whole outcome
+                         {"fb:kotleta": "published", "ig:kotleta": "published",
+                          "linkedin": "published", "x": "published"})
         code, out, _ = self.factory("status")
         self.assertNotIn("linkedin failed", out)
         self.assertEqual(self.factory("retry", SLOT)[0], 0)    # nothing left to retry
@@ -432,3 +437,229 @@ class JournalReaderTests(FactoryTestCase):
         self.assertEqual(fjournal.taken_pairs(logs), set())
         self.assertIsNone(j.claim({"slot": "s2", "package": "p", "targets": []}))
         self.assertIsNone(j.claim({"slot": "s2", "package": "p", "targets": []}, retry=True))
+
+
+class ApprovalAtPublishTimeTests(TickFixture):
+    """§9.4 step 1: the package is read again at the moment it is published."""
+
+    def test_retry_refuses_a_package_rewritten_without_approval(self):
+        self.poster.statuses = {"linkedin": "failed"}
+        self.assertEqual(self.factory("tick")[0], 1)
+        self.stock_package("quotes", "001-q", approved=False)       # rewritten, meta gone
+        code, out, _ = self.factory("check")
+        self.assertIn("not approved", out)
+        before = self.journal()
+        self.poster.statuses = {}
+        code, out, err = self.factory("retry", SLOT)
+        self.assertEqual(code, 2, out + err)
+        self.assertIn("cannot be retried: not approved", out)
+        self.assertEqual(len(self.poster.calls), 1)                   # no second poster call
+        self.assertEqual(self.journal(), before)                      # the done entry is intact
+        # approved again (the file changed): the retry sends only the failed target
+        self.stock_package("quotes", "001-q")
+        self.assertEqual(self.factory("retry", SLOT)[0], 0)
+        self.assertEqual(len(self.poster.calls), 2)
+
+    def test_retry_refuses_a_package_that_no_longer_passes_the_poster_checks(self):
+        self.poster.statuses = {"linkedin": "failed"}
+        self.factory("tick")
+        self.stock_package("quotes", "001-q", {"facebook": {"text": "t", "image": "gone.jpg"}})
+        code, out, _ = self.factory("retry", SLOT)
+        self.assertEqual(code, 2, out)
+        self.assertEqual(len(self.poster.calls), 1)
+
+    def two_folder_rules(self):
+        self.folder("a")
+        self.folder("b")
+        self.stock_package("a", "001-a")
+        self.stock_package("b", "001-b")
+        self.write_rules([
+            self.rule("ra", "a", ["fb:kotleta"], ["wed"], ["10:00"], since="2026-11-10T00:00:00Z"),
+            self.rule("rb", "b", ["linkedin"], ["wed"], ["10:00"], since="2026-11-10T00:00:00Z")])
+
+    def rewrite_b_during_first_call(self, rewrite):
+        def hook(poster):
+            if len(poster.calls) == 1:
+                rewrite()
+        self.poster.before_return = hook
+
+    def test_package_unapproved_during_the_tick_is_not_published(self):
+        self.two_folder_rules()
+        self.rewrite_b_during_first_call(lambda: self.stock_package("b", "001-b", approved=False))
+        code, out, _ = self.factory("tick")
+        self.assertEqual(code, 1, out)
+        self.assertEqual(len(self.poster.calls), 1)                   # only ra's call
+        self.assertIn("001-a.json", self.poster.calls[0][3])
+        rb = [row for row in self.journal() if row["slot"].startswith("rb@")]
+        self.assertEqual([r["status"] for r in rb], ["claimed", "refused"])
+        self.assertTrue(rb[1]["held"])
+        self.assertIn("not approved", rb[1]["reason"])
+        self.assertEqual(rb[0]["fp"], list(self.fingerprint("b", "001-b.json")))
+        # held while the file stays; approving it (a change) releases it for the next slot
+        code, out, _ = self.factory("status")
+        self.assertIn("b/001-b.json: not approved", out)
+        self.stock_package("b", "001-b")
+        self.assertEqual(self.next_package("rb"), "001-b.json")
+
+    def test_package_changed_but_still_approved_during_the_tick_is_offered_again(self):
+        self.two_folder_rules()
+        self.rewrite_b_during_first_call(
+            lambda: self.stock_package("b", "001-b", {"linkedin": {"text": "edited angle"}}))
+        code, out, _ = self.factory("tick")
+        self.assertEqual(len(self.poster.calls), 1)
+        refused = [row for row in self.journal() if row["slot"].startswith("rb@")][-1]
+        self.assertEqual(refused["status"], "refused")
+        self.assertFalse(refused["held"])
+        self.assertIn("changed after it was picked", refused["reason"])
+        self.assertEqual(self.next_package("rb"), "001-b.json")      # not held
+
+    def test_package_deleted_during_the_tick_is_refused_not_a_crash(self):
+        self.two_folder_rules()
+        self.rewrite_b_during_first_call(
+            lambda: os.unlink(os.path.join(self.stock, "b", "001-b.json")))
+        code, out, _ = self.factory("tick")
+        self.assertEqual(code, 1)
+        self.assertEqual(len(self.poster.calls), 1)
+        self.assertEqual(self.statuses()[[k for k in self.statuses() if k.startswith("rb@")][0]],
+                         ["claimed", "refused"])
+
+    def fingerprint(self, folder, file):
+        from factory import stock as fstock
+        return fstock.fingerprint(os.path.join(self.stock, folder, file))
+
+
+class RetryTargetsTests(FactoryTestCase):
+    def test_retry_sends_only_the_failed_target_even_after_a_delete(self):
+        self.clock.now = utc(2026, 11, 11, 9, 1)
+        self.folder("t", "text")
+        self.stock_package("t", "001-t", {"facebook": {"text": "free post"},
+                                          "linkedin": {"text": "angle post"}})
+        self.write_rules([self.rule("r", "t", ["fb:kotleta", "linkedin"], ["wed"], ["10:00"])])
+        slot = "r@2026-11-11T09:00:00Z"
+        self.poster.statuses = {"linkedin": "failed"}
+        self.assertEqual(self.factory("tick")[0], 1)
+        # the operator removed the Facebook post with `poster delete`: latest row is `deleted`
+        self.record("001-t", "fb:kotleta", "deleted", "2026-11-11T09:30:00Z")
+        self.clock.now = utc(2026, 11, 11, 10, 0)
+        transport = FakeTransport([resp(201, {}, {"x-restli-id": "urn:li:share:900"})])
+
+        def real_poster(argv, **kw):
+            return poster_cli.main(argv, transport=transport, sleep=lambda s: None, **kw)
+        code, out, err = self.factory("retry", slot, publish=real_poster)
+        self.assertEqual(code, 0, out + err)
+        self.assertIn("retry " + slot + ": linkedin", out)
+        self.assertEqual([r.url for r in transport.requests],
+                         ["https://api.linkedin.com/rest/posts"])
+        done = self.journal()[-1]
+        self.assertEqual(done["outcome"], {"fb:kotleta": "published", "linkedin": "published"})
+
+
+class JournalOutcomeTests(TickFixture):
+    """A `done` slot is as good as a record row when the poster could not write one."""
+
+    def silent_poster(self):
+        calls = []
+
+        def publish(argv, *, environ, stdout, stderr, clock):
+            calls.append(argv)
+            return 0                     # exit 0, but no row in posts.jsonl
+        publish.calls = calls
+        return publish
+
+    def test_unknown_outcome_without_a_record_row_keeps_the_package_taken(self):
+        quiet = self.silent_poster()
+        code, out, _ = self.factory("tick", publish=quiet)
+        self.assertEqual(code, 1)
+        done = self.journal()[-1]
+        self.assertEqual(done["outcome"], {t: "unknown" for t in ALL4})
+        self.assertEqual(self.next_package(), "002-q.json")
+        code, out, _ = self.factory("status")
+        for t in ALL4:
+            self.assertIn(f"slot {SLOT}: {t} ended unknown; check the account", out)
+        self.clock.now = utc(2026, 11, 13, 9, 0, 30)
+        self.factory("tick", publish=quiet)
+        self.assertEqual(len(quiet.calls), 2)
+        self.assertTrue(quiet.calls[0][3].endswith("quotes/001-q.json"))
+        self.assertTrue(quiet.calls[1][3].endswith("quotes/002-q.json"))   # not 001-q again
+        code, out, _ = self.factory("plan", "--days", "1")
+        self.assertIn("2 check account", out)
+
+    def test_published_outcome_without_a_record_row_keeps_the_package_taken(self):
+        j = fjournal.Journal(self.fstate, self.clock)
+        j.claim({"slot": SLOT, "package": "001-q", "targets": ALL4})
+        j.append({"slot": SLOT, "status": "done", "exit": 0,
+                  "outcome": {t: "published" for t in ALL4}})
+        self.assertEqual(self.next_package(), "002-q.json")
+        # a record row, when there is one, still decides
+        self.record("001-q", "fb:kotleta", "deleted", "2026-11-11T09:01:00Z")
+        self.assertEqual(self.next_package(), "002-q.json")
+
+    def test_failed_outcome_does_not_hold_the_package(self):
+        j = fjournal.Journal(self.fstate, self.clock)
+        j.claim({"slot": SLOT, "package": "001-q", "targets": ALL4})
+        j.append({"slot": SLOT, "status": "done", "exit": 1,
+                  "outcome": {t: "failed" for t in ALL4}})
+        self.assertEqual(self.next_package(), "001-q.json")
+
+
+class XBudgetRaceTests(FactoryTestCase):
+    RESERVE = r"""
+import datetime as dt, sys
+from decimal import Decimal
+sys.path.insert(0, sys.argv[1])
+from poster import state
+now = dt.datetime.fromisoformat(sys.argv[3])
+state.Ledger(sys.argv[2], lambda: now).reserve([("post", Decimal("0.090"))], "other", Decimal("5"))
+"""
+
+    def setUp(self):
+        super().setUp()
+        self.clock.now = utc(2026, 11, 11, 9, 1)
+        self.folder("t", "text")
+        self.ledger_spent("4.900")
+
+    def other_process_spends(self, calls):
+        """A second process reserves X money after the runner's check, before the poster's."""
+        transport = FakeTransport([resp(200, {"id": "300_1"})])
+
+        def real_poster(argv, **kw):
+            calls.append(argv)
+            if len(calls) == 1:
+                subprocess.run([sys.executable, "-I", "-B", "-c", self.RESERVE, REPO_ROOT,
+                                self.state_dir, self.clock.now.isoformat()],
+                               env=isolated_subprocess_env(self), check=True, timeout=60)
+            return poster_cli.main(argv, transport=transport, sleep=lambda s: None, **kw)
+        return real_poster, transport
+
+    def test_x_spent_by_another_process_skips_x_and_publishes_the_free_networks(self):
+        self.stock_package("t", "001-t", {"facebook": {"text": "free post"},
+                                          "x": {"text": "paid post"}})
+        self.write_rules([self.rule("r", "t", ["fb:kotleta", "x"], ["wed"], ["10:00"])])
+        calls = []
+        poster, transport = self.other_process_spends(calls)
+        code, out, err = self.factory("tick", publish=poster)
+        self.assertEqual(code, 0, out + err)
+        self.assertIn("x skipped (budget)", out)
+        self.assertEqual([r.url.split("/")[2] for r in transport.requests],
+                         ["graph.facebook.com"])
+        self.assertEqual([a[a.index("--targets") + 1] for a in calls], ["fb:kotleta,x", "fb:kotleta"])
+        rows = self.journal()
+        self.assertEqual([r["status"] for r in rows], ["claimed", "claimed", "done"])
+        self.assertEqual(rows[1]["targets"], ["fb:kotleta"])
+        self.assertEqual(rows[1]["skipped"], {"x": "budget"})
+        self.assertEqual(rows[2]["outcome"], {"fb:kotleta": "published", "x": "skipped (budget)"})
+        self.assertEqual([r for r in self.ledger_rows() if r.get("package") == "001-t"], [])
+        self.assertEqual(self.factory("tick")[0], 0)                  # nothing more
+        self.assertEqual(len(calls), 2)
+
+    def test_x_only_slot_lost_to_another_process_ends_done_with_x_skipped(self):
+        self.stock_package("t", "001-t", {"x": {"text": "paid post"}})
+        self.write_rules([self.rule("r", "t", ["x"], ["wed"], ["10:00"])])
+        calls = []
+        poster, transport = self.other_process_spends(calls)
+        code, out, err = self.factory("tick", publish=poster)
+        self.assertEqual(code, 0, out + err)
+        self.assertEqual(transport.requests, [])
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(self.journal()[-1]["outcome"], {"x": "skipped (budget)"})
+        self.assertEqual(self.statuses(), {"r@2026-11-11T09:00:00Z": ["claimed", "done"]})

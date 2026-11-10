@@ -32,6 +32,7 @@ class Outcome:
     status: str                       # done | refused | interrupted | missed | claimed-elsewhere
     outcome: dict = field(default_factory=dict)
     reason: str = ""
+    claimed: bool = True              # False: refused by the re-check, the journal is unchanged
 
     @property
     def bad(self) -> bool:
@@ -126,33 +127,27 @@ class Runner:
 
     # ------------------------------------------------------------ publish one slot (§9.4)
 
-    def publish_slot(self, rule, slot_key: str, entry, targets: list, *, retry=False) -> Outcome:
-        inputs = self.inputs
-        targets = list(targets)
-        skipped = {}
-        if "x" in targets and "x" in entry.package.variants:
-            v = entry.package.variants["x"]
-            est = xapi.estimate(v.text, bool(v.image_path), inputs.settings)
-            try:
-                self._ledger().check(est, inputs.settings.cap)
-            except poster_state.BudgetExceeded as exc:
-                targets.remove("x")
-                skipped["x"] = "budget"
-                self.out(f"  {slot_key}  x skipped (budget): {exc}")
-        claim = self.journal.claim({
-            "slot": slot_key, "rule": rule.id if rule else None, "folder": entry.folder,
-            "file": entry.file, "package": entry.id, "fp": list(entry.fingerprint),
-            "targets": targets, **({"skipped": skipped} if skipped else {}),
-            **({"retry": True} if retry else {})}, retry=retry)
-        if claim is None:
-            self.out(f"  {slot_key}  already claimed elsewhere; not published")
-            return Outcome(slot_key, "claimed-elsewhere")
-        skipped_out = {t: fjournal.SKIPPED_BUDGET for t in skipped}
-        if not targets:
-            self.journal.append({"slot": slot_key, "status": "done", "exit": 0,
-                                 "outcome": skipped_out})
-            return Outcome(slot_key, "done", skipped_out)
+    def recheck(self, entry, targets: list):
+        """Read the package file again and compare it with the entry that was picked (§9.4
+        step 1): approval is read at the moment of publishing, not at the start of the tick.
+        Returns (fresh entry, problem or None, held). `held` is True when the file itself is
+        not publishable (the refusal holds it until the file changes); False when it merely
+        changed since the pick (the next slot offers it again)."""
+        fresh = fstock.reload_entry(entry, self.paths.library)
+        networks = {config.parse_target(t).network for t in targets}
+        if fresh.package is None or fresh.problems:
+            found = fresh.problems or ["the package file cannot be read"]
+            return fresh, "the package is invalid: " + "; ".join(found), True
+        if not fresh.approved:
+            return fresh, "not approved: the file has no approved_by_operator", True
+        problems = fresh.check(networks)
+        if problems:
+            return fresh, "; ".join(problems), True
+        if fresh.fingerprint != entry.fingerprint or fresh.id != entry.id:
+            return fresh, "the package file changed after it was picked", False
+        return fresh, None, False
 
+    def _call_poster(self, entry, targets: list) -> tuple:
         argv = ["--env-file", self.paths.env_file, "publish", entry.path,
                 "--targets", ",".join(targets)]
         if self.dry_run:
@@ -164,7 +159,60 @@ class Runner:
         except Exception as exc:  # the poster catches its own errors; this is a last resort
             buf.write(f"error: {type(exc).__name__}: {exc}\n")
             code = None
-        text = buf.getvalue()
+        return code, buf.getvalue()
+
+    @staticmethod
+    def _problems(text: str) -> list:
+        return [line.strip()[2:].strip() for line in text.splitlines() if line.startswith("  - ")]
+
+    def publish_slot(self, rule, slot_key: str, entry, targets: list, *, retry=False,
+                     prior: dict | None = None) -> Outcome:
+        inputs = self.inputs
+        targets = list(targets)
+        skipped = {}
+        fresh, problem, held = self.recheck(entry, targets)
+        if problem:
+            return self._refuse_before_publish(rule, slot_key, entry, fresh, targets, problem,
+                                               held, retry)
+        if "x" in targets and "x" in entry.package.variants:
+            v = entry.package.variants["x"]
+            est = xapi.estimate(v.text, bool(v.image_path), inputs.settings)
+            try:
+                self._ledger().check(est, inputs.settings.cap)
+            except poster_state.BudgetExceeded as exc:
+                targets.remove("x")
+                skipped["x"] = "budget"
+                self.out(f"  {slot_key}  x skipped (budget): {exc}")
+        claim = self.journal.claim(self._claim_row(rule, slot_key, entry, targets, skipped, retry),
+                                   retry=retry)
+        if claim is None:
+            self.out(f"  {slot_key}  already claimed elsewhere; not published")
+            return Outcome(slot_key, "claimed-elsewhere")
+        prior = dict(prior or {})
+        skipped_out = {t: fjournal.SKIPPED_BUDGET for t in skipped}
+        if not targets:
+            self.journal.append({"slot": slot_key, "status": "done", "exit": 0,
+                                 "outcome": prior | skipped_out})
+            return Outcome(slot_key, "done", prior | skipped_out)
+
+        code, text = self._call_poster(entry, targets)
+        if (not self.dry_run and code == 2 and "x" in targets
+                and (problems := self._problems(text))
+                and all(p.startswith("x: X budget") for p in problems)):
+            # another process spent on X after our check: the poster refused the whole package
+            # before any request. The free networks still publish on time (§17 item 1 (a)).
+            targets.remove("x")
+            skipped["x"] = "budget"
+            skipped_out = {t: fjournal.SKIPPED_BUDGET for t in skipped}
+            self.out(f"  {slot_key}  x skipped (budget): {problems[0][3:]}")
+            if not targets:
+                self.journal.append({"slot": slot_key, "status": "done", "exit": 2,
+                                     "outcome": prior | skipped_out})
+                return Outcome(slot_key, "done", prior | skipped_out)
+            claim = self.journal.append(dict(
+                self._claim_row(rule, slot_key, entry, targets, skipped, retry),
+                status="claimed", narrowed=True))
+            code, text = self._call_poster(entry, targets)
         summary = self._summary(text)
         if self.dry_run:
             self.out(f"  {slot_key}  would publish {entry.folder}/{entry.file} to "
@@ -192,14 +240,14 @@ class Runner:
                     before = False
                 outcome[t] = "already" if before and status == "published" else status
             outcome.update(skipped_out)
+            outcome = prior | outcome
             self.journal.append({"slot": slot_key, "status": "done", "exit": code,
                                  "outcome": outcome, "summary": summary})
             self.out(f"  {slot_key}  {entry.folder}/{entry.file}  "
                      + "  ".join(f"{t} {s}" for t, s in outcome.items()))
             return Outcome(slot_key, "done", outcome)
         if code == 2:
-            problems = [line.strip()[2:].strip() for line in text.splitlines()
-                        if line.startswith("  - ")]
+            problems = self._problems(text)
             errors = [line.strip() for line in text.splitlines() if line.startswith("error:")]
             reason = "; ".join(problems or errors) or "the poster refused the package"
             reason = self.redactor.redact(reason)[:500]
@@ -212,6 +260,36 @@ class Runner:
             return Outcome(slot_key, "refused", reason=reason)
         return self._settle_unknown_end(claim, self.records(),
                                         f"the poster ended without an exit code ({summary[-200:]})")
+
+    @staticmethod
+    def _claim_row(rule, slot_key, entry, targets, skipped, retry) -> dict:
+        return {"slot": slot_key, "rule": rule.id if rule else None, "folder": entry.folder,
+                "file": entry.file, "package": entry.id, "fp": list(entry.fingerprint),
+                "targets": list(targets), **({"skipped": dict(skipped)} if skipped else {}),
+                **({"retry": True} if retry else {})}
+
+    def _refuse_before_publish(self, rule, slot_key, entry, fresh, targets, problem, held,
+                               retry) -> Outcome:
+        """The package no longer passes at the moment of publishing: the poster is not called.
+        A tick journals claimed -> refused (held while the file stays as it is); a retry leaves
+        the slot's `done` entry as it was."""
+        reason = self.redactor.redact(problem)[:500]
+        if retry:
+            self.out(f"error: {entry.folder}/{entry.file} cannot be retried: {reason}")
+            return Outcome(slot_key, "refused", reason=reason, claimed=False)
+        # the claim carries the fingerprint of the file as it is now, so a later edit releases it
+        row = self._claim_row(rule, slot_key, entry, targets, {}, False)
+        if held:
+            row["fp"] = list(fresh.fingerprint)
+        claim = self.journal.claim(row)
+        if claim is None:
+            self.out(f"  {slot_key}  already claimed elsewhere; not published")
+            return Outcome(slot_key, "claimed-elsewhere")
+        self.journal.append({"slot": slot_key, "status": "refused", "exit": None,
+                             "reason": reason, "held": held})
+        self.out(f"  {slot_key}  REFUSED{' (package held until its file changes)' if held else ''}"
+                 f": {reason}")
+        return Outcome(slot_key, "refused", reason=reason)
 
     # ------------------------------------------------------------ tick (§9.1, §9.2)
 
@@ -339,8 +417,12 @@ class Runner:
                 return 2
             rule = inputs.ruleset.get(claim.get("rule") or "")
             self.out(f"retry {slot_key}: {', '.join(failed)}")
-            result = self.publish_slot(rule, slot_key, entry, list(claim.get("targets") or []),
-                                       retry=True)
+            # only the targets that failed: the poster skips a target only when its latest row
+            # is `published`, so a post the operator deleted would go out again
+            sent = [t for t in claim.get("targets") or [] if t in failed] or failed
+            result = self.publish_slot(rule, slot_key, entry, sent, retry=True, prior=outcome)
+            if result.status == "refused" and not result.claimed:
+                return 2
             return 1 if result.bad else 0
 
     def resolve(self, slot_key: str, published: bool) -> int:

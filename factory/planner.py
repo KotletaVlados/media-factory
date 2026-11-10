@@ -135,6 +135,7 @@ def package_states(ruleset, stock, records: list[dict], logs: dict, extra_active
     latest = record_latest(records)
     resolved_published = fjournal.taken_pairs(
         {k: v for k, v in logs.items() if v.status == "resolved"})
+    journal_sent = fjournal.done_pairs(logs)
     interrupted = {log.package for log in logs.values() if log.status == "interrupted"}
     log_list = list(logs.values())
     states = {}
@@ -154,11 +155,15 @@ def package_states(ruleset, stock, records: list[dict], logs: dict, extra_active
                 st = PackageState("held", held)
             elif entry.id in interrupted or any(
                     (latest.get((entry.id, t)) or {}).get("status") == "unknown"
-                    for t in _record_targets(latest, entry.id)):
+                    for t in _record_targets(latest, entry.id)) or any(
+                    result == "unknown" and (p, t) not in latest
+                    for (p, t), result in journal_sent.items() if p == entry.id):
                 st = PackageState("check-account")
             elif active and all(
                     (latest.get((entry.id, t)) or {}).get("status") in ("published", "deleted")
                     or (entry.id, t) in resolved_published
+                    or (journal_sent.get((entry.id, t)) in ("published", "already")
+                        and (entry.id, t) not in latest)
                     for r in active for t in r.targets
                     if config.parse_target(t).network in entry.networks()):
                 st = PackageState("used")
@@ -181,6 +186,9 @@ class Taken:
         self.pairs = {key for key, row in record_latest(records).items()
                       if row.get("status") in RECORD_TAKEN}
         self.pairs |= fjournal.taken_pairs(logs)
+        latest = record_latest(records)
+        # the journal fills in where the record is silent (the poster could not write its row)
+        self.pairs |= {pair for pair in fjournal.done_pairs(logs) if pair not in latest}
 
     def add(self, package_id: str, targets) -> None:
         for t in targets:
@@ -374,10 +382,10 @@ def plan(ruleset, stock, records: list[dict], journal_rows: list[dict], x_spent:
                     v = entry.package.variants["x"]
                     cost = xapi.estimate(v.text, bool(v.image_path), settings)
                     month = month_key(s.when)
-                    if entry.id not in x_counted:
-                        # an over-budget X-only slot leaves the package free for X, so the
-                        # next slot offers it again; the projection counts its cost once
-                        x_counted.add(entry.id)
+                    if (month, entry.id) not in x_counted:
+                        # an over-budget X-only slot leaves the package free for X, so a later
+                        # slot offers it again; the projection counts it once per month
+                        x_counted.add((month, entry.id))
                         x_planned[month] = x_planned.get(month, Decimal(0)) + cost
                     spent = x_spent.get(month, Decimal(0))
                     if spent + x_capped.get(month, Decimal(0)) + cost > settings.cap:

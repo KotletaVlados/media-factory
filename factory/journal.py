@@ -101,6 +101,25 @@ def taken_pairs(logs: dict) -> set:
     return taken
 
 
+SENT_OUTCOMES = ("published", "already", "unknown")
+
+
+def done_pairs(logs: dict) -> dict:
+    """(package, target) -> outcome for the targets a `done` slot journals as sent: published,
+    already published, or ended unknown. The planner counts them as taken where the poster
+    record has no row, so a poster that could not write its record never gets the same package
+    sent again (§8.2)."""
+    out: dict = {}
+    for log in logs.values():
+        claim = log.claimed
+        if not claim or log.status != "done":
+            continue
+        for target, result in (log.last.get("outcome") or {}).items():
+            if result in SENT_OUTCOMES:
+                out[(claim.get("package"), target)] = result
+    return out
+
+
 class Journal:
     def __init__(self, state_dir: str, clock, read_only: bool = False):
         self.state_dir, self.clock, self.read_only = state_dir, clock, read_only

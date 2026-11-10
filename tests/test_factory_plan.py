@@ -200,3 +200,24 @@ class ActiveSinceTests(FactoryTestCase):
         self.assertIn("001-f.json", slots[0])
         self.assertEqual(self.factory("tick")[1].splitlines()[-1], "  nothing due")
         self.assertEqual(self.poster.calls, [])
+
+
+class XProjectionRolloverTests(FactoryTestCase):
+    def test_a_package_offered_over_budget_is_counted_again_in_the_month_it_publishes(self):
+        self.clock.now = utc(2026, 11, 24, 9, 0)
+        self.folder("t", "photo")
+        for i in range(1, 6):
+            self.stock_package("t", f"00{i}-t", {"x": {"text": "post", "image": "square.jpg"}})
+        self.write_rules([self.rule("r", "t", ["x"], ["wed"], ["10:00"])])
+        self.ledger_spent("4.900")
+        from factory import inputs as finputs, paths
+        from poster.redact import Redactor
+        inp = finputs.load(paths.resolve(self.environ), self.clock, Redactor())
+        p = planner.plan(inp.ruleset, inp.stock, inp.records, inp.journal, inp.x_spent,
+                         inp.settings, self.clock.now, days=40)
+        december = [s for s in p.slots if s.state == "planned" and s.when.month == 12]
+        self.assertEqual([s.entry.id for s in december],
+                         ["001-t", "002-t", "003-t", "004-t", "005-t"])
+        self.assertEqual(sum(s.x_cost for s in december), Decimal("1.075"))
+        self.assertEqual(p.x["2026-11"], (Decimal("4.900"), Decimal("0.215")))
+        self.assertEqual(p.x["2026-12"], (Decimal("0"), Decimal("1.075")))

@@ -33,7 +33,7 @@ def items(inputs, plan, heartbeat: dict | None, now: _dt.datetime) -> list[str]:
                 if result == "failed" and now_status == "failed":
                     out.append(f"slot {key}: {target} failed; fix the cause, then "
                                f"factory retry {key}")
-                elif result == "unknown" and now_status == "unknown":
+                elif result == "unknown" and now_status in ("unknown", None):
                     out.append(f"slot {key}: {target} ended unknown; check the account, then "
                                f"python3 -m poster publish ... --force-target {target}")
                 elif result == fjournal.SKIPPED_BUDGET and key.split("@", 1)[-1][:7] == month:

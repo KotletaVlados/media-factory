@@ -133,6 +133,12 @@ def _load_entry(folder: Folder, file: str, library: str) -> Entry:
     return entry
 
 
+def reload_entry(entry: Entry, library: str) -> Entry:
+    """Read one entry's file again, right now (the runner re-validates a package at the moment
+    it publishes it, §9.4). Duplicate ids are not re-checked: they need another file."""
+    return _load_entry(Folder(entry.folder, os.path.dirname(entry.path)), entry.file, library)
+
+
 def _package_ids(folder: str) -> dict:
     """Ids used by one-off packages in content/packages/ (the poster record is keyed by id)."""
     ids: dict = {}
