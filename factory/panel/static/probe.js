@@ -127,6 +127,18 @@
       window.scrollTo(0, 0);
     }
 
+    // a page-level alert (a refusal or error banner) is read on the first screen: measure
+    // its text range, not its box
+    document.querySelectorAll(".main > .error[role=alert], .main > section.error").forEach(
+      function (el) {
+        var range = document.createRange();
+        range.selectNodeContents(el);
+        var rect = range.getBoundingClientRect();
+        if (shown(el) && rect.bottom > window.innerHeight) {
+          add("alert-below-first-screen", el, Math.round(rect.bottom) + " > " + window.innerHeight);
+        }
+      });
+
     // controls: at least 24 x 24, and no two overlapping (nested ones excepted)
     var controls = Array.prototype.filter.call(
       root.querySelectorAll("a[href], button, input, select, textarea, summary, [tabindex]"),

@@ -8,6 +8,7 @@ import copy
 import html
 import json
 import os
+import re
 import stat
 import unittest
 
@@ -219,7 +220,19 @@ class NewFolderTest(pf.PanelCase):
         status, _, body = self.post("/files/new-folder", {"name": "city", "lane": "photo"})
         self.assertEqual(status, 409)
         self.assertIn("Папка «city» уже есть", body)
-        self.assertIn('<details class="fcard newcard lane-photo" open', body)
+        self.assertIn('<details class="fcard newcard lane-photo" id="new-folder-photo" open', body)
+        # the refusal is a banner above the first lane, with a link to the open card
+        banner = body.index('<div class="error" role="alert">')
+        self.assertLess(banner, body.index('<section class="lane"'))
+        fragment = body[banner:body.index("</div>", banner)]
+        text = html.unescape(re.sub(r"<[^>]+>", "", fragment))
+        self.assertIn("Папка не создана: Папка «city» уже есть", text)
+        self.assertIn('href="#new-folder-photo"', fragment)
+        self.assertEqual(body.count("Папка «city» уже есть"), 1)       # said once
+        status, _, body = self.post("/files/new-folder", {"name": "Bad Name", "lane": "text"})
+        self.assertEqual(status, 400)
+        self.assertLess(body.index("Папка не создана:"), body.index('<section class="lane"'))
+        self.assertIn('href="#new-folder-text"', body)
         for name, lane in (("../escape", "photo"), ("Travel", "photo"), ("", "photo"),
                            ("a" * 41, "photo"), ("ok-name", "video"), (".hidden", "text")):
             status, _, _ = self.post("/files/new-folder", {"name": name, "lane": lane})

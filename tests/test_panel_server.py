@@ -9,11 +9,13 @@ import os
 import re
 import signal
 import socket
+import stat
 import subprocess
 import sys
 import threading
 import time
 import unittest
+from unittest import mock
 
 from factory import cli as fcli
 from tests import panel_fixture as pf
@@ -267,6 +269,126 @@ class SnapshotTest(pf.PanelCase):
         self.assertEqual(self.srv.panel.holder.builds, 1)
 
 
+class WriteErrorTest(pf.PanelCase):
+    """An unexpected error inside a POST is answered like one inside a page (brief §3.2):
+    HTTP 500, the shell with `type: message` redacted, one redacted log line, nothing written."""
+
+    def assert_last_resort(self, status, body):
+        self.assertEqual(status, 500)
+        self.assertIn("Ошибка панели", body)
+        self.assertNotIn(CANARIES["FB_PAGE_DEMO_TOKEN"], body)
+        self.assertNotIn(CANARIES["FB_PAGE_DEMO_TOKEN"], self.log.getvalue())
+        self.assertIn("panel: ", self.log.getvalue())
+
+    def test_a_failing_rules_write_is_a_500_page_and_the_file_stays(self):
+        from factory import ruleset as fruleset
+        before = self.file_hash(self.fx.paths.rules)
+        err = OSError("disk said no with " + CANARIES["FB_PAGE_DEMO_TOKEN"])
+        with mock.patch.object(fruleset, "write", side_effect=err):
+            status, headers, body = self.post("/rules/day", {
+                "rule": "notes-draft", "rev": self.revision(), "day": "mon"})
+        self.assert_last_resort(status, body)
+        self.assertIn("OSError: disk said no with [redacted:FB_PAGE_DEMO_TOKEN]", body)
+        self.assertEqual(headers["cache-control"], "no-store")
+        self.assertEqual(self.file_hash(self.fx.paths.rules), before)
+        # the panel still answers, and the write lock was released
+        self.assertEqual(self.get("/rules")[0], 200)
+        self.assertEqual(self.post("/rules/day", {"rule": "notes-draft", "rev": self.revision(),
+                                                  "day": "mon"})[0], 303)
+
+    def test_read_only_folders_give_a_500_page_not_a_dropped_connection(self):
+        if os.geteuid() == 0:
+            self.skipTest("root ignores directory modes")
+        content = os.path.dirname(self.fx.paths.rules)
+        stock = self.fx.paths.stock
+        for path in (content, stock):
+            old = stat.S_IMODE(os.stat(path).st_mode)
+            os.chmod(path, 0o500)
+            self.addCleanup(os.chmod, path, old)
+        before = self.file_hash(self.fx.paths.rules)
+        status, _, body = self.post("/rules/day", {"rule": "notes-draft", "rev": self.revision(),
+                                                   "day": "mon"})
+        self.assertEqual(status, 500)
+        self.assertIn("Ошибка панели", body)
+        status, _, body = self.post("/files/new-folder", {"name": "fresh", "lane": "photo"})
+        self.assertEqual(status, 500)
+        self.assertIn("Ошибка панели", body)
+        self.assertEqual(self.file_hash(self.fx.paths.rules), before)
+        self.assertFalse(os.path.exists(os.path.join(stock, "fresh")))
+
+    def test_a_failing_folder_write_is_a_500_page(self):
+        from factory.panel import actions
+        err = RuntimeError("no room " + CANARIES["FB_PAGE_DEMO_TOKEN"])
+        with mock.patch.object(actions, "new_folder", side_effect=err):
+            status, _, body = self.post("/files/new-folder", {"name": "fresh", "lane": "photo"})
+        self.assert_last_resort(status, body)
+        self.assertIn("RuntimeError: no room [redacted:FB_PAGE_DEMO_TOKEN]", body)
+
+
+class BindTest(pf.PanelCase):
+    """"Local only": the listening socket is on the loopback address, and the port is free
+    again at once after a stop (design factory.md §11.1)."""
+
+    def test_make_server_binds_loopback_only(self):
+        self.assertEqual(self.srv.server_address[0], "127.0.0.1")
+        self.assertEqual(self.srv.socket.getsockname()[0], "127.0.0.1")
+
+    def test_the_port_can_be_bound_again_right_after_a_stop(self):
+        from factory.panel import server
+        srv = server.make_server(self.fx.paths, self.panel_clock, self.fx.machine_tz, 0,
+                                 log=io.StringIO())
+        port = srv.port
+        thread = threading.Thread(target=srv.serve_forever, daemon=True)
+        thread.start()
+        for path in ("/connection", "/rules", "/calendar"):
+            self.assertTrue(fetch_to_eof(port, path).startswith(b"HTTP/1.0 200"))
+        srv.shutdown()
+        srv.server_close()
+        thread.join(5)
+        again = server.make_server(self.fx.paths, self.panel_clock, self.fx.machine_tz, port,
+                                   log=io.StringIO())
+        self.addCleanup(again.server_close)
+        self.assertEqual(again.port, port)
+
+    def test_a_second_live_listener_on_the_port_is_still_refused(self):
+        from factory.panel import server
+        with self.assertRaises(OSError) as ctx:
+            server.make_server(self.fx.paths, self.panel_clock, self.fx.machine_tz,
+                               self.srv.port, log=io.StringIO())
+        import errno
+        self.assertEqual(ctx.exception.errno, errno.EADDRINUSE)
+
+
+def fetch_to_eof(port: int, path: str) -> bytes:
+    """GET `path` and read until the server closes the stream. The server closes first, so
+    its side of the connection is the one left in TIME_WAIT (what blocks a rebind of the port
+    when the listener lacks SO_REUSEADDR)."""
+    with socket.create_connection(("127.0.0.1", port), timeout=30) as conn:
+        conn.sendall(f"GET {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n"
+                     "Connection: close\r\n\r\n".encode())
+        data = b""
+        while chunk := conn.recv(65536):
+            data += chunk
+    return data
+
+
+def listening_addresses(port: int) -> set:
+    """Local addresses (hex, as /proc prints them) of every TCP socket listening on `port`."""
+    found = set()
+    for table in ("/proc/net/tcp", "/proc/net/tcp6"):
+        try:
+            with open(table, encoding="ascii") as fh:
+                rows = fh.read().splitlines()[1:]
+        except OSError:
+            continue
+        for row in rows:
+            cols = row.split()
+            addr, _, p = cols[1].rpartition(":")
+            if cols[3] == "0A" and int(p, 16) == port:
+                found.add(addr)
+    return found
+
+
 class ProcessTest(pf.PanelCase):
     """`python3 -m factory panel` as a real process: the port it prints, Ctrl+C, and the CSRF
     token that lives only in that process's memory."""
@@ -300,6 +422,25 @@ class ProcessTest(pf.PanelCase):
         conn.close()
         self.outputs.append(body)
         return re.search(r'name="csrf" value="([0-9a-f]{64})"', body).group(1)
+
+    @unittest.skipUnless(os.path.exists("/proc/net/tcp"), "needs /proc/net/tcp")
+    def test_the_process_listens_on_loopback_only(self):
+        proc, port = self._start()
+        self.assertEqual(listening_addresses(port), {"0100007F"})   # 127.0.0.1, nothing else
+        proc.send_signal(signal.SIGINT)
+        self.assertEqual(proc.wait(20), 0)
+
+    def test_a_restart_on_the_same_port_works_at_once(self):
+        proc, port = self._start()
+        for path in ("/connection", "/rules", "/calendar"):
+            self.assertTrue(fetch_to_eof(port, path).startswith(b"HTTP/1.0 200"))
+        proc.send_signal(signal.SIGINT)
+        self.assertEqual(proc.wait(20), 0)
+        from factory.panel import server
+        srv = server.make_server(self.fx.paths, self.panel_clock, self.fx.machine_tz, port,
+                                 log=io.StringIO())
+        srv.server_close()
+        self.assertEqual(srv.port, port)
 
     def test_ctrl_c_stops_and_a_restart_makes_a_new_token(self):
         proc, port = self._start()

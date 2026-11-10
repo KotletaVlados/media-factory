@@ -10,7 +10,8 @@ state at each width:
   (`--screenshot`), as DIR/<state>-<width>.png and DIR/<state>-<width>-full.png;
 - runs `--dump-dom --virtual-time-budget=2000` on the same URL with `?probe=1` and reads the
   probe's JSON (text cut by its box, elements wider than the viewport, anchors under the
-  sticky bar, overlapping controls, targets under 24 x 24).
+  sticky bar, overlapping controls, targets under 24 x 24, a page-level error banner whose
+  text is not on the first screen).
 
 It also computes the WCAG contrast of every text colour pair from panel.css. It prints the
 snapshot build time (`snapshot_ms`, budget 1000 ms) and exits 1 on any finding.
@@ -240,6 +241,15 @@ def main(argv=None) -> int:
     print(f"rules-409: POST /rules/start answered {status}")
     states.append(("rules-409", "file://" + refuse))
     probe_urls = {"rules-409": "file://" + refuse_probe}
+    # the files 409: creating a folder whose name is taken (the banner sits above the lanes)
+    folder_page = os.path.join(pages, "files-409.html")
+    folder_probe = os.path.join(pages, "files-409-probe.html")
+    fields = {"name": "city", "lane": "photo"}
+    status = post_page(servers["data"], "/files/new-folder", fields, folder_page)
+    post_page(servers["data"], "/files/new-folder?probe=1", fields, folder_probe)
+    print(f"files-409: POST /files/new-folder answered {status}")
+    states.append(("files-409", "file://" + folder_page))
+    probe_urls["files-409"] = "file://" + folder_probe
     if args.only:
         states = [s for s in states if args.only in s[0]]
 

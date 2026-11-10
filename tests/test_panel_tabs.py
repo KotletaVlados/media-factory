@@ -171,6 +171,23 @@ class CalendarTest(pf.PanelCase):
         more = main_of(self.get("/calendar?more=1")[2])
         self.assertEqual(len(re.findall(r'<section class="month"', more)), 8)
 
+    def test_today_cell_is_named_in_words_for_everyone(self):
+        body = main_of(self.get("/calendar")[2])
+        cell = re.search(r'<a class="cell today" id="today"[^>]*>.*?</a>', body, re.S).group(0)
+        self.assertRegex(cell, r'aria-label="11 ноября: [^"]*сегодня"')   # the accessible name
+        self.assertIn('<span class="today-word">сегодня</span>', cell)  # visible text
+        # a quiet today (no publications listed) is a plain cell whose text says it too
+        quiet = main_of(self.get("/calendar?net=telegram")[2])
+        today = re.search(r'<(?:a|div) class="cell today" id="today".*?</(?:a|div)>', quiet, re.S)
+        self.assertIn("сегодня", today.group(0))
+        # no other cell is named as today
+        self.assertEqual(len(re.findall(r'aria-label="[^"]*сегодня"', body)), 1)
+        with open(os.path.join(os.path.dirname(M.__file__), "static", "panel.css"),
+                  encoding="utf-8") as fh:
+            css = fh.read()
+        narrow = css[css.index("@media (max-width: 899px)"):]
+        self.assertNotRegex(narrow, r"\.today-word\s*\{[^}]*display:\s*none")
+
     def test_every_row_state_has_its_own_words(self):
         cases = {
             "2026-11-06": ["опубликован · city-23", "ошибка: HTTP 500 from LinkedIn",

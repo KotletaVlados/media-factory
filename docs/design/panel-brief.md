@@ -347,7 +347,9 @@ grid and header, and `frame-06m11s.png` for the day window.
   then "+N". Past days are at 60 % opacity, and today has a `--green` outline and the word
   "сегодня". The day dialog is a native `<dialog>` opened with `showModal()`, 600 px wide.
 - **390:** the stats stack under the title. Cells are about 43 px wide and show the day
-  number and the total only; the chips are hidden, because the dialog lists the networks.
+  number and the total only (today's cell also keeps the word "сегодня", since colour never stands
+  alone, and its accessible name ends with it); the chips are hidden, because the dialog lists the
+  networks.
   Tapping a cell opens the dialog at `100vw − 16px`. Each dialog row becomes 2 lines: time,
   monogram and target on the first; state text on the second.
 - **Must not:** repeat the X spend (it lives in the top bar, §14), or offer any write action.

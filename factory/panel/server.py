@@ -72,7 +72,8 @@ class Panel:
 
 class Server(http.server.ThreadingHTTPServer):
     daemon_threads = True
-    allow_reuse_address = False
+    # allow_reuse_address stays at the stdlib default (SO_REUSEADDR): the port is free again
+    # right after Ctrl+C, while on Linux a second live listener is still refused (EADDRINUSE).
 
     def __init__(self, address, panel: Panel):
         self.panel = panel
@@ -166,13 +167,20 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 html = render(ctx, refusal=refusal)
             else:
                 html = render(ctx)
-        except Exception as exc:  # the one last-resort path; the message is redacted
-            status = 500
-            message = self.panel.redactor(snap).redact(f"{type(exc).__name__}: {exc}")
-            print(f"panel: {message}", file=self.panel.holder.log, flush=True)
-            html = views.other_error_page(views.Ctx(None, path, query, self.panel.csrf), message)
+        except Exception as exc:
+            return self._last_resort(path, query, exc, snap)
         body = self.panel.redactor(snap).redact(html).encode("utf-8")
         self._send(status, body, "text/html; charset=utf-8", {"Cache-Control": "no-store"})
+
+    def _last_resort(self, path, query, exc, snap=None):
+        """The one last-resort path for pages and writes: HTTP 500, a shell with the redacted
+        `type: message`, and one redacted line on the panel's log."""
+        redactor = self.panel.redactor(snap)
+        message = redactor.redact(f"{type(exc).__name__}: {exc}")
+        print(f"panel: {message}", file=self.panel.holder.log, flush=True)
+        html = views.other_error_page(views.Ctx(None, path, query, self.panel.csrf), message)
+        self._send(500, redactor.redact(html).encode("utf-8"), "text/html; charset=utf-8",
+                   {"Cache-Control": "no-store"})
 
     def _img(self, query):
         def q(name):
@@ -276,6 +284,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 location = None   # the page shows the env or rules error from a fresh snapshot
                 refusal = {"status": 409, "rule": None, "problems": [], "stale": False,
                            "form": form}
+            except Exception as exc:  # the last-resort path, as for a page: 500, redacted
+                return self._last_resort(f"/{tab}", query, exc)
         if refusal is None:
             return self._redirect(location)
         render = views.rules if tab == "rules" else views.files

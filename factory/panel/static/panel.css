@@ -328,7 +328,7 @@ a.cell:hover { border-color: var(--muted); }
 .cchips { display: flex; flex-wrap: wrap; gap: 4px 6px; }
 .cchip { display: inline-flex; align-items: center; gap: 3px; font-size: 11px; }
 .cchip .disc { width: 18px; height: 18px; font-size: 9px; }
-.today-word { font-size: 11px; color: var(--green); margin-top: auto; }
+.today-word { font-size: 11px; color: var(--green); margin-top: auto; white-space: nowrap; }
 .more { margin-top: 16px; }
 dialog.day { background: var(--surface); color: var(--text); border: 1px solid var(--head);
              border-radius: 12px; padding: 0; }
@@ -428,7 +428,8 @@ dialog.day::backdrop { background: rgb(0 0 0 / .7); }
   .cell { min-height: 48px; padding: 4px; gap: 2px; }
   .cchips { display: none; }
   .dtotal { position: static; }
-  .today-word { display: none; }
+  .today-word { white-space: nowrap; letter-spacing: -0.2px; }
+  .cell.today { padding-left: 1px; padding-right: 1px; }
   .cell.today .dnum { color: var(--green); }
   .post { grid-template-columns: 48px minmax(0, 1fr); }
   .metrics { grid-column: 1 / -1; grid-template-columns: 1.4fr repeat(4, minmax(0, 1fr)); }

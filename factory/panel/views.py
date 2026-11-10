@@ -368,9 +368,9 @@ def _connection_card(ctx: Ctx, c: dict, net: str) -> str:
 
 def _new_folder_card(ctx: Ctx, lane: str, refusal=None) -> str:
     is_open = refusal is not None and refusal.get("lane") == lane
-    problems = alert(S.PROBLEM, refusal["problems"]) if is_open else ""
     name = esc(refusal.get("name", "")) if is_open else ""
-    return (f'<details class="fcard newcard lane-{lane}"{" open" if is_open else ""}>'
+    return (f'<details class="fcard newcard lane-{lane}" id="new-folder-{lane}"'
+            f'{" open" if is_open else ""}>'
             f'<summary><span class="plus">+ {esc(S.LANES[lane])}</span>'
             f'<span class="muted small">{esc(S.NEW_FOLDER)}</span></summary>'
             f'<form method="post" action="/files/new-folder" class="newfolder">'
@@ -378,7 +378,7 @@ def _new_folder_card(ctx: Ctx, lane: str, refusal=None) -> str:
             f'<label>{esc(S.NEW_FOLDER_NAME)}<input name="name" required maxlength="40" '
             f'pattern="[a-z0-9][a-z0-9\\-]{{0,39}}" value="{name}" autocomplete="off"></label>'
             f'<label>{esc(S.NEW_FOLDER_TITLE)}<input name="title" maxlength="{80}"></label>'
-            f'{problems}<button class="btn green" type="submit">{esc(S.NEW_FOLDER_SAVE)}</button>'
+            f'<button class="btn green" type="submit">{esc(S.NEW_FOLDER_SAVE)}</button>'
             f'</form></details>')
 
 
@@ -420,6 +420,13 @@ def files(ctx: Ctx, refusal=None) -> str:
     n = len(cards)
     sub = esc(S.count(n, S.FOLDER_WORDS))
     sections = []
+    if refusal and refusal.get("problems"):
+        # the refusal is read on the first screen, above the lanes (the card sits at their end)
+        reasons = " ".join(esc(p) for p in refusal["problems"])
+        target = f' <a class="btn" href="#new-folder-{esc(refusal.get("lane"))}">{esc(S.TO_FOLDER)}</a>' \
+            if refusal.get("lane") in S.LANES else ""
+        sections.append(f'<div class="error" role="alert"><p>{esc(S.FOLDER_REFUSED)} '
+                        f'<span class="core">{reasons}</span>{target}</p></div>')
     if not cards:
         sections.append(f'<p class="empty">{esc(S.FILES_EMPTY)}</p>')
     for lane in list(S.LANES) + ([None] if any(c.lane is None for c in cards) else []):
@@ -778,8 +785,9 @@ def _month(ctx: Ctx, year: int, month: int, by_day: dict, net: str, more: int) -
             chips_html += f'<span class="cchip mono">+{len(nets) - 4}</span>'
         words = S.count(len(rows), S.PUB_WORDS)
         href = "/calendar" + qs(day=d.isoformat(), net=net, more=more or None)
-        cells.append(f'<a class="{cls}"{anchor} href="{esc(href)}" aria-label="{esc(S.day_month(d))}: '
-                     f'{esc(words)}"><span class="dnum mono">{day}</span>'
+        label = f"{S.day_month(d)}: {words}" + (f" · {S.TODAY}" if d == today else "")
+        cells.append(f'<a class="{cls}"{anchor} href="{esc(href)}" aria-label="{esc(label)}">'
+                     f'<span class="dnum mono">{day}</span>'
                      f'<span class="dtotal mono">{len(rows) if rows else ""}</span>'
                      f'<span class="cchips">{chips_html}</span>{today_word}</a>')
     weekdays = "".join(f'<div class="wd">{esc(w)}</div>' for w in S.DAYS_SHORT)
