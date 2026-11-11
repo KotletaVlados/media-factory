@@ -54,11 +54,10 @@ button, input, select { font: inherit; color: inherit; }
 .core { font-family: var(--mono); font-size: 12px; }
 
 /* ---------------------------------------------------------------- shell */
-.app { max-width: 1440px; width: calc(100% - 32px); margin: 16px auto; background: var(--app);
-       border-radius: 12px; min-height: calc(100vh - 32px); }
+.app { width: 100%; margin: 0; background: var(--app); min-height: 100vh; }
 .topbar { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center;
        justify-content: space-between; padding: 12px 16px; background: var(--app);
-       border-bottom: 1px solid var(--surface); border-radius: 12px 12px 0 0; z-index: 5; }
+       border-bottom: 1px solid var(--surface); z-index: 5; }
 .tabs { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px; background: var(--surface);
         border-radius: 12px; }
 .tab { height: 34px; padding: 0 12px; display: inline-flex; align-items: center;
@@ -362,7 +361,7 @@ dialog.day::backdrop { background: rgb(0 0 0 / .7); }
 /* ---------------------------------------------------------------- Охваты */
 .notes { display: flex; flex-wrap: wrap; gap: 8px 16px; margin: -4px 0 12px; }
 .notes li { display: flex; align-items: center; gap: 8px; }
-.posts { max-width: 860px; margin: 0 auto; }
+.posts { width: 100%; }
 .post { display: grid; grid-template-columns: 48px minmax(0, 1fr) auto; gap: 12px; padding: 8px;
         border-bottom: 1px solid var(--surface); align-items: center; }
 .post .tile { width: 48px; height: 48px; }
@@ -378,8 +377,7 @@ dialog.day::backdrop { background: rgb(0 0 0 / .7); }
 .ml { font-size: 11px; color: var(--muted); }
 
 /* ---------------------------------------------------------------- Подписчики */
-.fols { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px;
-        max-width: 900px; margin: 0 auto; }
+.fols { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
 .fol { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .fol h2 { display: flex; align-items: center; gap: 8px; font-size: 13px; }
 .fnum { font-size: 28px; font-weight: 600; }
@@ -415,11 +413,8 @@ dialog.day::backdrop { background: rgb(0 0 0 / .7); }
   .rrow:nth-child(odd) { background: var(--surface); }
   .rrow:nth-child(even) { background: var(--surface-2); }
   .rtable { gap: 4px; }
-  .fols { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 899px) {
-  .app { width: 100%; margin: 0; border-radius: 0; min-height: 100vh; }
-  .topbar { border-radius: 0; }
   .conn { grid-template-columns: minmax(0, 1fr); }
   .ring { width: 100%; }
   .ring .node-state { font-size: 15px; }
@@ -442,7 +437,6 @@ dialog.day::backdrop { background: rgb(0 0 0 / .7); }
   .post { grid-template-columns: 48px minmax(0, 1fr); }
   .metrics { grid-column: 1 / -1; grid-template-columns: 1.4fr repeat(4, minmax(0, 1fr)); }
   .m-views .mv { font-size: 16px; }
-  .fols { grid-template-columns: minmax(0, 1fr); }
 }
 @media (max-width: 599px) {
   .drow { grid-template-columns: auto 40px minmax(0, 1fr);
