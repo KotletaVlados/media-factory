@@ -560,6 +560,24 @@
         see(".ai-status", "Gemini подбирает темы…");
         see('[data-op="topics"]', "Ещё темы · до $0.02");
         looks('[data-op="topics"], [data-op="expand"]');
+      } else if (state === "create-autoretry") {
+        // the automatic topics request answers 503; «Повторить» must send a second, real request
+        var topicPosts = [], realFetch3 = window.fetch;
+        window.fetch = function (url, options) {
+          if (String(url).endsWith("/topics")) { topicPosts.push(String(options && options.body)); }
+          return realFetch3(url, options);
+        };
+        await until(function () { return !document.querySelector(".create-error").hidden && document.querySelector(".create-error [data-retry], .create-error button"); }, "503 with a retry button");
+        see(".create-error p", "Gemini не ответил: HTTP 503 — повторите");
+        var retry = document.querySelector(".create-error button");
+        retry.click();
+        await until(function () { return document.querySelectorAll(".topic-card").length >= 3 && root.getAttribute("aria-busy") === "false"; }, "cards after retry");
+        var count = document.querySelectorAll(".topic-card").length;
+        if (topicPosts.length !== 1 || count < 3 || count > 5 || !document.querySelector(".create-error").hidden) {
+          out.problems.push("«Повторить» sent " + topicPosts.length + " topics posts (expected 1; the automatic one left before this probe), " + count + " cards, error hidden " + document.querySelector(".create-error").hidden);
+        }
+        out.autoretry = {posts: topicPosts, cards: count};
+        window.fetch = realFetch3;
       } else if (state === "create-expand-loading") {
         document.querySelector('[data-op="expand"]').click();
         await until(function () { return root.getAttribute("aria-busy") === "true"; }, "expand loading");

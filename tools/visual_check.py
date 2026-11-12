@@ -33,7 +33,9 @@ The authoring states (authoring.md §16) are judged on the unscrolled first scre
 states that load with #texts; `create-behaviour` drives the browser behaviour of acceptance items 6, 7
 and 9 against FakeGemini (card tap, 800 ms autosave of the topic box and a text card, the empty box,
 the four microphone refusals, the 2:00 auto-stop on a faked clock, a 503 on the first transcription and
-a retry that must send the same bytes, which the run also compares on the Gemini side).
+a retry that must send the same bytes, which the run also compares on the Gemini side); `create-autoretry`
+fails the automatic topics request with a 503, clicks «Повторить» and needs a second topics request at
+Gemini, 3–5 cards and an empty draft error.
 
 It also computes the WCAG contrast of every text colour pair from panel.css. It prints the
 snapshot build time (`snapshot_ms`, budget 1000 ms) and exits 1 on any finding.
@@ -485,6 +487,24 @@ def behaviour_problems(fx, fake, widths):
     return out
 
 
+def autoretry_problems(fx, fake, widths):
+    """Server side of the `create-autoretry` probe: the automatic topics call answered 503, and
+    «Повторить» sent a second real topics call, after which the draft holds topics and no error."""
+    from factory.authoring import drafts
+    out = []
+    store = drafts.Store(fx.paths.content, fx.clock, fx.machine_tz)
+    for w in widths:
+        did = fx.create_ids[f"autoretry-{w}"]
+        calls = [r for r in list(fake.requests) if r.fields.get("draft") == did
+                 and "topics" in json.loads(r.body).get("response_format", {}).get("schema", {}).get("properties", {})]
+        if len(calls) != 2:
+            out.append(f"{w}: {len(calls)} topics calls reached Gemini, expected the 503 and its retry")
+        draft = store.load(did)
+        if draft["error"] is not None or not 3 <= len(draft["topics"]) <= 5:
+            out.append(f"{w}: draft.json error {draft['error']!r}, {len(draft['topics'])} topics")
+    return out
+
+
 def author_index_problems(fx, widths, dropped):
     out = []
     rows = fphotos.read_index(os.path.join(fx.paths.stock, "my-photos", fphotos.PHOTOS))
@@ -544,6 +564,8 @@ def main(argv=None) -> int:
     fake.hold = {did for name, did in create_live.create_ids.items() if "loading" in name}
     # the behaviour draft's first voice call answers 503 once: the retry must send the same bytes
     fake.fail_voice_once = {did for name, did in create_live.create_ids.items() if name.startswith("behaviour")}
+    # the autoretry draft's automatic topics call answers 503 once: «Повторить» must send a real second call
+    fake.fail_topics_once = {did for name, did in create_live.create_ids.items() if name.startswith("autoretry")}
     servers = {name: start(fx) for name, fx in
                (("data", data), ("empty", empty), ("bad-rules", bad_rules), ("no-env", no_env),
                 ("photos", with_photos), ("upload", uploading))}
@@ -554,7 +576,7 @@ def main(argv=None) -> int:
     # not occupy another state's panel (voice has to be able to transcribe).
     # The shared fixture still has a different draft for each mutation.
     for w in widths:
-        for kind in ("topics-loading", "expand-loading", "voice", "drop", "behaviour"):
+        for kind in ("topics-loading", "expand-loading", "voice", "drop", "behaviour", "autoretry"):
             servers[f"create-live-{kind}-{w}"] = start(create_live, fake)
     t0 = time.perf_counter()
     snap = servers["data"].panel.holder.get()
@@ -608,7 +630,7 @@ def main(argv=None) -> int:
         "files-mediateka": ("create", "/files"), "files-mine": ("create", "/files?folder=my-photos"),
     }
     states += [(name, url(fixture, path)) for name, (fixture, path) in author_paths.items()]
-    states += [("create-" + name, "") for name in ("topics-loading", "expand-loading", "voice", "drop", "behaviour")]
+    states += [("create-" + name, "") for name in ("topics-loading", "expand-loading", "voice", "drop", "behaviour", "autoretry")]
     # the 409 refusal: starting the draft with validation problems
     pages = os.path.join(scratch, "pages")
     os.makedirs(pages)
@@ -640,7 +662,7 @@ def main(argv=None) -> int:
     def one(state, address, w):
         h = WIDTHS.get(w, 900)
         if state in author_paths or state in ("create-topics-loading", "create-expand-loading", "create-voice", "create-drop",
-                                              "create-behaviour"):
+                                              "create-behaviour", "create-autoretry"):
             if not address:
                 name = state[len("create-"):]
                 path = "/create" if name == "drop" else "/create/" + create_live.create_ids[f"{name}-{w}"]
@@ -733,6 +755,10 @@ def main(argv=None) -> int:
         for problem in upload_index_problems(uploading, widths):
             failed = True
             print(f"UPLOAD INDEX: {problem}")
+    if any(s[0] == "create-autoretry" for s in states):
+        for problem in autoretry_problems(create_live, fake, widths):
+            failed = True
+            print(f"AUTHOR AUTORETRY: {problem}")
     if any(s[0] == "create-behaviour" for s in states):
         for problem in behaviour_problems(create_live, fake, widths):
             failed = True

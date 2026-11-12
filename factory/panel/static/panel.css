@@ -552,7 +552,7 @@ dialog.day::backdrop { background: rgb(0 0 0 / .7); }
 .topic-heading { margin-bottom: 8px; }
 .topic-card { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "title chosen" "angle angle";
   padding: 8px 10px; gap: 3px 8px; }
-.topic-card strong { grid-area: title; }
+.topic-card strong { grid-area: title; overflow-wrap: anywhere; }
 .topic-card > span:not(.chosen) { grid-area: angle; }
 .topic-card .chosen { grid-area: chosen; min-height: 0; }
 
