@@ -12,11 +12,13 @@ from __future__ import annotations
 import calendar as _calendar
 import datetime as _dt
 import html
+import json
 import math
 import urllib.parse
 
 from poster import config
 from factory import planner, ruleset as fruleset
+from factory.authoring import photos as fphotos
 from factory.panel import model as M, strings as S
 
 DOMAINS = {"facebook": "fb", "instagram": "ig", "x": "x", "linkedin": "in", "telegram": "tg",
@@ -110,7 +112,7 @@ def chips(ctx: Ctx, counts: dict, total: int, active: str, base: str, keep: dict
 # ---------------------------------------------------------------- shell
 
 def page(ctx: Ctx, tab: str, body: str, *, sub: str = "", sub_right: str = "",
-         title: str = "") -> str:
+         title: str = "", scripts: tuple = ()) -> str:
     snap = ctx.snap
     tabs = []
     for key, label in S.TABS:
@@ -122,7 +124,8 @@ def page(ctx: Ctx, tab: str, body: str, *, sub: str = "", sub_right: str = "",
     strip = ""
     if snap is not None and snap.inputs is not None and snap.plan is not None:
         status, strip = _status(ctx, tab)
-    probe = '<script src="/static/probe.js" defer></script>' if ctx.probe else ""
+    probe = "".join(f'<script src="/static/{esc(name)}" defer></script>\n' for name in scripts)
+    probe += '<script src="/static/probe.js" defer></script>' if ctx.probe else ""
     sub_html = ""
     if sub or sub_right:
         sub_html = (f'<div class="sub"><p class="sub-left">{sub}</p>'
@@ -387,14 +390,30 @@ def _new_folder_card(ctx: Ctx, lane: str, refusal=None) -> str:
             f'</form></details>')
 
 
+def photo_url(folder: str, pid: str, version: str) -> str:
+    return "/photo" + qs(folder=folder, id=pid, v=version)
+
+
 def _folder_card(ctx: Ctx, card) -> str:
     snap = ctx.snap
     lane = card.lane or "none"
-    shown = card.entries[:3]
-    tiles = "".join(tile(e) for e in shown)
-    more = len(card.entries) - len(shown)
+    if card.photos:   # a photo folder with uploads shows its first photos (authoring.md §6.7)
+        shown = card.photos[:3]
+        tiles = "".join(f'<img class="tile" src="{esc(photo_url(card.name, p["id"], "thumb"))}" '
+                        f'alt="" loading="lazy" decoding="async">' for p in shown)
+        more = len(card.photos) - len(shown)
+    else:
+        shown = card.entries[:3]
+        tiles = "".join(tile(e) for e in shown)
+        more = len(card.entries) - len(shown)
     if more > 0:
-        tiles += f'<span class="tile tile-more mono">+{more}</span>'
+        tiles += f'<span class="tile tile-more mono">+{S.group(more)}</span>'
+    count = (f'<span class="pair"><span class="mono num">{S.group(card.packages)}</span> '
+             f'<span class="muted">{esc(S.plural(card.packages, S.PACKAGE_WORDS))}'
+             f'{" ·" if card.photos else ""}</span></span>')
+    if card.photos:
+        count += (f' <span class="pair"><span class="mono num">{S.group(len(card.photos))}</span> '
+                  f'<span class="muted">{esc(S.PHOTO_WORD)}</span></span>')
     problems = ""
     if card.invalid:
         problems += f'<p class="red small">{esc(S.FIX_K.format(n=card.invalid))}</p>'
@@ -407,8 +426,7 @@ def _folder_card(ctx: Ctx, card) -> str:
     return (f'<article class="fcard lane-{lane}"><h3 class="fcard-title">'
             f'<a href="/files?folder={esc(card.name)}" title="{esc(card.title)}">{esc(card.title)}</a></h3>'
             f'<div class="tiles">{tiles}</div>'
-            f'<p class="fcount"><span class="mono num">{S.group(card.packages)}</span> '
-            f'<span class="muted">{esc(S.plural(card.packages, S.PACKAGE_WORDS))}</span></p>'
+            f'<p class="fcount">{count}</p>'
             f'{problems}{bar(card.fill, "good" if card.readers else "none")}'
             f'<p class="runway{" green" if card.good else ""}">{esc(card.runway)}</p>'
             f'<p class="ftargets" title="{esc(ids)}">{monos}</p></article>')
@@ -491,7 +509,62 @@ def _folder_view(ctx: Ctx, name: str) -> str:
             f'<span class="muted">{esc(lane)} · {esc(S.count(card.packages, S.PACKAGE_WORDS))}'
             f' · {esc(card.runway)}</span></div>')
     sub = esc(S.count(len(rows), S.FILE_WORDS))
+    if folder.lane == "photo":
+        return page(ctx, "files", head + _photos_section(ctx, name, card.photos)
+                    + f'<div class="pkgs">{"".join(out)}</div>', sub=sub,
+                    scripts=("author.js",))
     return page(ctx, "files", head + f'<div class="pkgs">{"".join(out)}</div>', sub=sub)
+
+
+PHOTO_PAGE = 60
+
+
+def _photos_section(ctx: Ctx, name: str, photos: list) -> str:
+    """"Фото · N" above the package list of a photo-lane folder (authoring.md §6.1, §6.7):
+    two upload buttons for author.js, a status line, and a grid of thumbs, 60 per step
+    ("показать ещё" links to the next step and works without JS)."""
+    snap = ctx.snap
+    total = len(photos)
+    try:
+        limit = int(ctx.q("photos") or PHOTO_PAGE)
+    except ValueError:
+        limit = PHOTO_PAGE
+    limit = max(PHOTO_PAGE, min(limit, fphotos.MAX_PHOTOS))
+    uses = M.photo_uses(snap, name)
+    tiles = []
+    for i, p in enumerate(photos[:limit]):
+        title = snap.red(p["name"])
+        use = uses.get(p["id"])
+        chip = (f'<span class="st k-{"ok" if use == "published" else "plan"}">'
+                f'{esc(S.PHOTO_USE[use])}</span>' if use else "")
+        tiles.append(f'<li class="ptile" id="photo-{i + 1}" data-id="{esc(p["id"])}">'
+                     f'<img src="{esc(photo_url(name, p["id"], "thumb"))}" alt="{esc(title)}" '
+                     f'title="{esc(title)}" loading="lazy" decoding="async">{chip}</li>')
+    grid = f'<ul class="pgrid">{"".join(tiles)}</ul>' if tiles else (
+        f'<p class="empty">{esc(S.PHOTOS_EMPTY)}</p>')
+    more = ""
+    if total > limit:
+        nxt = min(limit + PHOTO_PAGE, total)
+        href = "/files" + qs(folder=name, photos=nxt) + f"#photo-{limit + 1}"
+        more = (f'<p class="pmore"><a class="btn" href="{esc(href)}">{esc(S.PHOTOS_MORE)}</a> '
+                f'<span class="muted mono">{esc(S.PHOTOS_SHOWN.format(shown=S.group(limit), total=S.group(total)))}'
+                f'</span></p>')
+    data = esc(json.dumps(S.UPLOAD_JS, ensure_ascii=False))
+    accept = ",".join(fphotos.IMAGE_TYPES)
+    return (f'<section class="photos" aria-labelledby="photos-h" data-photos="{esc(name)}" '
+            f'data-csrf="{esc(ctx.csrf)}" data-strings="{data}">'
+            f'<div class="photos-head"><h2 id="photos-h">{esc(S.PHOTOS_H)} · '
+            f'<span class="mono">{S.group(total)}</span></h2>'
+            f'<div class="photos-actions">'
+            f'<button class="btn" type="button" data-pick="dir" disabled>{esc(S.UPLOAD_DIR)}</button>'
+            f'<button class="btn" type="button" data-pick="files" disabled>{esc(S.UPLOAD_FILES)}</button>'
+            f'</div>'
+            f'<input type="file" data-input="dir" webkitdirectory multiple hidden>'
+            f'<input type="file" data-input="files" multiple accept="{esc(accept)}" hidden>'
+            f'</div><noscript><p class="muted">{esc(S.PHOTOS_NEED_JS)}</p></noscript>'
+            f'<p class="upload-status" role="status" aria-live="polite"></p>'
+            f'<ul class="upload-skipped"></ul>'
+            f'{grid}{more}</section>')
 
 
 # ---------------------------------------------------------------- Правила (§11.6)

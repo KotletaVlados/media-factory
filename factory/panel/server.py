@@ -19,23 +19,28 @@ from __future__ import annotations
 import errno
 import hmac
 import http.server
+import json
 import os
+import re
 import secrets
 import shutil
 import threading
 import urllib.parse
+from dataclasses import dataclass
 
 from poster import config, package as poster_package, rules as poster_rules
 from poster.redact import Redactor
 from factory import ruleset as fruleset
-from factory.panel import actions, model, views
+from factory.authoring import photos
+from factory.panel import actions, model, strings as S, views
 
 MAX_BODY = 16 * 1024
 FORM_TYPE = "application/x-www-form-urlencoded"
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 STATIC = {"panel.css": "text/css; charset=utf-8",
           "panel.js": "text/javascript; charset=utf-8",
-          "probe.js": "text/javascript; charset=utf-8"}
+          "probe.js": "text/javascript; charset=utf-8",
+          "author.js": "text/javascript; charset=utf-8"}
 SECURITY_HEADERS = {
     "Content-Security-Policy": "default-src 'self'; img-src 'self'; style-src 'self'; "
                                "script-src 'self'; frame-ancestors 'none'",
@@ -47,6 +52,37 @@ PAGES = {"/connection": ("connection", views.connection), "/files": ("files", vi
          "/reach": ("reach", views.reach), "/followers": ("followers", views.followers),
          "/dialogs": ("dialogs", views.dialogs)}
 RULE_ACTIONS = ("day", "hour", "zone", "start", "stop", "new")
+FORM, IMAGE = "form", "image"
+
+
+@dataclass(frozen=True)
+class Route:
+    """One POST route (design authoring.md §14.1): its body kind, the Content-Length limit and
+    the accepted media types, and for forms the write it runs."""
+    kind: str
+    limit: int
+    types: tuple
+    handler: str = ""
+    action: str = ""
+
+
+def declared_length(raw) -> int | None:
+    """Content-Length as ASCII digits only (int() would also take "5_000", " 5" or other
+    scripts' digits); None when absent or malformed."""
+    if not isinstance(raw, str) or not re.fullmatch(r"[0-9]{1,18}", raw):
+        return None
+    return int(raw)
+
+
+def post_route(path: str, query: dict) -> Route | None:
+    if path.startswith("/rules/") and path[len("/rules/"):] in RULE_ACTIONS:
+        return Route(FORM, MAX_BODY, (FORM_TYPE,), "rules", path[len("/rules/"):])
+    if path == "/files/new-folder":
+        return Route(FORM, MAX_BODY, (FORM_TYPE,), "files", "new-folder")
+    if path == "/files/photos":
+        kind = (query.get("kind") or [""])[0]
+        return Route(IMAGE, photos.limit_for(kind), photos.types_for(kind))
+    return None
 
 
 class Panel:
@@ -142,6 +178,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self._static(path[len("/static/"):])
         if path == "/img":
             return self._img(query)
+        if path == "/photo":
+            return self._photo(query)
         if path in PAGES:
             tab, render = PAGES[path]
             return self._page(path, query, tab, render)
@@ -224,30 +262,73 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.end_headers()
             shutil.copyfileobj(fh, self.wfile, 64 * 1024)
 
+    def _photo(self, query):
+        """GET /photo?folder=F&id=P&v=thumb|view|orig (design authoring.md §6.5): the file
+        resolves inside the folder's photos/ and sniffs as JPEG, PNG or WebP; else 404."""
+        def q(name):
+            return (query.get(name) or [""])[0]
+        path = photos.file_path(self.panel.paths.stock, q("folder"), q("id"), q("v"))
+        if path is None:
+            return self._plain(404, "not found")
+        try:
+            info = poster_rules.sniff(path)
+            fh = open(path, "rb")
+        except OSError:
+            return self._plain(404, "not found")
+        if info.format not in photos.EXT:
+            fh.close()
+            return self._plain(404, "not found")
+        with fh:
+            size = os.fstat(fh.fileno()).st_size
+            self.send_response(200)
+            self.send_header("Content-Type", poster_rules.MIME[info.format])
+            self.send_header("Content-Length", str(size))
+            self.send_header("Cache-Control", "private, max-age=300")
+            self.end_headers()
+            if self.command != "HEAD":
+                shutil.copyfileobj(fh, self.wfile, 64 * 1024)
+
     # ------------------------------------------------------------ POST
 
     def do_POST(self):  # noqa: N802 - stdlib name
+        """Checks in this order for every POST (design authoring.md §14.1): Host (421); route
+        (404); Origin (foreign 403, absent 403 for non-form kinds); Content-Length (411, 400,
+        413); Content-Type (415); CSRF (form: the `csrf` field after parsing; other kinds: the
+        `X-CSRF-Token` header, before any body byte is read); then the handler."""
         if not self._host_ok():
-            return self._plain(421, "misdirected request")
+            return self._refuse(421, "misdirected request")
+        url = urllib.parse.urlsplit(self.path)
+        query = urllib.parse.parse_qs(url.query, keep_blank_values=True, max_num_fields=50)
+        route = post_route(url.path, query)
+        if route is None:
+            return self._refuse(404, "not found")
+        json_kind = route.kind != FORM
         origin = self.headers.get("Origin")
-        if origin is not None and origin != f"http://{self.headers.get('Host')}":
-            return self._plain(403, "forbidden: foreign origin")
+        if (origin is not None and origin != f"http://{self.headers.get('Host')}") or (
+                origin is None and json_kind):
+            return self._refuse(403, S.UP_FORBIDDEN if json_kind else "forbidden: foreign origin",
+                                json_kind)
         raw_length = self.headers.get("Content-Length")
         if raw_length is None:
-            return self._plain(411, "length required")
-        try:
-            length = int(raw_length)
-        except ValueError:
-            return self._plain(400, "bad Content-Length")
-        if length < 0:
-            return self._plain(400, "bad Content-Length")
-        if length > MAX_BODY:
-            self.close_connection = True
-            return self._plain(413, "form too large")
+            return self._refuse(411, S.UP_LENGTH if json_kind else "length required", json_kind)
+        length = declared_length(raw_length)
+        if length is None:
+            return self._refuse(400, S.UP_LENGTH if json_kind else "bad Content-Length", json_kind)
+        if length > route.limit:
+            return self._refuse(413, S.UP_TOO_LARGE.format(mb=route.limit // (1024 * 1024))
+                                if json_kind else "form too large", json_kind)
         ctype = (self.headers.get("Content-Type") or "").split(";", 1)[0].strip().lower()
-        if ctype != FORM_TYPE:
-            self.close_connection = True
-            return self._plain(415, f"unsupported media type: send {FORM_TYPE}")
+        if ctype not in route.types:
+            if json_kind:   # same origin, a fitting length: drain it, answer in JSON
+                self._drain(length)
+                return self._json(415, {"error": S.UP_BAD_TYPE})
+            return self._refuse(415, f"unsupported media type: send {FORM_TYPE}")
+        if json_kind:
+            token = self.headers.get("X-CSRF-Token") or ""
+            if not hmac.compare_digest(token.encode(), self.panel.csrf.encode()):
+                self._drain(length)   # a stale page after a restart reads the reason
+                return self._json(403, {"error": S.UP_FORBIDDEN})
+            return self._upload(query, length)
         data = self.rfile.read(length)
         try:
             form = urllib.parse.parse_qs(data.decode("utf-8"), keep_blank_values=True,
@@ -257,13 +338,78 @@ class Handler(http.server.BaseHTTPRequestHandler):
         token = (form.get("csrf") or [""])[0]
         if not hmac.compare_digest(token.encode(), self.panel.csrf.encode()):
             return self._plain(403, "forbidden: missing or wrong csrf")
-        url = urllib.parse.urlsplit(self.path)
-        query = urllib.parse.parse_qs(url.query, keep_blank_values=True, max_num_fields=50)
-        if url.path.startswith("/rules/") and url.path[len("/rules/"):] in RULE_ACTIONS:
-            return self._write("rules", url.path[len("/rules/"):], form, query)
-        if url.path == "/files/new-folder":
-            return self._write("files", "new-folder", form, query)
-        return self._plain(404, "not found")
+        return self._write(route.handler, route.action, form, query)
+
+    def _refuse(self, status: int, text: str, as_json: bool = False):
+        """A refusal before the body is read: the unread body would be taken for the next
+        request, so the connection closes after the answer. A small declared body (at most
+        a form's 16 KB) is read and dropped first, so the client reads the answer rather than
+        a reset."""
+        length = declared_length(self.headers.get("Content-Length"))
+        if length is not None and length <= MAX_BODY:
+            self._drain(length)
+        self.close_connection = True
+        if as_json:
+            return self._json(status, {"error": text}, {"Connection": "close"})
+        self._send(status, (text + "\n").encode(), "text/plain; charset=utf-8",
+                   {"Cache-Control": "no-store", "Connection": "close"})
+
+    def _json(self, status: int, data: dict, headers: dict | None = None):
+        """Every JSON reply: no-store, the body redacted (design authoring.md §14.1)."""
+        body = self.panel.redactor().redact(json.dumps(data, ensure_ascii=False))
+        self._send(status, body.encode("utf-8"), "application/json; charset=utf-8",
+                   dict({"Cache-Control": "no-store"}, **(headers or {})))
+
+    def _drain(self, length: int) -> None:
+        """Read and drop a body that a same-origin request with a fitting length sent, so the
+        browser reads the refusal instead of a reset connection."""
+        left = length
+        try:
+            while left > 0:
+                chunk = self.rfile.read(min(photos.CHUNK, left))
+                if not chunk:
+                    break
+                left -= len(chunk)
+        except OSError:   # a timeout or a reset: the answer may still reach the client
+            pass
+        if left > 0:
+            self.close_connection = True
+
+    def _upload(self, query, length: int):
+        """POST /files/photos (design authoring.md §6.2). Not under the panel's write lock: a
+        slow body must not hold up rules writes; `photos.store_body` locks its own folder."""
+        def q(name):
+            return (query.get(name) or [""])[0]
+        kind, pid = q("kind"), q("id")
+        try:
+            folder_photos = photos.pre_check(self.panel.paths.stock, q("folder"), kind, pid)
+            photos.check_space(folder_photos, length)
+        except photos.UploadError as exc:
+            self._drain(length)
+            return self._json(exc.status, {"error": exc.message})
+        except Exception as exc:  # noqa: BLE001 - the last resort, as for a page
+            self.close_connection = True
+            return self._upload_failed(exc)
+        try:
+            result = photos.store_body(folder_photos, kind, pid, q("name"), self.rfile, length,
+                                       self.panel.clock())
+        except photos.UploadError as exc:
+            if exc.message == S.UP_CUT:
+                self.close_connection = True
+            return self._json(exc.status, {"error": exc.message})
+        except Exception as exc:  # noqa: BLE001 - a socket timeout, a disk error, a bug
+            self.close_connection = True
+            return self._upload_failed(exc)
+        return self._json(200, result)
+
+    def _upload_failed(self, exc):
+        """HTTP 500 with a fixed Russian text; one redacted line on the panel's log."""
+        message = self.panel.redactor().redact(f"{type(exc).__name__}: {exc}")
+        print(f"panel: upload: {message}", file=self.panel.holder.log, flush=True)
+        try:
+            return self._json(500, {"error": S.UP_FAILED})
+        except OSError:
+            return None   # the client is gone
 
     def _write(self, tab: str, kind: str, form: dict, query: dict):
         panel = self.panel
