@@ -1,509 +1,561 @@
-# Authoring posts in the panel: photos, voice, Claude, Gemini, send
+# Authoring posts in the panel: «Создать», topics, Gemini texts, photos, send
 
-Design document. Status: ready to build in four lanes (§15). Written 2026-11-11 against
-`main` at `f09433c` (poster, factory L1 and the L3 panel are built). Vendor and browser
-documentation was read on 2026-11-11, and each external fact cites its page. Legend: **C**
-means confirmed on the cited official page; **O** means observed on this machine; **U**
-means unconfirmed, and §16 names the cheapest check for each. Another open lane (the
-full-width panel) changes `factory/panel/static/panel.css`; nothing here depends on the old
-`max-width`, and the top-bar measurements in §11.5 were taken with that lane's CSS applied.
+Design document. Status: slice A is built (merged at `82b8311`). Slice B′ is pinned in §16
+and ready to build. C, D and M follow (§15). First written on 2026-11-11 against `f09433c`.
+Revised on 2026-11-12 against `main` at `82b8311` for slice B′. The revision follows the
+operator's decisions of 2026-11-12 (texts by Gemini, the «Создать» entry, «Медиатека») and
+the seed-to-result research report of 2026-11-12, which is kept outside the repository.
+
+Vendor and browser documentation was read on the dates given in §4, and each external fact
+cites its page. Legend: **C** means confirmed on the cited official page; **O** means
+observed on this machine; **U** means unconfirmed, and §17 names the cheapest check for
+each.
 
 ## 1. Originating requirement
 
-The operator wrote on 2026-11-11, in chat with the orchestrator. This is a close
-paraphrase in the third person; the verbatim words stay in the task's pinned specification
-because this repository is public. In the Files tab the operator uploads their own folder,
-for now of photos. Below, where the text posts are, they want to sketch a text by typing or
-by voice and, from that, get the publications for the other networks made with the photo as
-the base. A photo may also get an effect, or the main person on it (the operator) may be
-highlighted in some way. Everything else should be adapted to this menu too. Later they want
-to simply select one photo, have the text filled in from their hints or just by a button and
-adapted for the other networks, and then press one button that sends everything to the
-networks.
+This repository is public, so the operator's words are paraphrased here in the third
+person. The verbatim words, with their dates and times, are in the pinned specification of
+the slice B′ task.
 
-Decisions the operator made in the form of 2026-11-11:
+**2026-11-11, in chat with the orchestrator.** The operator uploads their own folder
+(photos for now) in the Files tab. Below, where the text posts are, they want to sketch a
+text by typing or by voice. From that, the publications for the other networks should be
+made with the photo as the base. Later they want to select one photo, have the text filled
+in from their hints or just by a button, adapted for each network, and then press one
+button that sends everything.
 
-1. Per-network texts are written by Claude through the Anthropic API when the operator
-   presses a button in the panel.
-2. Voice: audio is recorded in the panel and transcribed with Gemini.
-3. Highlighting the main person on a photo is Gemini image editing (background blur, soft
-   glow, outline), with several styles to choose from.
-4. The send button first shows every variant for review; then "publish now" or "add to the
-   schedule queue".
-5. One shared AI budget (texts, images, voice) of USD 10 per month; above that, ask the
-   operator.
+**2026-11-12 18:20 UTC, a voice message to the orchestrator:**
 
-Earlier decisions that still hold: code templates for photos (quote on the photo, frame,
-per-network crop); languages: LinkedIn and X in English, Facebook and Instagram in
-Ukrainian, both languages on request; X capped at USD 5 per month (poster §11.2); the
-operator reviews texts before anything is published.
+- The operator does not understand what the Files section and its folders are for.
+- They want to drop in a photo of themselves and "spin" a topic into a publication for all
+  networks at once, each in its own format and for its own audience: a short one for X, a
+  business one for LinkedIn, one for Instagram, another for Facebook.
+- The panel should suggest the topic, or they type a topic into some window and the panel
+  helps expand it.
+- They want to start with photos; video should later work the same way.
+- They want to make the minimum of movements, with their own face in the posts: "drop in a
+  seed, get a finished result".
+- The files live on their computer and are uploaded from there.
+
+Decisions in force (the operator's forms and answers):
+
+| When | Decision |
+|---|---|
+| 2026-11-11 | One shared AI budget of USD 10 per month for texts, photo processing and voice; above it the panel refuses and asks. Voice: recorded audio, recognised by Gemini. Send (slice D): review all variants, then «Опубликовать сейчас» or «В очередь» |
+| 2026-11-12 18:04 UTC | Texts are written by **Gemini**, not Claude. The project has no Anthropic key and takes no Anthropic dependency |
+| 2026-11-12 ~18:43 UTC | Build the photo phase by the research plan: «Создать» is the first tab, then drop a photo, then 3–5 topic suggestions from Gemini (or an own topic typed or dictated), then «Развернуть» gives four per-network texts, then (D) review and publish or queue. Rename «Файлы» to «Медиатека»: all photos with status marks; schedule-queue folders move deeper and are created automatically. Use the existing Gemini key; the operator has billing on or will turn it on |
+| Earlier | X and LinkedIn texts in English, Instagram and Facebook in Ukrainian; panel UI in Russian; X capped at USD 5 per month (poster ledger); the operator reviews texts before anything is published; code templates for photos (quote, frame, per-network crop) |
 
 ### 1.1 Validation against the requirement
 
-| Requirement (2026-11-11) | Where this design meets it |
+| Requirement | Where this design meets it |
 |---|---|
-| Upload my folder of photos in the Files tab | Folder or file upload into a photo-lane stock folder, browser-made thumbnails, photo grid (§6) |
-| Sketch a text by typing or by voice | Hints box plus a record button; Gemini transcribes into the box, where it stays editable (§8.2, §8.3) |
-| Make the other networks' publications from it, with the photo as the base | Claude sees the photo and the hints and writes one variant per network within the poster's limits (§8.4) |
-| An effect on the photo; highlight me | Code templates (crop, frame, quote) and three Gemini styles, original and result side by side (§9) |
-| Select one photo; text from my hints or just by a button | One click on a photo opens the composer; "Сгенерировать" works with empty hints too (§8.1, §8.4) |
-| Adapted for the other networks | Per-network language, length rules, crop and image size (§8.4, §9.1) |
-| One button sends everything | Review of every variant, then "Опубликовать сейчас" through the poster or "В очередь" into the stock with approval recorded (§10) |
-| Adapt everything else to this menu | Files cards show photo counts and drafts; the folder view shows photos, their use and the queue; the top bar shows the AI month (§6.7, §10.5, §11.5) |
-| (decision 5) USD 10 a month for AI, then ask | One local ledger for Anthropic and Gemini; every call is reserved before it is sent and refused above the cap (§11) |
+| "What is the Files folder for?" | «Создать» is the entry and opens first (§8.1). The operator never names or picks a folder: uploads land in «Мои фото», which is created by itself (§8.8). The tab is called «Медиатека» (§8.8). Queue folders move under a collapsed section in slice M (§15) |
+| Start with a photo of me | The «Создать» page is one drop zone plus recent photos (§8.2). Photos stay on this computer (§6) |
+| Suggest a topic, or I type one and we expand it | Topic cards from Gemini, based on the photo and the author profile (§8.3, §8.4). An own topic is typed or dictated (§8.3, §8.5). «Развернуть» expands it (§8.4) |
+| X short, LinkedIn business, Instagram one, Facebook another, for each audience | One text per network with its own language, length and angle (§8.4). «Профиль автора» names the audience of each network and goes into every request (§8.7) |
+| Minimum of movements | Three actions to four texts: drop a photo, tap a topic card, «Развернуть». Topics arrive without a click (§8.3) |
+| Type or dictate | Topic box plus «Голос», with Gemini transcription (§8.5) |
+| Maybe process the photo, maybe not | Slice C: per-network crops always; highlight on request (§9) |
+| One button sends everything | Slice D: review, then publish now or queue (§10) |
+| USD 10 a month for AI, then ask | One ledger, reservation before every call, refusal in Russian, month shown on «Создать» (§11) |
+| Video the same way, later | A separate task; not designed here (§19) |
 
-Every item is built in lanes A–D (§15). Items cut from scope are in §18.
+Every row is built in slices B′, C, D and M (§15). Cut scope is in §19.
 
 ## 2. What exists today
 
-Facts read from `main` at `f09433c`.
+Facts read from `main` at `82b8311` on 2026-11-12.
 
 **Panel** (`factory/panel/`, design `factory.md` §11, brief `panel-brief.md`):
 
 - `server.py`: a `ThreadingHTTPServer` on `127.0.0.1` with `daemon_threads = True`
-  (`server.py:74`). Every request checks `Host` (421). Every POST checks `Origin` when
-  present, requires `Content-Length`, refuses bodies over `MAX_BODY = 16 * 1024`
-  (`server.py:33`, `:244`), refuses any type but `application/x-www-form-urlencoded`
-  (`:34`, `:248`), and compares the form field `csrf` with `hmac.compare_digest` (`:257`).
-  The POST path therefore cannot take a file today. Writes run under one `write_lock`
-  (`:60`, `:271`).
-- `end_headers` adds `SECURITY_HEADERS` to every response (`:39`, `:97`):
-  `default-src 'self'; img-src 'self'; style-src 'self'; script-src 'self';
-  frame-ancestors 'none'`, plus `nosniff` and `no-referrer`. Pages are buffered, redacted
-  once more and sent with `Content-Length`; `/img` streams a file with `copyfileobj`
-  (`:185`). `log_message` logs nothing (`:94`).
-- `model.py`: one snapshot, rebuilt when `state_key` changes (`:86`). The key includes a
-  depth-1 `scandir` walk of `content/stock/` (`:58`), so a subfolder of a stock folder costs
-  one stat entry, whatever it holds.
-- `views.py`: the Files tab draws lanes "Фото-посты" and "Текстовые посты", folder cards
-  and a folder view (`:390`, `:417`, `:457`); the top-bar status is built in `_status`
-  (`:159`).
-- `static/panel.js` is progressive enhancement; §11.1 of the factory design promised that
-  every action also works without JS.
+  (`server.py:109-110`). Every request checks `Host` (421). POST goes through a route table
+  (`post_route`, `server.py:77`; `Route`, `:58`) with two kinds today: `form` (rules
+  actions and `/files/new-folder`, at most `MAX_BODY = 16 * 1024`) and `image`
+  (`/files/photos`). `do_POST` (`:293`) checks, in order: Host, route, Origin (absent →
+  403 for non-form kinds), Content-Length (411/400/413), Content-Type (415), then CSRF
+  (the `csrf` field for forms, the `X-CSRF-Token` header before any body byte for other
+  kinds). JSON replies go through `_json` (`:357`): `no-store`, body redacted.
+- `end_headers` adds `SECURITY_HEADERS` (`:44`): `default-src 'self'; img-src 'self';
+  style-src 'self'; script-src 'self'; frame-ancestors 'none'`, plus `nosniff` and
+  `no-referrer`. `log_message` logs nothing (`:130`).
+- `GET /` redirects to `/connection` (`:175`); pages come from `PAGES` (`:50`).
+- `model.py`: one snapshot, rebuilt when `state_key` changes (`:87`; a depth-1 walk of
+  `content/stock/` plus one stat per photo index). `photo_uses` (`:503`) marks photos
+  "published" or "queued" from stock packages whose `meta.photo` names them; its docstring
+  says drafts join in lane B.
+- `views.py`: `page` (`:114`) draws the tab bar from `strings.TABS` (`strings.py:13`) and
+  takes `sub` and `sub_right` for the row under the top bar. `files` (`:435`) draws the
+  lanes «Фото-посты» and «Текстовые посты» with folder cards (`_folder_card`, `:397`).
+  `_folder_view` (`:475`) adds, for a photo-lane folder, the «Фото · N» section
+  (`_photos_section`, `:522`): two upload buttons, a newest-first grid of 60 per step, and
+  the chips «в очереди» and «опубликовано».
+- `static/author.js` (slice A) holds `makeCopies(blob)` (`:44`, exported as
+  `window.MFAuthor.makeCopies`) and the upload loop. `uploadOne` (`:162`) posts `orig`,
+  `thumb` and `view` for one file inside a closure bound to the folder view's section.
 
-**Poster** (`poster/`):
+**Photos** (`factory/authoring/photos.py`, slice A): uploads stream into
+`stock/<folder>/photos/` with an id of `p-` plus 16 hex digits of the SHA-256 (§6). The
+folder must exist and be of lane `photo` (`folder_path`, `photos.py:74`). `pre_check`
+(`:236`) runs every check that needs no body byte.
 
-- Package: `schema`, `id` (`[a-z0-9][a-z0-9._-]{0,79}`, `package.py:15`), `theme`,
-  `variants` (`text`, `image`), `meta` (ignored by the poster). An image ref with `/` is a
-  path relative to the package file's folder (`package.py:41`).
-- Checks (`rules.py`), never truncating: X 280 weighted characters and at most 1 cashtag;
-  Instagram 2 200 UTF-16 units, 30 hashtags, 20 mentions, JPEG only, 8 MB, aspect 0.8–1.91;
-  LinkedIn 3 000 after escaping and under 36 152 320 pixels; Facebook 10 MB; X 5 MB
-  (`rules.py:16-30`, `check_text` `:301`, `check_image`, `sniff` `:170`).
-- `xapi.estimate` prices an X post ($0.015 text, $0.200 with a URL, $0.215 with an image);
-  `state.Ledger` reserves before a request and settles after (`state.py:139-185`), on the
-  public JSONL helpers `read_jsonl`, `append_jsonl`, `locked` (`state.py:29-64`).
-- `cli.main([... "publish", PATH, "--targets", ...])` is the publish path the factory
-  runner calls in-process. Instagram polls the container once a minute for up to 5 minutes
-  (`instagram.py:11-12`), so one publish can take over 5 minutes.
-- `http.UrllibTransport` (HTTPS only, no redirects, `TransportError` without details) and
-  `vendor_message` (reduces vendor error bodies and masks long runs) (`http.py:181`, `:223`).
+**Poster** (`poster/`), unchanged since the first revision:
 
-**Factory**: stock folders hold `folder.json` and packages; the loader skips
-subdirectories (`stock.py:184`); a package without `meta.approved_by_operator` is never
-published; publish order is file-name order; package ids are unique across the stock and
-`content/packages/`. Three items deferred in `factory.md` §18 have now met their trigger
-("operator asks"): upload and editing of packages in the panel with approval there
-(`factory.md:1107`), publish buttons in the panel (`:1108`), text generation (`:1111`).
+- Checks (`rules.py`) never truncate: X allows 280 weighted characters and 1 cashtag.
+  Instagram allows 2 200 UTF-16 units, 30 hashtags and 20 mentions. LinkedIn allows 3 000
+  units after escaping (`check_text`, `rules.py:301`).
+- `state.read_jsonl`, `append_jsonl` and `locked` (`state.py:29-64`) are public helpers.
+- `http.json_request` builds a JSON request. `UrllibTransport` is HTTPS only, follows no
+  redirects, and raises `TransportError` without details (`http.py`).
+- `vendor_message` reduces a vendor error body and masks long runs.
+- `redact.Redactor.add_env` masks the value of every variable whose name contains `KEY`,
+  `TOKEN` or `SECRET`.
 
-**Machine** (O, 2026-11-11): Python 3.12.3, standard library only. `which convert magick
-ffmpeg cwebp` finds nothing. `import cgi` under `-W error::DeprecationWarning` fails with
-"'cgi' is deprecated and slated for removal in Python 3.13".
+**Tests**:
+
+- `tests/base.py` blocks every non-loopback connect and resolve (`_guard_connect`, `:36`)
+  and puts canary secrets in the fake env (`CANARIES`, `:57`). Its `FakeTransport`
+  (`:103`) answers scripted responses.
+- `tests/panel_fixture.py` builds the data, empty and photo fixtures (`build_photos`,
+  `:492`). `PanelCase` (`:532`) runs a panel on port 0.
+- `tools/visual_check.py` renders every state at 390, 900, 1000, 1280, 1440, 1600 and 1920
+  with the cached Chromium and runs `probe.js`.
+
+**Machine** (O, 2026-11-12): Python 3.12.3, standard library only. The env file of the
+primary checkout has a `GEMINI_API_KEY` line (checked by name; the value was not read). It
+has no active `ANTHROPIC_API_KEY` line and no `AI_MONTHLY_CAP_USD` line.
 
 ## 3. Decisions and trade-offs
 
 | # | Decision | Rejected options | Why |
 |---|---|---|---|
-| D1 | All pixel work (thumbnails, crop, frame, quote, re-encoding) runs in the operator's browser on `<canvas>`; the server only stores and validates bytes | Pillow (needs pip); ImageMagick/ffmpeg (not installed, a new system dependency); server-side headless Chromium (heavy, a second browser); Gemini for crops (costs money, not exact) | The standard library has no image codec. The browser decodes JPEG, PNG and WebP, applies EXIF orientation (B3) and encodes JPEG (B4). Canvas output carries no camera metadata, so no GPS tag reaches a network (§13) |
-| D2 | One file per POST as the raw request body (`fetch` with `Content-Type: image/jpeg`), CSRF in a request header | `multipart/form-data` parsed with `cgi` (deprecated, removed in 3.13, O); `multipart/form-data` parsed with `email.parser.BytesParser(policy=email.policy.HTTP)` (works, O, but reads the whole body into memory and only serves a no-JS fallback nobody needs) | Streams to disk with a hard size limit, no parser at all, and a custom header forces a CORS preflight that the server refuses (no `do_OPTIONS`, so 501; §13) |
-| D3 | Drafts live in `content/drafts/<id>/`; only "В очередь" writes a package into a stock folder, and only "Опубликовать сейчас" writes one into `content/packages/` | Drafts as unapproved packages inside stock folders | The factory's states stay as they are (`not-approved` would turn every draft into a red "не одобрено" line and a `factory check` note); drafts can hold voice, Gemini results and history that do not belong in a package |
-| D4 | AI calls run in the request thread with a per-call deadline; publishing runs in one background thread that the page polls | A job queue for everything; publishing inside the request | AI calls end within 2–3 minutes and the browser simply waits; a publish can take over 5 minutes (Instagram polling) and must survive a closed tab |
-| D5 | Gemini through the Interactions API with `store: false` | `generateContent` ("legacy", still "fully supported", G7) | The current docs and examples for audio and image editing use Interactions (G1, G5). By default Interactions stores every request for 55 days on the paid tier; `store: false` turns that off (G7) |
-| D6 | Claude structured output (`output_config.format`, JSON schema) | Forced tool use; free text parsed by hand | Stable on all models, schema-checked JSON in one text block (A5) |
-| D7 | Transcription with `gemini-3.5-flash-lite` and inline audio | `gemini-3.5-transcribe` | Inline WebM audio is documented for general models (G1, G2); the transcribe model's REST examples use a Files API upload first (G4), so it would cost two requests and a file clean-up |
-| D8 | "Highlight" with `gemini-nano-banana-2.1` at 2K, one style per click | Generate all styles at once; `gemini-3-pro-image` | Google's recommended editing model, stable, $0.0504 per 2K image (G5, G6); one click shows its price and spends only what the operator asks for |
-| D9 | Authoring pages need JavaScript; with JS off they say so | A no-JS path for each step | Recording, canvas templates and folder upload exist only in JS. Every other panel page keeps its no-JS behaviour |
-| D10 | The AI month is a text item in the top-bar status, "ИИ $0.84 из $10.00" | A bar plus text; folding it into the X meter | Measured in §11.5: a bar variant adds a third status row at 900 px; folding needs about 113 px where 41 px are free |
+| D1 | All pixel work (thumbnails, crop, frame, quote, re-encoding) runs in the browser on `<canvas>`; the server only stores and validates bytes | Pillow; ImageMagick or ffmpeg; headless Chromium on the server; Gemini for crops | The standard library has no image codec. Canvas output has no camera metadata (built in A) |
+| D2 | One file per POST as the raw body, CSRF in a header | `multipart/form-data` with `cgi` or `email` | Streams to disk with a hard limit and needs no parser (built in A) |
+| D3 | Drafts live in `content/drafts/<id>/`. Only D's «В очередь» and «Опубликовать сейчас» write packages | Drafts as unapproved packages in stock folders | Factory states stay unchanged; drafts hold topics, AI results and later style images |
+| D4 | AI calls run in the request thread with a 120 s deadline and at most two at a time. Publishing (D) runs in a background thread | One job queue for everything | An AI call ends within seconds and the page waits; a publish can take over 5 minutes |
+| D5 | Gemini through the Interactions API with `"store": false` | `generateContent` (legacy, still supported, G9) | The current guides for structured output, audio and image editing use Interactions (G1, G4). Interactions stores requests for 55 days on the paid tier unless `store` is false (G9) |
+| D6 | Texts and topics with Gemini structured output: `response_format` of type `text`, `mime_type` `application/json` and a JSON `schema` | Free text parsed by hand; function calling | The schema is checked by the vendor, `minItems`/`maxItems` are enforced (G4), and the JSON is the text of the `model_output` step (G6) |
+| D7 | Texts and topics with `gemini-3.8-flash` at `thinking_level: "low"` | `gemini-4-hydrogen`; `gemini-3.5-flash-lite` | 3.8 Flash is the model the research report names. It is stable, takes images, supports structured output and costs $0.75 / $3.75 per MTok through 2026-12-31 and $1.50 / $7.50 after (G2, G3). Google's overview recommends Hydrogen for new projects, but it costs $1.50 / $7.50 now and thinks at `high` by default (G2, G3, G5). Flash-Lite is cheaper but Google describes it for throughput, not writing. The model is one constant in `prompts.py` (§19 names the trigger to switch) |
+| D8 | Transcription with `gemini-3.5-flash-lite` and inline audio | `gemini-3.5-transcribe` | Inline WebM and OGG audio are documented for general models (G8). The transcribe model's examples upload through the Files API first, which costs two requests and a clean-up |
+| D9 | Authoring pages need JavaScript; with JS off they say so | A no-JS path for each step | Drop, recording and canvas exist only in JS. «Профиль автора» is a plain form and works without JS |
+| D10 | The AI month is shown in the row under the top bar on every «Создать» page, not in the top bar | A top-bar item (first revision) | The top bar already gains the «Создать» tab and the longer «Медиатека» label. Measured in §11.5: the bar keeps its heights except at 1 414–1 513 px, where it moves to two rows as it already does at 1 280. The AI spend happens only on «Создать», so the fact sits there once |
+| D11 | «Создать» is the first tab and `GET /` redirects to it. «Медиатека» is a label change of the `files` tab; its URL stays `/files` | Rename the URL to `/media` | Attention links (`model.attention_link`), the visual check, the tests and the operator's bookmarks keep working. The URL is not shown as text |
+| D12 | Uploads from «Создать» go to the stock folder `my-photos` («Мои фото», lane `photo`). The upload route creates it on the first `orig` upload, by renaming a prepared dot-folder | A GET that creates it; a separate "ensure" POST; storage outside the stock | A GET never writes. The rename is atomic, so two first uploads leave one valid folder. Slice A's storage, listing and `/photo` serve it unchanged, and the stock loader skips dot-names (`stock.py:175`) |
+| D13 | A new draft asks Gemini for topics once, by itself (≈ $0.005, bound shown on the drop zone) | A «Предложить темы» click first; a request on every page load | One movement less, as the operator asked. The draft records that its automatic request was made, so a reload never spends again |
+| D14 | Voice audio stays in the page. The server holds it in memory for one call and never writes it to disk | Storing `voice-<n>.webm` for a retry (first revision) | No recording of the operator's voice on disk. The page keeps the blob for «Повторить расшифровку» |
+| D15 | Draft writes are per field, under a short per-draft lock; the last write wins | A whole-file revision on every write | An AI result that arrives while the operator types would make the next autosave stale. The panel is local and used by one operator |
+| D16 | «Перегенерировать» sends the topic, the profile, the photo, that network's current text and the wish | All four texts as context (first revision) | The reservation bound stays small and fixed. Consistency across networks comes from the shared topic and profile |
+| D17 | «Профиль автора» is one form page saved to `content/profile.json` | Profile in the env file; a profile that learns from edits | The content folder is ignored by git and holds the operator's own data. Learning from edits is deferred (§19) |
 
 ## 4. Vendor and platform facts
 
-### 4.1 Anthropic (Claude)
+### 4.1 Google (Gemini), read 2026-11-12 unless marked
+
+The `ai.google.dev` pages redirect to `aistudio.google.com/docs/…` with the same content.
 
 | # | Fact | Status | Source |
 |---|---|---|---|
-| A1 | `claude-sonnet-5-5` is "The best combination of speed and intelligence"; $2 input and $10 output per million tokens; vision and multilingual on all current models; retirement "Not sooner than September 28, 2027". `claude-haiku-5-5` costs from $0.10/$0.50 and is described "For high-volume, latency-sensitive tasks such as classification, extraction, and routing" | C | [Models overview](https://platform.claude.com/docs/en/about-claude/models/overview) |
-| A2 | Pricing table: Sonnet 5.5 $2 / MTok input, $10 / MTok output; Haiku 5.5 $0.10 / $0.50 up to 100 000 prompt tokens. `inference_geo: "us"` multiplies by 1.1; global (default) is standard | C | [Pricing](https://platform.claude.com/docs/en/about-claude/pricing) |
-| A3 | Images: JPEG, PNG, GIF, WebP; cost `⌈width/28⌉ × ⌈height/28⌉` visual tokens; Claude 4.7 and later: long edge up to 2 576 px and at most 4 784 visual tokens; 10 MB per image (base64) on the Claude API; base64 `image` block with `media_type` | C | [Vision](https://platform.claude.com/docs/en/build-with-claude/vision) |
-| A4 | Header `anthropic-version: 2026-10-21` (latest); in it `temperature`, `top_p` and `top_k` are removed and return 400 | C | [API versions](https://platform.claude.com/docs/en/api/versioning) |
-| A5 | `output_config.format = {"type": "json_schema", "schema": …}`, stable, no beta header; the JSON comes in the response's `text` block; not supported: `minLength`/`maxLength`, numeric bounds, `additionalProperties` other than `false`, external `$ref`; `stop_reason: "refusal"` is billed and may not match the schema; `max_tokens` may cut the JSON | C | [Structured outputs](https://platform.claude.com/docs/en/build-with-claude/structured-outputs) |
-| A6 | `output_config.effort` (`low` … `max`); Sonnet 5.5 defaults to `high`; "For chat and other latency-sensitive work, start with `medium` or `low`"; `thinking: {"type": "between_tools"}` turns off up-front thinking on Sonnet 5.5 at `low`–`high`; thinking counts toward `max_tokens` | C | [Effort](https://platform.claude.com/docs/en/build-with-claude/effort) |
-| A7 | "Retained data is never used for model training without your express permission." Standard retention follows the commercial policy linked there | C | [API and data retention](https://platform.claude.com/docs/en/manage-claude/api-and-data-retention) |
-| A8 | `between_tools` thinking together with `output_config.format` is accepted on Sonnet 5.5 | **U** (LC1) | — |
+| G1 | `POST https://generativelanguage.googleapis.com/v1beta/interactions` with headers `x-goog-api-key`, `Content-Type: application/json` and `Api-Revision: 2026-05-20` (in the REST examples of the audio and structured-output guides). Input blocks: `{"type": "text", "text": …}`, `{"type": "image", "data": <base64>, "mime_type": …}`, `{"type": "audio", "data": <base64>, "mime_type": …}` | C | [Audio](https://ai.google.dev/gemini-api/docs/audio), [Image understanding](https://ai.google.dev/gemini-api/docs/image-understanding), [Structured output](https://ai.google.dev/gemini-api/docs/structured-output) |
+| G2 | `gemini-3.8-flash`: "Stable"; inputs "Text, Image, Video, Audio, and PDF"; output "Text"; input limit 1 048 576, output 65 536 tokens; Structured outputs and Thinking supported; latest update September 2026. The models overview calls it "Our previous-generation Flash model" and says "For any new projects, use our latest models: Gemini 4 Hydrogen or 3.5 Flash-Lite". `gemini-3.5-flash-lite`: Stable, the same inputs, text output, Structured outputs and Thinking supported, latest update July 2026 | C | [Gemini 3.8 Flash](https://ai.google.dev/gemini-api/docs/models/gemini-3.8-flash), [Gemini 3.5 Flash-Lite](https://ai.google.dev/gemini-api/docs/models/gemini-3.5-flash-lite), [Models](https://ai.google.dev/gemini-api/docs/models) |
+| G3 | Paid Standard prices per 1M tokens. `gemini-3.8-flash`: input "$0.75 through December 31, 2026", "$1.50 starting January 1, 2027"; output, thinking included, "$3.75 through December 31, 2026", "$7.50 starting January 1, 2027". `gemini-3.5-flash-lite`: input $0.30 (text, image, video, audio), output $2.50 including thinking. `gemini-4-hydrogen`: $1.50 / $7.50. "Used to improve our products": free tier Yes, paid tier No | C | [Pricing](https://ai.google.dev/gemini-api/docs/pricing) |
+| G4 | Structured output on Interactions: `"response_format": {"type": "text", "mime_type": "application/json", "schema": {…}}`. Supported: the types string, number, integer, boolean, object, array, null; `enum`, `items`, `minItems`/`maxItems` (enforced), `properties`, `required`, `additionalProperties`. `minLength`/`maxLength` are "ignored by the server". A schema over the limits gives `400 INVALID_ARGUMENT`. The reference's TextResponseFormat allows `mime_type` `application/json` or `text/plain`; `schema` is "Only applicable when mime_type is application/json" | C | [Structured output](https://ai.google.dev/gemini-api/docs/structured-output), [Interactions API reference](https://ai.google.dev/api/interactions-api-v1) |
+| G5 | `generation_config.thinking_level`. On `gemini-3.8-flash`: low, medium, high, default medium; "minimal" is "Not supported". On `gemini-3.5-flash-lite`: minimal, low, medium, high, default minimal. `max_output_tokens` "sets the maximum number of tokens a response can generate, including thought tokens". Hitting it gives the status `incomplete`, and the thinking tokens are still billed. Thought tokens are billed as output | C | [Thinking](https://ai.google.dev/gemini-api/docs/thinking) |
+| G6 | Response: `status` is one of `in_progress`, `requires_action`, `completed`, `failed`, `cancelled`, `incomplete`, `requires_continuation`. `incomplete` means "completed, but contains incomplete results (e.g. hitting max_tokens)". `steps` holds a `model_output` step whose `content` has `{"type": "text", "text": …}` blocks. `usage` has `total_input_tokens`, `total_output_tokens`, `total_thought_tokens`, `total_tokens` and per-modality counts. The request has `store`, `generation_config`, `response_format` and `system_instruction` | C | [Interactions API reference](https://ai.google.dev/api/interactions-api-v1) |
+| G7 | Image input on Gemini 3 and 4 costs, per `resolution`: low 280 tokens, medium 560, high 1 120, ultra_high 2 240. The default ("unspecified") is 1 120. `resolution` sits in the image block. Image types: PNG, JPEG, WebP, HEIC, HEIF. The whole request is at most 20 MB | C | [Media resolution](https://ai.google.dev/gemini-api/docs/media-resolution), [Image understanding](https://ai.google.dev/gemini-api/docs/image-understanding) |
+| G8 | Audio: "32 tokens per second of audio". Formats include WebM, OGG and Opus. "Maximum request size is 20 MB total" | C | [Audio](https://ai.google.dev/gemini-api/docs/audio) |
+| G9 | "By default, the API stores all Interaction objects (`store=true`)": 55 days on the paid tier, 1 day on the free tier. `store=false` opts out. "the original `generateContent` API remains fully supported" (now called legacy) | C | [Interactions](https://ai.google.dev/gemini-api/docs/interactions) |
+| G10 | Unpaid services: "human reviewers may read, annotate, and process your API input and output"; "Do not submit sensitive, confidential, or personal information to the Unpaid Services". Paid services: prompts and responses are not used to improve products. Paid means a Cloud project with an active billing account (read 2026-11-11) | C | [Gemini API terms](https://ai.google.dev/gemini-api/terms) |
+| G11 | Slice C's facts, read 2026-11-11: `gemini-nano-banana-2.1` is stable and edits images; output images at 2K are 1 680 tokens ($0.0504); every result carries SynthID; `response_format` of type `image` with `aspect_ratio` and `image_size`. `gemini-3.5-transcribe` uploads through the Files API in its examples | C | [Image generation](https://ai.google.dev/gemini-api/docs/image-generation), [Nano Banana 2.1](https://ai.google.dev/gemini-api/docs/models/gemini-nano-banana-2.1), [Transcription](https://ai.google.dev/gemini-api/docs/transcribe) |
+| G12 | The guides use `v1beta` with `Api-Revision: 2026-05-20`; the reference shows `POST /v1/interactions` with no such header. Which one the key accepts | **U** (LC1) | G1, G6 |
+| G13 | The reference says `steps` is present "when included in the response" and names no request field for it. The SDK reads `output_text`, which is not in the reference's REST fields. Where the text sits in a real REST reply | **U** (LC1) | G6 |
+| G14 | Whether `total_output_tokens` already includes `total_thought_tokens` | **U** (LC1) | G6 |
+| G15 | The schemas of §8.4 (with `minItems`, `maxItems` and `additionalProperties: false`) are accepted on 3.8 Flash at `thinking_level: "low"`; `"resolution": "high"` is accepted on an inline image block; inline `audio/ogg` and `audio/webm` are accepted on 3.5 Flash-Lite | **U** (LC1) | G4, G7, G8 |
+| G16 | How a safety block looks in a reply. The reference names no reply-side safety field | **U** (LC1, if it occurs) | G6 |
+| G17 | Slice C's open facts: the photo's token count on Nano Banana 2.1, the full `aspect_ratio` list, and whether the operator's face is kept | **U** (LC3) | G11 |
 
-### 4.2 Google (Gemini)
-
-| # | Fact | Status | Source |
-|---|---|---|---|
-| G1 | Audio understanding: `POST https://generativelanguage.googleapis.com/v1beta/interactions`, headers `x-goog-api-key`, `Content-Type: application/json`, `Api-Revision: 2026-05-20`; body `model` and `input` with `{"type": "text", …}` and `{"type": "audio", "data": <base64>, "mime_type": …}`. Formats include `audio/webm` and `audio/opus`; "Maximum request size is 20 MB total"; "32 tokens per second of audio" | C | [Audio understanding](https://ai.google.dev/gemini-api/docs/audio) |
-| G2 | `gemini-3.5-flash-lite`: Stable; inputs "Text, Image, Video, Audio, and PDF", output text; Thinking and Structured outputs supported | C | [Gemini 3.5 Flash-Lite](https://ai.google.dev/gemini-api/docs/models/gemini-3.5-flash-lite) |
-| G3 | Paid prices per 1M tokens: `gemini-3.5-flash-lite` input $0.30 (text, image, video, audio), output $2.50 including thinking. `gemini-nano-banana-2.1` input $1.50, output text $7.50, output image $30; "Output images at 1K (1024x1024px) consume 1120 tokens and are equivalent to $0.0336 per image", 2K 1 680 tokens ($0.0504), 4K 3 780 tokens. Paid tier "Used to improve our products: No"; free tier "Yes" | C | [Pricing](https://ai.google.dev/gemini-api/docs/pricing) |
-| G4 | `gemini-3.5-transcribe`: pre-recorded audio up to 1 hour; Ukrainian `uk-UA` and Russian `ru-RU` supported; REST examples upload via the Files API; $0.003/min audio in, $0.002/min text out | C | [Transcription](https://ai.google.dev/gemini-api/docs/transcribe), [Pricing](https://ai.google.dev/gemini-api/docs/pricing) |
-| G5 | Image editing: same endpoint and headers as G1; `input` holds a text block and `{"type": "image", "mime_type": …, "data": <base64>}`; output options in `response_format`, e.g. `{"type": "image", "mime_type": "image/jpeg", "aspect_ratio": "16:9", "image_size": "2K"}`; `image_size` "1K" (default), "2K", "4K" with an uppercase K; the image comes back in a `model_output` step as a block of `"type": "image"` with base64 `data`; "All generated images include a SynthID watermark"; Nano Banana 2.1 is "the primary model for generation and conversational editing" | C | [Image generation](https://ai.google.dev/gemini-api/docs/image-generation) |
-| G6 | `gemini-nano-banana-2.1`: "Stable"; inputs text, image, video, PDF; output image and text; latest update October 2026 | C | [Nano Banana 2.1](https://ai.google.dev/gemini-api/docs/models/gemini-nano-banana-2.1) |
-| G7 | "By default, the API stores all Interaction objects (`store=true`)"; paid tier retention 55 days, free tier 1 day; `store=false` opts out (and is incompatible with background execution). "the original `generateContent` API remains fully supported" | C | [Interactions](https://ai.google.dev/gemini-api/docs/interactions) |
-| G8 | Response `usage` has `total_input_tokens`, `total_output_tokens`, `total_thought_tokens`, `total_tokens`; `generation_config.thinking_level` is `minimal`, `low`, `medium` or `high`; the reference shows the endpoint as `v1/interactions` | C | [Interactions API reference](https://ai.google.dev/api/interactions-api-v1) |
-| G9 | Unpaid services: "human reviewers may read, annotate, and process your API input and output" and "Do not submit sensitive, confidential, or personal information to the Unpaid Services". Paid services: "Google doesn't use your prompts … or responses to improve our products"; the API is paid "only when accessing the API … through a Cloud Project associated with an active billing account" | C | [Gemini API terms](https://ai.google.dev/gemini-api/terms) |
-| G10 | `v1beta` with `Api-Revision: 2026-05-20` (guide examples) versus `v1` (reference) | **U** (LC2) | G1, G8 |
-| G11 | Whether `max_output_tokens` also bounds thought tokens; how many tokens one input photo costs on Nano Banana 2.1 | **U** (LC2, LC3) | — |
-| G12 | The full `aspect_ratio` list (4:5, 3:4, 2:3, 9:16 for portraits) | **U** (LC3) | G5 links it from another page |
-| G13 | Editing a photo of a real person (the operator) is accepted and keeps the face recognisably unchanged | **U** (LC3) | G5 says nothing about it |
-
-### 4.3 Browser
+### 4.2 Browser and codecs
 
 | # | Fact | Status | Source |
 |---|---|---|---|
-| B1 | `getUserMedia` works only in secure contexts; "in insecure contexts, `navigator.mediaDevices` is `undefined`". `http://localhost` and `127.0.0.0/8` are potentially trustworthy; a LAN address over plain HTTP is not | C | [getUserMedia](https://developer.mozilla.org/en-US/docs/Web/API/MediaDevices/getUserMedia), [Secure contexts](https://developer.mozilla.org/en-US/docs/Web/Security/Secure_Contexts) |
-| B2 | `<input type="file" webkitdirectory>` selects a folder; each `File` has `webkitRelativePath`; Baseline 2025 | C | [webkitdirectory](https://developer.mozilla.org/en-US/docs/Web/API/HTMLInputElement/webkitdirectory) |
-| B3 | `createImageBitmap(blob)` accepts a `Blob`; `imageOrientation: "from-image"` (default) applies EXIF orientation; `resizeWidth`/`resizeHeight`/`resizeQuality` | C | [createImageBitmap](https://developer.mozilla.org/en-US/docs/Web/API/Window/createImageBitmap) |
-| B4 | `canvas.toBlob(cb, "image/jpeg", q)` with quality 0–1; a canvas tainted by another origin throws `SecurityError` (our images are same-origin) | C | [toBlob](https://developer.mozilla.org/en-US/docs/Web/API/HTMLCanvasElement/toBlob) |
-| B5 | The operator's browser records `audio/webm;codecs=opus` with `MediaRecorder` | **U** (LC5) | — |
-| B6 | The Windows browser reaches the panel inside WSL2 at `http://localhost:8770/` (factory S5). If it cannot and the panel is opened by a WSL address, B1 turns voice off | **U** (LC5) | `factory.md` §15 |
+| B1 | `getUserMedia` works only in secure contexts; "in insecure contexts, `navigator.mediaDevices` is `undefined`". `http://localhost` and `127.0.0.0/8` are potentially trustworthy; a LAN address over plain HTTP is not (read 2026-11-11) | C | [getUserMedia](https://developer.mozilla.org/en-US/docs/Web/API/MediaDevices/getUserMedia), [Secure contexts](https://developer.mozilla.org/en-US/docs/Web/Security/Secure_Contexts) |
+| B2 | `webkitdirectory` folder selection; `createImageBitmap` applies EXIF orientation; `canvas.toBlob(cb, "image/jpeg", q)` (read 2026-11-11, used by A) | C | [webkitdirectory](https://developer.mozilla.org/en-US/docs/Web/API/HTMLInputElement/webkitdirectory), [createImageBitmap](https://developer.mozilla.org/en-US/docs/Web/API/Window/createImageBitmap), [toBlob](https://developer.mozilla.org/en-US/docs/Web/API/HTMLCanvasElement/toBlob) |
+| B3 | File drop: the target must cancel `dragover` for `drop` to fire. Dropped files are read with `DataTransferItem.getAsFile()`. Cancel `drop` on `window` for file drags, or the browser may open the dropped file | C | [File drag and drop](https://developer.mozilla.org/en-US/docs/Web/API/HTML_Drag_and_Drop_API/File_drag_and_drop) |
+| B4 | `new MediaRecorder(stream, {mimeType, audioBitsPerSecond})`; `MediaRecorder.isTypeSupported()` checks a type; an unsupported type throws `NotSupportedError` | C | [MediaRecorder()](https://developer.mozilla.org/en-US/docs/Web/API/MediaRecorder/MediaRecorder) |
+| B5 | Opus "scales from low bitrate narrowband speech at 6 kbit/s to very high quality stereo music at 510 kbit/s" | C | [RFC 6716](https://www.rfc-editor.org/rfc/rfc6716) |
+| B6 | The operator's browser records `audio/webm;codecs=opus` and reaches the panel at `http://localhost:8770/` (so the microphone is allowed by B1) | **U** (LC5) | — |
 
 ## 5. Layout
 
 ### 5.1 Code
 
 ```
-factory/authoring/            new package, standard library only
-  __init__.py
-  photos.py     upload streaming, photo ids, photos/index.jsonl, listing, file paths
-  drafts.py     draft schema, create/load/save with revision, files, delete
-  budget.py     AI ledger: estimate, reserve, settle, month total, cap
-  prices.py     price table with source URLs and the date read (§11.3)
-  prompts.py    Claude system prompt and schema; Gemini transcription and style prompts
-  claude.py     request build, response parse, usage -> price
-  gemini.py     transcription and image-edit requests, parse, usage -> price
-  send.py       review checks, package writing (queue, publish now), publish thread
+factory/authoring/            standard library only
+  photos.py     (A) upload, ids, index, listing, paths; (B′) ensure_default()
+  drafts.py     (B′) draft schema, create, load, per-field update, AI lock, list cache
+  profile.py    (B′) profile schema, limits, load, save, prompt block
+  budget.py     (B′) AI ledger: reserve, settle, month total, cap, static bounds
+  prices.py     (B′) dated price table with source URL and read date
+  prompts.py    (B′) model constants, instructions, schemas, per-network targets
+  gemini.py     (B′) request build, reply parse, usage -> price; (C) image edit
+  send.py       (D) review checks, package writing, publish thread
 factory/panel/
-  server.py     POST route table with body kinds (§14.1); new GET routes; JSON replies;
-                serve() waits for a running publish on Ctrl+C
-  views.py      composer, review, drafts list, photos section, AI status item
-  model.py      photo counts on folder cards; AI month cache
-  strings.py    new Russian strings
-  static/author.js    upload loop, recorder, editors, canvas templates (~450 lines,
-                      loaded only on Files and composer pages)
-  static/panel.css    composer and review styles
-tests/test_author_*.py, tests/panel_fixture.py (photos and drafts), tools/visual_check.py
+  server.py     JSON and audio route kinds; /create routes; AI transport injection;
+                drafts cache and AI-month cache (one entry each)
+  views.py      create, create_draft, create_profile; «черновик» chip
+  model.py      photo_uses includes drafts (given by the server, §8.8)
+  strings.py    tabs and every new Russian string
+  static/author.js    (A) + MFAuthor.uploadFile(folder, csrf, file) for «Создать»
+  static/create.js    (B′) drop zone, topics, voice, expand, editors, regenerate
+  static/panel.css    create styles
+tests/test_author_{drafts,profile,budget,gemini,create}.py,
+tests/panel_fixture.py (create fixture, FakeGemini), tools/visual_check.py
 KEYS.md, README.md
 ```
 
 The poster stays unchanged. The factory core (`stock`, `ruleset`, `planner`, `runner`,
-`journal`, `checks`) stays unchanged.
+`journal`, `checks`, `attention`, `cli`, `inputs`, `paths`) stays unchanged.
 
 ### 5.2 Files and state
 
 | What | Location | Mode | In git |
 |---|---|---|---|
-| Uploaded photos | `content/stock/<folder>/photos/<id>.<ext>`, `photos/thumb/<id>.jpg`, `photos/view/<id>.jpg`, `photos/index.jsonl` | dirs 0700, files 0600 | no (`content/` is ignored) |
-| Drafts | `content/drafts/<draft-id>/draft.json`, `voice-<n>.webm` (until transcribed), `img/<style>.jpg`, `out/<network>.jpg` | same | no |
-| Queued package | `content/stock/<folder>/<NNN>-<id>.json` and `media/<id>/<network>.jpg` | same | no |
-| Published-now package | `content/packages/<id>.json` and `content/packages/media/<id>/<network>.jpg` | same | no |
-| AI ledger | `<factory state>/ai-ledger.jsonl`, `ai-ledger.lock` | 0600 | no (outside every checkout) |
+| Uploaded photos (A) | `content/stock/<folder>/photos/…`; the default folder is `content/stock/my-photos/` | dirs 0700, files 0600 | no (`content/` is ignored) |
+| Author profile (B′) | `content/profile.json` | 0600 | no |
+| Drafts | `content/drafts/<id>/draft.json` (B′); `img/<style>.jpg`, `out/<network>.jpg` (C) | dirs 0700, files 0600 | no |
+| Queued package (D) | `content/stock/<folder>/<NNN>-<id>.json`, `media/<id>/<network>.jpg` | same | no |
+| Published-now package (D) | `content/packages/<id>.json`, `content/packages/media/<id>/…` | same | no |
+| AI ledger (B′) | `<factory state>/ai-ledger.jsonl`, `ai-ledger.lock` | 0600 | no (outside every checkout) |
 
-`content/` follows `MF_CONTENT_DIR`, the factory state follows `MF_FACTORY_STATE_DIR`.
+`content/` follows `MF_CONTENT_DIR`; the factory state follows `MF_FACTORY_STATE_DIR`. No
+voice recording is ever written (D14).
 
 ### 5.3 Who writes and who reads
 
 | File | Writers | Readers |
 |---|---|---|
-| `stock/<f>/photos/**` | panel upload only | panel (grid, composer, cards) |
-| `content/drafts/**` | panel only | panel |
-| `stock/<f>/<NNN>-<id>.json`, `media/<id>/**` | panel "В очередь" (new files only, `O_EXCL`); orchestrator as before | factory loader, planner, runner, panel |
-| `content/packages/<id>.json`, `media/<id>/**` | panel "Опубликовать сейчас" (new files only) | poster, factory duplicate-id check |
-| `ai-ledger.jsonl` | panel AI calls | panel top bar and composer |
-| poster `posts.jsonl`, `x-ledger.jsonl` | poster only (also when the panel calls it) | panel review status, factory |
+| `stock/<f>/photos/**`, `stock/my-photos/folder.json` | panel upload only | panel; the stock loader reads `folder.json` |
+| `content/profile.json` | panel «Профиль автора» form | panel (every Gemini text request) |
+| `content/drafts/**` | panel only | panel; C and D later |
+| `ai-ledger.jsonl` | panel AI routes | panel («Создать» sub row, refusals) |
+| packages, poster `posts.jsonl`, `x-ledger.jsonl` | unchanged by B′ | unchanged |
 
-## 6. Files tab: photo upload
+## 6. Photos (slice A, built)
+
+Slice A is built as designed in the first revision (`d19ed5f`, fixes in `fea48ca` and
+`82b8311`). This section records it, because B′ reuses it.
 
 ### 6.1 Flow
 
-1. The operator opens a photo-lane folder (an existing card, or "+ Фото-посты · новая
-   папка", which already lands in the folder view). The folder view gets a "Фото · N"
-   section above the package list with two buttons: "Загрузить папку" (`webkitdirectory`,
-   B2) and "Добавить фото" (`multiple`, `accept="image/jpeg,image/png,image/webp"`).
-2. `author.js` sorts the picked files by `webkitRelativePath` (or name), skips files that
-   are not JPEG, PNG or WebP by type and extension, and processes them one at a time:
-   - decode with `createImageBitmap(file)` (EXIF orientation applied, B3). A failure
-     (HEIC on Windows, a broken file) counts as skipped with its reason;
-   - draw two copies with `resizeWidth/Height` and `resizeQuality: "high"`: **thumb**
-     (long side 480 px, JPEG 0.82) and **view** (long side 1 600 px, JPEG 0.88);
-   - `POST /files/photos?folder=F&kind=orig` with the original bytes; the answer is
-     `{"id": "p-…", "dup": false}`. On `dup: true` (same bytes already stored) the next two
-     posts are skipped;
-   - `POST …&kind=thumb&id=P`, then `POST …&kind=view&id=P&w=W&h=H&name=N` (the view copy's
-     size and the original base name).
-3. A `role="status"` line counts "загружено 12 из 40 · пропущено 3 (HEIC)"; the skipped
-   files are listed by name with the reason. At the end the page reloads.
+1. In the folder view of a photo-lane folder, the «Фото · N» section offers «Загрузить
+   папку» (`webkitdirectory`) and «Добавить фото» (`multiple`,
+   `accept="image/jpeg,image/png,image/webp"`).
+2. `author.js` sorts the files and skips non-images and HEIC with a reason. For each file it
+   decodes with `createImageBitmap` (EXIF orientation applied) and draws a **thumb** (480
+   px, JPEG 0.82) and a **view** copy (1 600 px, JPEG 0.88). It then posts `kind=orig`,
+   `kind=thumb` and `kind=view` to `POST /files/photos?folder=F` as raw bodies with
+   `X-CSRF-Token`. A `dup: true` answer skips the other two posts.
+3. A `role="status"` line counts the run; skipped files are listed once per folder with
+   their reason; a clean run reloads the page.
 
 ### 6.2 Server route
 
-`POST /files/photos` belongs to the route table of §14.1 with body kind `image`. In order,
-before reading any body byte:
+`POST /files/photos` (body kind `image`) checks, before any body byte: Host, Origin, CSRF
+header, the folder (`NAME_RE`, exists, lane `photo`, real path inside the stock), the kind
+and id, the length and type limits, and at least 1 GB free. It streams the body into
+`photos/.up-<random>` (`O_EXCL`, 0600), hashes it, and sniffs it with
+`poster.rules.sniff`. It then moves the file in place or answers `dup`. The `view` post
+appends the index row `{"id", "name", "ext", "bytes", "w", "h", "ts"}` under a lock file.
+A photo is listed only when its row exists.
 
-1. `Host` (421), `Origin` present and equal to `http://<Host>` (403), header
-   `X-CSRF-Token` equal to the token (403);
-2. `folder` matches `fstock.NAME_RE`, exists as a stock folder with lane `photo`
-   (404/409); `realpath(stock/F)` lies under `realpath(stock)`; `photos/` is created
-   0700 if absent and must not be a symlink (`os.lstat`);
-3. `kind` is `orig`, `thumb` or `view`; for `thumb`/`view`, `id` matches
-   `^p-[0-9a-f]{16}$` and `photos/<id>.*` exists;
-4. `Content-Length` present and at most the kind's limit (413, connection closed);
-   `Content-Type` in the kind's set (415);
-5. free space on the content filesystem (`os.statvfs`) at least 1 GB plus the body (507).
+### 6.3 Limits
 
-Then it streams `rfile` into `photos/.up-<random>` (`O_CREAT|O_EXCL`, 0600) in 64 KB
-chunks, computing SHA-256 on the way, and stops at `Content-Length`. It sniffs the result
-with `poster.rules.sniff`: `orig` must be JPEG, PNG or WebP (otherwise 415 and the temp
-file is removed); `thumb` and `view` must be JPEG. For `orig` the id is
-`p-` + the first 16 hex digits of the SHA-256; if `photos/<id>.<ext>` exists the temp file
-is removed and the reply is `dup: true`, otherwise `os.replace` moves it in place. For
-`view` the server appends one row to `photos/index.jsonl` under a lock file in `photos/`:
+Original ≤ 25 MB (JPEG, PNG, WebP by sniffing); thumb and view ≤ 2 MB, JPEG; ≤ 2 000
+photos per folder; ≤ 300 files per pick; refusal below 1 GB of free disk. The original
+stays byte-identical, with its EXIF, on this computer only.
 
-```json
-{"id": "p-3f2a9c01b7d4e6a8", "name": "IMG_0412.jpg", "ext": "jpg", "bytes": 6123456,
- "w": 1600, "h": 1200, "ts": "2026-11-11T10:00:00Z"}
-```
+### 6.4 Serving
 
-A photo is listed only when its index row exists, so an upload cut short leaves invisible
-files that the next attempt overwrites. `name` is the original base name, at most 120
-characters, control characters removed; it is data shown escaped, never a path.
+`GET /photo?folder=F&id=P&v=thumb|view|orig` resolves the file inside `photos/`, sniffs
+it, and streams it with `Cache-Control: private, max-age=300`. Anything else is 404.
 
-### 6.3 Limits and formats
+### 6.5 Snapshot cost
 
-| Limit | Value | Reason |
-|---|---|---|
-| Original | ≤ 25 MB; JPEG, PNG, WebP by sniffing | Phone JPEGs are 3–12 MB; HEIC cannot be decoded by the browser on Windows nor sniffed here, so it is refused with "экспортируйте JPEG" |
-| Thumb, view | ≤ 2 MB each, JPEG | Made by the browser at 480 and 1 600 px |
-| Photos per folder | ≤ 2 000 | Keeps the index read and the grid bounded |
-| Files per pick | ≤ 300 (more: "выберите меньше") | One pass of the loop stays short |
-| Disk | refuse below 1 GB free | A full disk would also break the poster's ledger |
+The snapshot key adds one stat per photo index; `model.build` reads each photo folder's
+`index.jsonl` only when the key changes.
 
-Nothing is resized or re-encoded on the server. The original stays byte-identical (with
-its EXIF) on this computer only (§13).
+### 6.6 What the view copy is for
 
-### 6.4 Why thumbnails come from the browser
+The view copy (1 600 px on the long side, JPEG made by the canvas, so no EXIF) is the
+image every Gemini request carries (§8.4, §9.2). At `"resolution": "high"` it costs at
+most 1 120 input tokens whatever its size (G7: the level is the maximum allocated per
+image). It is about 0.4 MB, far inside the 20 MB request limit.
 
-The standard library cannot decode a JPEG. The browser already has the decoded image while
-it uploads, so it makes the thumb (grid, cards) and the view copy (composer preview, Claude
-and Gemini input, §8.4, §9.2). The view copy is 1 600 px on the long side: 58 × 43 = 2 494
-visual tokens for a 4:3 photo on Claude (A3), well inside the 4 784 cap, and about 0.4 MB of
-JPEG, well inside Gemini's 20 MB request (G1).
+### 6.7 Files tab as built
 
-### 6.5 Serving
-
-`GET /photo?folder=F&id=P&v=thumb|view|orig` checks the folder name and the id pattern,
-resolves the file inside `stock/F/photos/` (realpath must stay inside it), sniffs it
-(JPEG, PNG or WebP), and streams it with the sniffed `Content-Type`,
-`Cache-Control: private, max-age=300`. Anything else is 404, as `/img` does today.
-
-### 6.6 Snapshot cost
-
-The depth-1 stock walk sees `photos/` as one entry, so a request still costs one stat walk
-whatever the photo count. An upload changes that entry's mtime, so the next page rebuilds
-the snapshot once. That rebuild is needed, because the cards show photo counts (§6.7).
-`model.build` reads each photo folder's `index.jsonl` (≤ 2 000 short rows) only on such a
-rebuild.
-
-### 6.7 Files tab changes
-
-- **Photo-lane card:** when a folder has photos, its tiles show the first three thumbs and
-  "+N", and the count line reads "39 пакетов · 120 фото". Without photos it stays as now.
-- **Text-lane header:** a button "+ Текстовый пост" opens the composer with no photo; the
-  folder select defaults to the first text folder.
-- **Drafts strip:** above the lanes, "Черновики · 3" with links when drafts exist; a draft
-  whose publish was interrupted reads "прервано — проверьте аккаунт" in `--red`.
-- **Folder view:** the "Фото · N" section (§6.1), a grid of 120 px thumbs (60 per page,
-  "показать ещё"). Each tile carries a "Пост" button (a POST form that creates a draft,
-  §7.2) and, when the photo is used, a text chip: "черновик", "в очереди" or
-  "опубликовано". The package list below gains nothing new.
+Photo-lane cards show the first three thumbs, "+N" and "N пакетов · M фото". The folder
+view has the «Фото · N» section with 60 photos per step and «показать ещё», and the chips
+«в очереди» and «опубликовано» from stock packages. The first revision also planned a
+text-post button, a drafts strip and a «Пост» button on each tile for lane B. In this
+revision the drafts list lives on «Создать» (§8.2) and the tile button moves to slice M
+(§15). Text-only posts are deferred (§19).
 
 ## 7. Drafts
 
 ### 7.1 Schema
 
-`content/drafts/<id>/draft.json`, written atomically (temp file plus `os.replace`), 0600:
+`content/drafts/<id>/draft.json`, written atomically (temp file plus `os.replace`), 0600.
+B′ writes these fields:
 
 ```json
 {
   "schema": 1,
-  "id": "2026-11-11-trip-3f2a",
-  "created": "2026-11-11T10:00:00Z",
-  "updated": "2026-11-11T10:04:12Z",
-  "folder": "trip",
+  "id": "2026-11-12-my-photos-3f2a",
+  "created": "2026-11-12T19:00:00Z",
+  "updated": "2026-11-12T19:04:12Z",
+  "folder": "my-photos",
   "photo": "p-3f2a9c01b7d4e6a8",
-  "hints": "Вчера на конференции…",
-  "networks": ["facebook", "instagram", "linkedin", "x"],
-  "langs": {"facebook": "uk", "instagram": "uk", "linkedin": "en", "x": "en"},
-  "theme": "",
-  "base": "original",
-  "styles": {"blur": "img/blur.jpg"},
+  "topics_auto": "done",
+  "topics": [{"title": "Утро у моря", "angle": "Про дисциплину: почему я бегаю в 6 утра"}],
+  "topic": "Утро у моря — про дисциплину и привычки",
   "variants": {
-    "x": {"text": "…", "quote": "…", "source": "claude",
-          "image": "out/x.jpg",
-          "template": {"crop": "16:9", "focus": [0.5, 0.4], "frame": null, "quote": false}}
+    "x":         {"text": "…", "lang": "en", "source": "gemini"},
+    "linkedin":  {"text": "…", "lang": "en", "source": "gemini"},
+    "instagram": {"text": "…", "lang": "uk", "source": "edited"},
+    "facebook":  {"text": "…", "lang": "uk", "source": "gemini"}
   },
-  "state": "draft",
-  "publish": null
+  "error": null,
+  "state": "draft"
 }
 ```
 
-- `id`: `YYYY-MM-DD-<folder>-<4 hex>`; it matches the poster's id pattern and becomes the
-  package id. `folder` is where the photo lives and the default queue folder; `photo` is
-  null for a text post (then `folder` is a text-lane folder).
-- `langs` values: `uk`, `en` or `en+uk` (both languages, English first). Defaults: Facebook
-  and Instagram `uk`, LinkedIn and X `en`.
-- `networks` defaults to the networks of the poster's main profile; Instagram is removed
-  when `photo` is null.
-- `source`: `claude` or `edited` (the operator changed the text).
-- `state`: `draft`, `publishing`, `published`, `partial`, `queued`. `publish` holds
-  `{"started": ts, "targets": […], "file": "packages/<id>.json"}` once a publish starts.
-- The revision is the SHA-256 of the file. Every write carries the revision it was based on
-  and is refused with "черновик изменён в другом окне — обновите" when it differs (the same
-  pattern as the rules file).
+- `id`: `YYYY-MM-DD-<folder>-<4 hex>`, with the date in the machine zone. It matches the
+  poster's id pattern `[a-z0-9][a-z0-9._-]{0,79}` and later becomes the package id. An
+  existing id retries with new hex.
+- `folder` and `photo` name an indexed photo. A draft always has a photo in B′; text-only
+  posts are deferred (§19).
+- `topics_auto` is `pending` (a new draft with a key, before its automatic request),
+  `done` (the automatic request was reserved, whatever its outcome) or `manual` (no key
+  when the draft was created).
+- `topics`: the last suggestion set (3–5 items) or `[]`. `topic`: the chosen or own topic,
+  at most 2 000 characters.
+- `variants`: empty until «Развернуть». The networks and languages are fixed by the
+  decisions: `x` en, `linkedin` en, `instagram` uk, `facebook` uk. `source` is `gemini` or
+  `edited`. A text is at most 5 000 characters.
+- `error`: `null` or `{"op": "topics|expand|regenerate|voice", "network": …, "text":
+  "<Russian>", "ts": …}`. It is set by a failed AI call and cleared by the next success of
+  the same op.
+- `state`: always `draft` in B′. D adds `publishing`, `published`, `partial` and `queued`,
+  plus `publish`. C adds `base`, `styles`, and per variant `image`, `template` and `quote`.
 
-### 7.2 Lifecycle
+### 7.2 Lifecycle and locks
 
-- `POST /compose/new` (form, `csrf` field; fields `folder`, optional `photo`) creates the
-  folder with `os.mkdir` (an existing id retries with new hex) and redirects to
-  `/compose/<id>`. A GET never writes.
-- Each draft has a lock file `.lock`. An AI call or a publish takes it with
-  `fcntl.flock(LOCK_EX | LOCK_NB)`; a second one gets 409 "уже выполняется". Edits do not
-  take it; they rely on the revision.
-- At most two AI calls run at a time across the panel (a semaphore), which bounds memory
-  for base64 bodies and the spend rate.
-- "Удалить черновик" (form POST, modal confirmation) removes the folder, only in state
-  `draft`. After a successful queue or a publish where every target is `published`, the
-  draft folder is removed; the package and its media are the record. A `partial` draft
-  stays for "Повторить упавшие" (§10.3).
+- `POST /create/new` (JSON `{folder, photo}`) checks that the photo is indexed in that
+  folder, creates the draft folder with `os.mkdir` (0700), and writes `draft.json`. It
+  answers `{"id", "url"}`. At most 500 drafts; above that the answer is 409 «черновиков уже
+  500 — удаление черновиков появится в срезе D».
+- Field writes (topic, text, AI results) take `.lock` in the draft folder with
+  `fcntl.flock(LOCK_EX)` for the read-modify-write only (milliseconds): reload, change the
+  field, set `updated`, replace the file.
+- An AI call takes `.ai.lock` with `LOCK_EX | LOCK_NB` for its whole duration. A second
+  call on the same draft gets 409 «уже выполняется». A panel-wide semaphore admits at most
+  two AI calls at once; a third gets 409 «ИИ занят двумя запросами — подождите».
+- Deleting drafts and removing them after a queue or publish come with D.
 
-## 8. Compose
+### 7.3 Draft list cache
 
-### 8.1 Page
+The server keeps a one-entry cache of draft summaries (`id`, `folder`, `photo`, `topic`,
+`updated`). It is keyed by a depth-0 `scandir` of `content/drafts/` (each draft folder's
+inode, `mtime_ns` and size; replacing `draft.json` changes its folder's mtime). It is
+rebuilt only when that key changes, by reading each `draft.json`. The cache is owned by
+`server.Panel` and passed to the views; the snapshot and its `state_key` do not include
+drafts, so a draft save never rebuilds the factory plan.
 
-`GET /compose/<id>`, modelled on the panel's dark style:
+## 8. «Создать»: photo, topic, texts
 
-- **Head:** "← <folder title>", the draft id in mono, the state word, "Удалить черновик".
-- **Left column (photo):** the photo strip of §9.3 (original and style results side by
-  side) and the per-network previews of §9.1. A text post shows "без фото".
-- **Right column (text):**
-  - "Подсказки" textarea (up to 4 000 characters) with "Записать голос" next to it (§8.3);
-  - a row per network: monogram, a language select (`uk`, `en`, `en+uk`), an on/off switch;
-  - "Сгенерировать · до $0.08" (the reservation bound, §11.2);
-  - one card per network: textarea, the poster's count line ("weighted 212/280") and its
-    errors in `--red` with `role="alert"`, "Перегенерировать · до $0.05" (the bound
-    computed for that call) with an optional one-line wish ("короче", "без хештегов");
-- **Footer:** "Проверить и отправить →" opens the review (§10).
-- **Missing keys:** "нет ANTHROPIC_API_KEY в .env" or "нет GEMINI_API_KEY в .env" replaces the
-  button it disables (names only).
+### 8.1 Tabs and entry
 
-Widths: two columns `minmax(0, 5fr) minmax(0, 7fr)` from 1 200 px; one column below
-(photo first). The named widths are 390, 900 and 1 440 (panel brief §1.2); the visual check
-adds 1 280, 1 600 and 1 920.
+- `strings.TABS` becomes: («create», «Создать»), («connection», «Подключение»),
+  («files», «Медиатека»), («rules», «Правила»), («calendar», «Календарь»), («reach»,
+  «Охваты»), («followers», «Подписчики»). «Диалоги · выкл» stays last.
+- `GET /` answers 302 to `/create`.
+- New pages: `GET /create`, `GET /create/<id>` (id by the pattern of §7.1, else 404) and
+  `GET /create/profile`. All three are tab `create`. The first two load `author.js` and
+  `create.js`; the profile page loads no script.
+- The row under the top bar (`page(sub=…, sub_right=…)`) on these pages holds, on the
+  left, «Новый пост», «Черновик · 12 ноя, 19:04» or «Профиль автора». On the right is the
+  AI month (§11.5).
 
-### 8.2 Hints
+### 8.2 The «Создать» page
 
-Typing autosaves after 800 ms of quiet: `POST /compose/<id>/settings` (JSON `{hints,
-langs, networks, rev}`) answers the new revision. Empty hints are allowed: "просто по
-кнопке" then means Claude writes from the photo alone.
+From top to bottom, in one column at every width (max 960 px wide, centred from 1 000 px):
 
-### 8.3 Voice
+1. **Drop zone** (a `<label>` around a hidden single-file input, `accept="image/jpeg,
+   image/png,image/webp"`): «Бросьте фото сюда», the button «Выбрать фото», and the hint
+   «JPEG, PNG или WebP · Gemini предложит темы (до $0.02)». At least 180 px tall at 390
+   px. Drag-over outlines the zone and changes the hint to «Отпустите — загружу»; drops
+   outside it are cancelled (B3).
+2. **Profile line**: «Профиль автора · заполнен» or «Профиль автора не заполнен — темы и
+   тексты будут общими», linking to `/create/profile`.
+3. **«Недавние фото»** (when any photo exists): the 8 newest index rows across all
+   photo-lane folders, by `ts`, as 72 px thumbs (96 px from 900 px) in a wrapping row. Each
+   is a `<button>` whose name is «Пост из фото <name>».
+4. **«Черновики · N»** (when any exist): the 10 newest by `updated`. Each row has a 48 px
+   thumb, the topic (one line with an ellipsis, the full text in `title`) or «без темы»,
+   and the date, and links to `/create/<id>`.
 
-- "Записать голос" calls `getUserMedia({audio: true})` and records with `MediaRecorder`
-  as `audio/webm;codecs=opus` (or `audio/webm`), the type Gemini documents (G1). When
-  `MediaRecorder.isTypeSupported` accepts neither, the button reads "этот браузер не
-  записывает WebM — откройте панель в Chrome или Edge". While recording, the button reads
-  "Стоп · 0:12" (`aria-pressed="true"`, a `role="status"` timer). Recording stops by
-  itself at 3:00.
-- On stop, `POST /compose/<id>/voice` with the blob (body kind `audio`, ≤ 4 MB, media
-  type `audio/webm`; parameters such as `codecs=opus` are ignored). The server stores
-  `voice-<n>.webm`, reserves the budget (§11.2), and calls Gemini (§8.5). On success it
-  appends the transcript to `hints` (a blank line between), saves the draft, deletes the
-  audio file, settles the ledger and answers `{transcript, rev, month}`. On failure the audio stays and the card
-  offers "Повторить расшифровку".
-- States, each with its own words: "микрофон запрещён в браузере" (`NotAllowedError`),
-  "микрофон не найден" (`NotFoundError`), "запись голоса работает только по адресу
-  localhost" (`navigator.mediaDevices` undefined, B1), "расшифровка…", "бюджет ИИ
-  исчерпан".
-- No playback of the recording: the transcript is what the operator checks and edits.
+Flow:
 
-### 8.4 Claude: generate and regenerate
+- A drop or pick of **one** image runs slice A's `makeCopies` and three posts through
+  `MFAuthor.uploadFile("my-photos", csrf, file)` (§8.8). A `role="status"` line shows
+  «Загрузка фото…», then «Создаю черновик…». Then comes `POST /create/new` with
+  `{folder: "my-photos", photo: id}` and a navigation to its `url`.
+- A drop of several files shows «Перетащите одно фото» and uploads nothing. HEIC, non-image
+  files and decode failures show slice A's reasons (`UPLOAD_JS.heic`, `.type`, `.decode`).
+  An upload refusal shows the server's text. A `dup` answer is fine: the existing photo is
+  used.
+- A recent-photo button posts `/create/new` with that photo's folder and id, without
+  uploading anything.
+- Without JavaScript the page says «Создание постов работает только с включённым
+  JavaScript.»
 
-Request (`claude.py`), sent with `poster.http.json_request` through `UrllibTransport`,
-timeout 120 s:
+### 8.3 The draft page and «Темы»
 
-```
-POST https://api.anthropic.com/v1/messages
-x-api-key: <ANTHROPIC_API_KEY>
-anthropic-version: 2026-10-21
-content-type: application/json
+`GET /create/<id>`. Layout: one column below 1 000 px, in the order photo, «Тема»,
+«Тексты». From 1 000 px there are two columns, `minmax(0, 5fr) minmax(0, 7fr)`: photo and
+«Тема» on the left, «Тексты» on the right. Before «Развернуть», the right column shows
+«Тексты появятся после «Развернуть»».
 
-{"model": "claude-sonnet-5-5",
- "max_tokens": 4000,              (6000 when a network asks for en+uk)
- "system": "<SYSTEM, prompts.py>",
- "thinking": {"type": "between_tools"},
- "output_config": {"effort": "low",
-                   "format": {"type": "json_schema", "schema": <SCHEMA>}},
- "messages": [{"role": "user", "content": [
-   {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg",
-                                "data": "<view copy>"}},
-   {"type": "text", "text": "<USER>"}]}]}
-```
+- **Photo**: the view copy from `/photo?…&v=view`, `object-fit: contain`, at most 280 px
+  tall below 1 000 px and 60vh from 1 000 px, inside a fixed box (no layout shift).
+- **«Тема»** section:
+  - **Automatic topics**: when `topics_auto` is `pending`, `create.js` posts
+    `/create/<id>/topics` with `{"auto": true}` on load. The server flips `topics_auto` to
+    `done` under `.lock` before it reserves; a second automatic request answers 200 with
+    the draft's current topics and sends nothing. While waiting, the section reads
+    «Gemini подбирает темы…» (`role="status"`) and the topic buttons are disabled.
+  - **Cards**: 3–5 `<button>` cards, each with the title (bold) and the angle (one line,
+    wrapping). A tap copies «<title> — <angle>» into the topic box, saves it, and marks
+    that card with the visible word «выбрано» and `aria-pressed="true"`.
+  - **«Ещё темы · до $0.02»** asks again (replacing the cards). When `topics` is empty it
+    reads «Предложить темы · до $0.02».
+  - **Topic box**: label «Тема поста — выберите карточку или напишите свою», a textarea of
+    up to 2 000 characters (a counter appears from 1 800). It autosaves 800 ms after
+    typing stops through `POST /create/<id>/topic`, showing «сохранено».
+  - **«Голос»** next to the box (§8.5).
+  - **«Развернуть · до $0.05»**: disabled with the hint «выберите тему или впишите свою»
+    while the box is empty. After any variant has `source: edited` it reads «Развернуть
+    заново — правки пропадут · до $0.05».
 
-- **Model:** `claude-sonnet-5-5` (A1): good copy in Ukrainian and English at $2/$10. A
-  generation costs about $0.02 (§11.3). Haiku 5.5 would be twenty times cheaper but is
-  described for classification and routing; it is deferred (§18).
-- **SCHEMA:** `{"type": "object", "properties": {"theme": {"type": "string"}, "variants":
-  {"type": "object", "properties": {<net>: {"type": "object", "properties": {"text":
-  {"type": "string"}, "quote": {"type": "string"}}, "required": ["text", "quote"],
-  "additionalProperties": false}, …}, "required": [<requested networks>],
-  "additionalProperties": false}}, "required": ["theme", "variants"],
-  "additionalProperties": false}`, with each network's object written inline (no `$ref`)
-  and no length keywords (A5).
-- **SYSTEM** (English, fixed in `prompts.py`): write as the author in first person; never
-  invent facts beyond the hints and what the photo shows; one variant per requested network;
-  `quote` is one short line (≤ 90 characters) for the quote-on-photo template, in the
-  network's language. Per network, with the hard limits taken from `poster.rules` constants
-  so the prompt and the check cannot drift:
+### 8.4 Gemini: topics, expand, regenerate
 
-  | Network | Target in the prompt | Hard check (poster) |
-  |---|---|---|
-  | Facebook | 400–900 characters, conversational, 0–3 hashtags at the end | none documented |
-  | Instagram | hook in the first 125 characters, at most 1 500 characters, 3–8 hashtags at the end, no links | 2 200 UTF-16 units, 30 hashtags, 20 mentions |
-  | LinkedIn | 600–1 300 characters, professional angle, short paragraphs, at most 3 hashtags | 3 000 after escaping |
-  | X | at most 240 weighted characters (Cyrillic and Latin 1, emoji 2), at most 1 cashtag, no URL unless the hints contain one (a URL raises the X price from $0.015 to $0.200) | 280 weighted, 1 cashtag |
-
-  `en+uk` asks for the English text, a blank line, then the Ukrainian one; on X both must
-  fit together.
-- **USER:** the hints, each network with its language, and for a regeneration the current
-  texts of the other networks (for consistency) plus the operator's one-line wish.
-- **Regenerate one network:** the same request with that network only and
-  `max_tokens: 1500`; it replaces only that variant.
-- **Answer handling:** the first `text` block of `content` is parsed as JSON.
-  `stop_reason` `end_turn` saves the variants (`source: claude`) and answers them with each
-  variant's `check_text` result. `refusal` shows "Claude отказался" and the text it gave;
-  `max_tokens` shows "ответ обрезан — повторите"; both are billed and settled as such
-  (A5). A text over a limit is kept, never cut, and shown with the poster's own error;
-  the operator edits it or regenerates. Nothing retries by itself, so nothing spends
-  without a click.
-
-### 8.5 Gemini transcription
+All three calls (`gemini.py`) are sent with `poster.http.json_request` through
+`UrllibTransport`, timeout 120 s:
 
 ```
 POST https://generativelanguage.googleapis.com/v1beta/interactions
-x-goog-api-key: <GEMINI_API_KEY>
+x-goog-api-key: <GEMINI_API_KEY from the env file>
 Content-Type: application/json
 Api-Revision: 2026-05-20
 
+{"model": "gemini-3.8-flash",
+ "store": false,
+ "generation_config": {"thinking_level": "low", "max_output_tokens": <per call>},
+ "response_format": {"type": "text", "mime_type": "application/json", "schema": <per call>},
+ "input": [
+   {"type": "text", "text": "<INSTRUCTIONS + PROFILE + TASK, prompts.py>"},
+   {"type": "image", "mime_type": "image/jpeg", "resolution": "high",
+    "data": "<base64 of photos/view/<id>.jpg>"}]}
+```
+
+- **Facts behind it:** the endpoint, headers and blocks (G1); `response_format` (G4); the
+  model and its prices (G2, G3); `thinking_level: "low"` because `minimal` is refused on
+  3.8 Flash (G5); `max_output_tokens` bounds thinking too (G5); at most 1 120 tokens for
+  the image (G7); `store: false` (G9).
+- **Unconfirmed:** `v1beta` with `Api-Revision` versus `v1` (G12). If LC1's request is
+  refused, the URL becomes `.../v1/interactions` without the header; one constant
+  changes. The
+  instructions go in the first text block rather than `system_instruction`, so one fewer
+  field shape is unconfirmed.
+- **Before sending:** the view copy must exist, sniff as JPEG, and carry no APP1 segment
+  starting with `Exif\0\0` (a marker walk of at most 64 KB of headers). Otherwise the
+  answer is 409 «копия фото содержит EXIF — загрузите фото заново». No file name, path or
+  original is ever sent.
+
+| Call | Route | `max_output_tokens` | Schema (inline, no `$ref`) |
+|---|---|---|---|
+| Topics | `POST /create/<id>/topics` `{auto}` | 2 000 | `{"type": "object", "properties": {"topics": {"type": "array", "minItems": 3, "maxItems": 5, "items": {"type": "object", "properties": {"title": {"type": "string"}, "angle": {"type": "string"}}, "required": ["title", "angle"], "additionalProperties": false}}}, "required": ["topics"], "additionalProperties": false}` |
+| Expand | `POST /create/<id>/expand` `{}` | 6 000 | `{"type": "object", "properties": {"x": {"type": "string"}, "linkedin": {"type": "string"}, "instagram": {"type": "string"}, "facebook": {"type": "string"}}, "required": ["x", "linkedin", "instagram", "facebook"], "additionalProperties": false}` |
+| Regenerate | `POST /create/<id>/regenerate` `{network, wish}` | 2 500 | `{"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"], "additionalProperties": false}` |
+
+**INSTRUCTIONS** (English, fixed in `prompts.py`):
+
+- Every call: «You help the author write social posts built around this photo. The photo
+  shows the author or their world. Never invent facts beyond the topic, the author profile
+  and what the photo shows. Never name people in the photo. Do not describe the photo's
+  technical qualities.»
+- **Topics**: «Suggest 3 to 5 distinct post topics that fit this photo and the author's
+  themes and audiences. `title`: at most 80 characters, in Russian. `angle`: one sentence
+  in Russian saying what the post would say and for whom.»
+- **Expand**: «Write one post per network, in the first person as the author, on the
+  topic below.» Per network, with the hard limits taken from the `poster.rules` constants
+  so the prompt and the check cannot drift:
+
+  | Network | Language | Target in the prompt | Hard check (poster, never truncating) |
+  |---|---|---|---|
+  | X | English | short and sharp, at most 240 weighted characters (Latin and Cyrillic 1, emoji 2), at most 1 cashtag, no URL unless the topic contains one (a URL raises the X price from $0.015 to $0.200) | 280 weighted, 1 cashtag |
+  | LinkedIn | English | business angle, 600–1 300 characters, short paragraphs, at most 3 hashtags | 3 000 after escaping |
+  | Instagram | Ukrainian | a lively caption with a hook in the first 125 characters, at most 1 500 characters, 3–8 hashtags at the end, no links | 2 200 UTF-16 units, 30 hashtags, 20 mentions |
+  | Facebook | Ukrainian | conversational, 400–900 characters, 0–3 hashtags | none documented |
+
+- **Regenerate**: «Rewrite only the <network> post. Keep its language and rules. The
+  author's wish: <wish or "none">.» The prompt carries that network's current text.
+
+**PROFILE** (§8.7): the non-empty profile fields as labelled lines («Who the author is:
+…», «Audience on LinkedIn: …»). With no profile it reads «Author profile: not filled in;
+write for a general audience.» **TASK**: the topic (expand and regenerate) and the wish
+(regenerate).
+
+**Reply handling** (`gemini.parse`):
+
+1. A 2xx reply with `status` `completed`: the text is the concatenation of the `text`
+   blocks of the last `model_output` step in `steps`, or the top-level `output_text` if a
+   real reply carries that instead (G13; LC1 settles which). The text is parsed as JSON and
+   checked against the call's shape: topics are 3–5 objects with non-empty strings; expand
+   has four non-empty strings; regenerate has one.
+2. `status` `incomplete` gives «ответ Gemini обрезан — повторите». `failed` or
+   `cancelled`, an empty text, invalid JSON or a wrong shape give «Gemini вернул неполный
+   ответ — повторите» (G16). All are settled at the reported `usage` (billed, G5).
+3. A non-2xx reply gives «Gemini не ответил: HTTP <status> — <reduced message>», reduced
+   by `vendor_message` and redacted. `TransportError` or a timeout gives «нет связи с
+   Gemini — повторите».
+4. On success the server stores the result under `.lock` and clears `error`:
+   - **topics** replace `topics`;
+   - **expand** replaces all four `variants` with `source: gemini`, NFC-normalised;
+   - **regenerate** replaces only `variants.<network>`.
+   It answers each variant with `poster.rules.check_text(network, text)` as `{counts,
+   errors}`. A text over a limit is kept whole and never cut: the card shows the poster's
+   error (§8.6). On failure the server stores `error` and answers it with 409 (refusals),
+   502 (vendor error) or 504 (timeout or transport).
+5. Nothing retries by itself, so nothing spends without an action (D13's automatic topic
+   request is the single exception, once per draft).
+
+### 8.5 Voice: recording and transcription
+
+- «Голос» calls `getUserMedia({audio: true})` and records with `MediaRecorder` as
+  `audio/webm;codecs=opus`. Otherwise it uses `audio/ogg;codecs=opus` or `audio/webm`,
+  checked with `isTypeSupported` (B4), with `audioBitsPerSecond: 32000`. If neither type
+  is supported, the button reads «этот браузер не записывает звук — откройте панель в
+  Chrome или Edge».
+- While recording: «Стоп · 0:07» with `aria-pressed="true"` and a `role="status"` timer.
+  Recording stops by itself at 2:00.
+- On stop, `POST /create/<id>/voice` sends the blob (body kind `audio`, at most 1 MB,
+  media type `audio/webm` or `audio/ogg`; parameters are ignored). The server reads the
+  body into memory, checks the container signature (EBML `1A 45 DF A3` or `OggS`), and
+  reserves the bound of §11.2. It then calls:
+
+```
+POST …/v1beta/interactions          (headers as §8.4)
 {"model": "gemini-3.5-flash-lite",
  "store": false,
  "generation_config": {"thinking_level": "minimal", "max_output_tokens": 2000},
@@ -513,19 +565,85 @@ Api-Revision: 2026-05-20
    {"type": "audio", "mime_type": "audio/webm", "data": "<base64>"}]}
 ```
 
-The transcript is the text of the `model_output` step. Usage comes from `usage` (G8).
-Timeout 60 s. The key travels only in the header, never in the URL, so no URL in an error
-can carry it. The dedicated `gemini-3.5-transcribe` is the fallback if transcripts of mixed
-Russian and Ukrainian come out poor (§18).
+- On success the transcript (the reply's text, as in §8.4 step 1, without JSON) is
+  appended to `topic` with a space, under `.lock`. The answer is `{topic, transcript,
+  month}`, and the page puts `topic` into the box.
+- On failure the page keeps the blob and shows «Повторить расшифровку». Nothing about the
+  audio is written anywhere; the body buffer is dropped when the request ends.
+- States, each with its own words: «микрофон запрещён в браузере» (`NotAllowedError`),
+  «микрофон не найден» (`NotFoundError`), «запись голоса работает только по адресу
+  localhost» (`navigator.mediaDevices` undefined, B1), «расшифровка…».
+- There is no playback: the transcript in the box is what the operator checks and edits.
 
-### 8.6 Editing
+### 8.6 Editing the texts
 
-Each textarea autosaves after 800 ms of quiet: `POST /compose/<id>/text` (JSON
-`{network, text, rev}`). The server stores the text NFC-normalised, sets `source: edited`,
-and answers `poster.rules.check_text(network, text)` as `{counts, errors, rev}`. The counts
-on screen are always the poster's own (no JavaScript copy of the X weighting).
+After «Развернуть», «Тексты» shows four cards in this order: X, LinkedIn, Instagram,
+Facebook. Each card has:
 
-## 9. Photo: templates and highlight
+- **Head**: the network monogram and name, then the language word «англ.» or «укр.».
+- **Textarea**: the full text, `white-space: pre-wrap`, growing with its content; nothing
+  is clipped.
+- **Count line**: the poster's own count line in mono (for example «weighted 212/280
+  (twitter-text v3, …)»).
+- **Over a limit**: the line «длиннее лимита: 312/280» in `--red` with `role="alert"`,
+  then the poster's error after the label «Проблема:».
+- **Regenerate row**: one input «пожелание: короче, без хештегов…» (at most 200
+  characters) and «Перегенерировать · до $0.05».
+
+Typing autosaves 800 ms after the last key through `POST /create/<id>/text` (JSON
+`{network, text}`). The server refuses more than 5 000 characters with «текст длиннее 5 000
+знаков» (refused, never cut). It stores the text NFC-normalised, sets `source: edited`, and
+answers `check_text` as `{counts, errors}`. The count line on screen always comes from the
+server, so JavaScript keeps no copy of the X weighting. A busy card disables its own
+buttons and keeps their width.
+
+### 8.7 «Профиль автора»
+
+`GET /create/profile` is a form posting to `POST /create/profile` (body kind `form`, the
+`csrf` field, 16 KB). It works without JS.
+
+| Field | Label | Limit |
+|---|---|---|
+| `who` | Кто вы | 600 characters |
+| `topics` | О чём пишете | 600 |
+| `audience.x`, `.linkedin`, `.instagram`, `.facebook` | Аудитория в X / LinkedIn / Instagram / Facebook | 300 each |
+| `tone` | Тон | 300 |
+| `avoid` | Каких слов и тем избегать | 300 |
+
+- Saving writes `content/profile.json` atomically (0600) as `{"schema": 1, "who": …,
+  "topics": …, "audience": {…}, "tone": …, "avoid": …, "updated": …}` and redirects 303 to
+  `/create/profile?saved=1`, which shows «Профиль сохранён».
+- A field over its limit re-renders the form with the operator's text kept and «<поле>:
+  не больше N знаков» (409); nothing is cut or saved.
+- An explainer under the heading: «Профиль уходит в каждый запрос к Gemini вместе с фото.
+  Хранится только на этом компьютере (content/profile.json).»
+- The last save wins; there is no revision field (D15).
+
+### 8.8 «Медиатека» and the default folder
+
+- **Label**: the `files` tab and its page heading read «Медиатека»; the URL stays `/files`
+  (D11). Everything slice A shows stays as it is.
+- **Default folder**: `photos.ensure_default(stock_root)` runs in `pre_check` when the
+  kind is `orig` and the folder is `my-photos`, and only when `stock/my-photos` does not
+  exist. It creates `stock/` (0700) if needed, makes `stock/.my-photos.<random>/` (0700),
+  and writes `folder.json` `{"schema": 1, "title": "Мои фото", "lane": "photo"}` (0600,
+  `O_EXCL`). It then runs `os.rename` to `stock/my-photos`. If the target appeared
+  meanwhile, the rename fails, the prepared folder is removed, and the existing folder is
+  used. A `my-photos` of another lane gets the usual 409 «папка «my-photos» не из полосы
+  фото-постов». The folder then behaves like any photo folder: a card in «Фото-посты», «0
+  пакетов · N фото», «никто не берёт · расход 0» until a rule reads it (D offers one).
+- **Chip «черновик»**: `photo_uses` also marks a photo «черновик» when a draft names it and
+  no stock package does («в очереди» and «опубликовано» win). The draft summaries come
+  from the server's draft cache (§7.3), passed in by the view; `model.build` does not read
+  drafts.
+- **`author.js`**: the per-file upload (decode, copies, three posts) becomes
+  `MFAuthor.uploadFile(folder, csrf, file)`, which returns a promise of `{id, dup}`. The
+  folder view's loop calls it unchanged in behaviour; «Создать» calls it with
+  `my-photos`.
+
+## 9. Photo: templates and highlight (slice C)
+
+Unchanged from the first revision except where noted.
 
 ### 9.1 Code templates (per network, in the browser)
 
@@ -539,26 +657,26 @@ original, or one Gemini result, §9.3) and saved as JPEG.
 | LinkedIn | original ratio | original, 1.91:1, 1:1 | long side 2 048 |
 | X | 16:9 | 16:9, original, 1:1 | long side 1 600 |
 
-- **Crop:** the window is the largest of the chosen ratio inside the base, centred on the
-  focus point; one click on the preview sets the focus (default centre). The output never
-  upscales: a smaller base gives a smaller output.
+- **Crop:** the largest window of the chosen ratio inside the base, centred on the focus
+  point; one click on the preview sets the focus. The output never upscales.
 - **Frame:** an inset border of `max(16 px, 2.5 % of the short side)` in white, black or
-  `#e8c47c` (the photo-lane accent).
-- **Quote:** the variant's `quote` on a band of `rgba(0, 0, 0, 0.6)` at the bottom (or top)
-  third, white `600` weight system sans (`system-ui, "Segoe UI", sans-serif`), sized from
-  6 % of the width down until it fits in at most 4 lines of 86 % width (`measureText`).
-  White on that band over a white photo is about 5.7:1 (WCAG formula).
-- **Save:** "Сохранить картинки" posts each network's JPEG to
-  `POST /compose/<id>/image?network=N` (body kind `image`, ≤ 8 MB, JPEG). Quality starts
-  at 0.9 and steps down to 0.8 and 0.7 when the blob is over the network's byte limit. The
-  server sniffs it, refuses an APP1 `Exif` segment (§13), runs
-  `poster.rules.check_image(network, info)`, stores `out/<network>.jpg` and answers the
-  check. The template settings go with `POST /compose/<id>/settings`.
+  `#e8c47c`.
+- **Quote:** a short line on a band of `rgba(0, 0, 0, 0.6)` at the bottom or top third,
+  white `600` system sans, sized down from 6 % of the width until it fits in at most 4
+  lines of 86 % width. The line comes from the variant's `quote`. B′ does not generate
+  quotes: C adds a `quote` string per network to the expand schema of §8.4, and the
+  operator can type one for older drafts.
+- **Save:** «Сохранить картинки» posts each network's JPEG to `POST
+  /compose/<id>/image?network=N`, renamed `POST /create/<id>/image` in C (body kind
+  `image`, at most 8 MB, JPEG). Quality starts at 0.9 and steps down to 0.8 and 0.7 above
+  the network's byte limit. The server sniffs the image, refuses an APP1 `Exif` segment
+  (the marker walk B′ already has, §8.4), runs `check_image`, and stores
+  `out/<network>.jpg`.
 
 ### 9.2 Gemini highlight styles
 
-Three styles, one Gemini call per click (`POST /compose/<id>/highlight` with JSON
-`{style, who, rev}`), each button with its price bound ("до $0.09"):
+Three styles, one Gemini call per click (`POST /create/<id>/highlight` with JSON `{style,
+who}`), each button showing its bound («до $0.09»):
 
 | Style | Button | Instruction (prompts.py, English) |
 |---|---|---|
@@ -566,12 +684,11 @@ Three styles, one Gemini call per click (`POST /compose/<id>/highlight` with JSO
 | `glow` | Свечение | Add a soft warm rim light and glow around the main person. Do not change the face, features, body, clothes or the background content |
 | `outline` | Контур | Add a thin soft white outline around the main person, sticker-like. Change nothing else |
 
-All three append: "The main person is the most prominent person in the photo" plus the
-operator's optional one-line description ("мужчина в синей куртке"), and "Do not add text,
-logos or other people."
+All three append "The main person is the most prominent person in the photo", the
+operator's optional one-line description, and "Do not add text, logos or other people."
 
 ```
-POST https://generativelanguage.googleapis.com/v1beta/interactions   (headers as §8.5)
+POST https://generativelanguage.googleapis.com/v1beta/interactions   (headers as §8.4)
 
 {"model": "gemini-nano-banana-2.1",
  "store": false,
@@ -582,113 +699,89 @@ POST https://generativelanguage.googleapis.com/v1beta/interactions   (headers as
                      "image_size": "2K"}}
 ```
 
-Timeout 180 s. The first `image` block of the `model_output` step is decoded, sniffed
-(must be JPEG) and stored as `img/<style>.jpg`, replacing an earlier result of the same
-style; `styles` records it. An answer without an image (a refusal or a safety block) shows
-"Gemini не вернул картинку" with its text part and is settled at the usage reported. The
-result carries Google's SynthID watermark (G5).
+Timeout 180 s. The first `image` block of the `model_output` step is decoded, sniffed (it
+must be JPEG) and stored as `img/<style>.jpg`. An answer without an image shows «Gemini не
+вернул картинку» with its text part and is settled at the reported usage. The result
+carries SynthID (G11).
 
 ### 9.3 Side by side, and the pick
 
-The left column shows two equal tiles side by side at every width (at 390 px each is about
-170 px wide): **Оригинал** and the selected style result, each labelled. Under them, a row
-of chips "Оригинал · Размыть фон · Свечение · Контур"; a chip without a result reads
-"создать · до $0.09". Selecting a chip shows that result in the right tile; "Взять за
-основу" sets `base`, and the per-network previews (§9.1) redraw from it. The original is
-always kept, so a drifted face costs only the call.
+The draft page's photo becomes two equal tiles at every width, «Оригинал» and the selected
+style result, each labelled. Under them is a row of chips «Оригинал · Размыть фон ·
+Свечение · Контур»; a chip without a result reads «создать · до $0.09». «Взять за основу»
+sets `base`, and the per-network previews (§9.1) redraw from it. The original is always
+kept.
 
-### 9.4 What a text post does
+## 10. Send (slice D)
 
-A draft without a photo has no left column images, no Instagram, and no template
-controls; everything else is the same.
-
-## 10. Send
+Unchanged from the first revision except: the review page is `GET /create/<id>/review`,
+reached from the draft page by «Проверить и отправить →»; the package `theme` is the
+draft's `topic`; and the networks are the four of §7.1 that the poster's main profile has
+targets for.
 
 ### 10.1 Review
 
-`GET /compose/<id>/review`, reached by "Проверить и отправить →". For each target of the
-selected networks (from the poster's main profile, with checkboxes):
+For each target, the review shows:
 
-- the monogram, the target id, the language;
-- the full text (`white-space: pre-wrap`) and the image of `out/<network>.jpg`;
+- the monogram, the target id, the language, the full text and the image of
+  `out/<network>.jpg`;
 - the poster's own checks, exactly as `poster publish` runs them: `check_text`,
-  `check_image(sniff(...))`, missing variables of the target (names only), LinkedIn token
-  problems, and for X `xapi.estimate` ("X: $0.215 с картинкой") and the X month against
-  `X_MONTHLY_CAP_USD`;
-- a photo post whose network has no saved `out/<network>.jpg` gets the problem "картинка
-  для <сеть> не сохранена";
-- a problem disables both send buttons and is listed with `role="alert"`.
+  `check_image(sniff(...))`, missing variables (names only), LinkedIn token problems, and
+  for X `xapi.estimate` and the X month against `X_MONTHLY_CAP_USD`.
 
-Then two actions:
+A missing `out/<network>.jpg` is the problem «картинка для <сеть> не сохранена». Any problem
+disables both buttons and is listed with `role="alert"`.
 
-- **Опубликовать сейчас** — a native `<dialog>` opened with `showModal()` asks "Опубликовать
-  в N сетей сейчас? Это нельзя отменить." with Cancel and Publish (§10.3).
-- **В очередь** — a folder select (photo-lane folders for a post with an image, text-lane
-  folders for a text post; default the draft's folder) and, for the chosen folder, the
-  rule that reads it and its next slot, or "никакое правило не берёт эту папку — пост будет
-  ждать" with a link to Правила (§10.4).
+- **Опубликовать сейчас**: a native modal `<dialog>` asks «Опубликовать в N сетей сейчас?
+  Это нельзя отменить.» (§10.3).
+- **В очередь**: a folder select. It defaults to the draft's folder, which is `my-photos`
+  for posts started from «Создать». For the chosen folder it shows the rule that reads it
+  and its next slot in words. When no rule reads the folder, it offers to create one
+  («пн, ср, пт в 10:00») through the rules checks (§10.4).
 
-Pressing either button is the operator's approval after seeing every variant: decision 4
-of §1, and the approval rule of `factory.md` §6.1.
+Pressing either button is the operator's approval after seeing every variant (decision of
+2026-11-11; `factory.md` §6.1).
 
 ### 10.2 The package written
 
-Both actions write a poster package, schema 1:
-
 ```json
-{"schema": 1, "id": "2026-11-11-trip-3f2a", "theme": "<theme>",
- "variants": {"facebook": {"text": "…", "image": "media/2026-11-11-trip-3f2a/facebook.jpg"},
-              "x": {"text": "…", "image": "media/2026-11-11-trip-3f2a/x.jpg"}},
- "meta": {"approved_by_operator": "2026-11-11", "source": "panel",
+{"schema": 1, "id": "2026-11-12-my-photos-3f2a", "theme": "<topic>",
+ "variants": {"facebook": {"text": "…", "image": "media/2026-11-12-my-photos-3f2a/facebook.jpg"},
+              "x": {"text": "…", "image": "media/2026-11-12-my-photos-3f2a/x.jpg"}},
+ "meta": {"approved_by_operator": "2026-11-12", "source": "panel",
           "photo": "p-3f2a9c01b7d4e6a8"}}
 ```
 
-The images are copied from `out/` into `media/<id>/` next to the package file, so the refs
-(with `/`, relative to the package folder) resolve in the poster and pass the panel's `/img`
-check. The approval date is today in the machine zone. After writing, the panel loads the
-file with `poster.package.load` and checks every variant with `check_text`/`check_image`; a
-failure removes what was written and shows the problems.
+The images are copied from `out/` into `media/<id>/` next to the package file. After
+writing, the panel loads the file with `poster.package.load` and checks every variant; a
+failure removes what was written.
 
 ### 10.3 Publish now
 
-1. Under the draft lock: write `content/packages/<id>.json` with `O_EXCL` (an existing id
-   is refused) and its media; the draft becomes `publishing` with `publish.started` and the
-   targets.
-2. Start one background thread (one publish at a time in the panel; a second gets 409
-   "идёт другая публикация"). It calls
-   `poster.cli.main(["--env-file", ENV, "publish", PATH, "--targets", "t1,t2"])` in this
-   process, exactly as the factory runner does, with output captured and redacted. The
-   poster's pre-flight, X ledger, record and partial-failure rules apply unchanged.
-3. Redirect to the review page, which now shows per-target progress. `author.js` polls
-   `GET /compose/<id>/status` every 3 s; the server answers from the poster record
-   (`Records.latest(id, target)` for rows after `publish.started`): `published` with its
-   link, `failed` with the reduced error, `unknown — проверьте аккаунт`, or "ждём…".
-4. When the thread ends: every target `published` → draft removed, the page shows the links;
-   any `failed` → `partial`, with "Повторить упавшие" (the same call; the poster skips
-   published targets and refuses unknown ones); exit 2 (pre-flight refusal) → back to
-   `draft` with the poster's problems.
-5. Ctrl+C on the panel while a publish runs prints "идёт публикация <id>: жду конца
-   (Ctrl+C ещё раз — прервать)" and joins the thread. If the process dies anyway, the next
-   start finds `publishing` with no record rows for some targets and shows them as
-   "прервано — проверьте аккаунт" with the poster command for `--force-target`. The
-   panel adds this item to its attention list in `model.build` (`factory/attention.py`
-   stays unchanged).
+1. Under the draft lock: write `content/packages/<id>.json` with `O_EXCL` and its media.
+   The draft becomes `publishing` with `publish.started` and the targets.
+2. One background thread at a time calls `poster.cli.main(["--env-file", ENV, "publish",
+   PATH, "--targets", "t1,t2"])` in this process, with output captured and redacted.
+3. The review page polls `GET /create/<id>/status` every 3 s. The answer comes from the
+   poster record: `published` with its link, `failed` with the reduced error, `unknown —
+   проверьте аккаунт`, or «ждём…».
+4. When the thread ends:
+   - every target `published`: the draft is removed;
+   - any `failed`: the draft becomes `partial` with «Повторить упавшие»;
+   - exit 2: the draft goes back to `draft` with the poster's problems.
+5. Ctrl+C waits for a running publish. An interrupted one shows «прервано — проверьте
+   аккаунт» and an attention item.
 
 ### 10.4 Add to the queue
 
-Under the panel's `write_lock`: pick `NNN` as the largest numeric prefix of the folder's
-`*.json` files plus one (three digits, more when needed), write
-`stock/<folder>/<NNN>-<id>.json` with `O_EXCL` and its `media/<id>/`, then reload the entry
-with `factory.stock.reload_entry` and require no problems (otherwise remove and refuse).
-The draft is removed and the page redirects to `/files?folder=<folder>#pkg-<id>`. The
-factory then publishes it in file order when a rule reaches it; nothing else changes in the
-factory.
+Under the panel's `write_lock`: the next `NNN`, `stock/<folder>/<NNN>-<id>.json` with
+`O_EXCL` and `media/<id>/`, then `factory.stock.reload_entry` with no problems allowed. The
+draft is removed; the page redirects to `/files?folder=<folder>#pkg-<id>`.
 
 ### 10.5 The rest of the panel
 
-The new packages appear everywhere the factory already shows packages: folder counts and
-runway, Calendar slots, Reach rows after publication. The Connection, Rules, Calendar,
-Reach and Followers tabs need no change.
+New packages appear wherever the factory shows packages. «Удалить черновик» (a form POST
+with a modal confirmation, only in state `draft`) comes with D.
 
 ## 11. AI budget guard
 
@@ -698,358 +791,636 @@ Reach and Followers tabs need no change.
 `poster.state.locked`, `append_jsonl` and `read_jsonl`:
 
 ```json
-{"ts": "…", "month": "2026-11", "rid": "uuid", "vendor": "anthropic", "model": "claude-sonnet-5-5",
- "op": "generate", "draft": "2026-11-11-trip-3f2a", "price": "0.0733", "status": "reserved"}
-{"ts": "…", "month": "2026-11", "rid": "uuid", "status": "ok", "actual": "0.0214",
- "usage": {"in": 4521, "out": 1236}}
+{"ts": "…", "month": "2026-11", "rid": "uuid", "vendor": "google", "model": "gemini-3.8-flash",
+ "op": "expand", "draft": "2026-11-12-my-photos-3f2a", "price": "0.0406", "status": "reserved"}
+{"ts": "…", "month": "2026-11", "rid": "uuid", "status": "ok", "actual": "0.0109",
+ "usage": {"in": 3612, "out": 1480, "thought": 640}, "http": 200, "state": "completed"}
 ```
 
-- `reserve(estimate)`: under the lock, sum the month and refuse when
-  `total + estimate > AI_MONTHLY_CAP_USD`; otherwise append the `reserved` row. Then the
-  call is sent.
-- `settle`: `ok` with `actual` from the vendor's usage; `failed` (counts 0) only for a 4xx
-  answer that generated nothing (400, 401, 403, 404, 413, 429); `unknown` (counts the
-  reservation) for 5xx, timeouts and transport errors.
-- Month total: per `rid`, `actual` when `ok`, the reservation when `reserved` or
+- `reserve(op, bound)`: under the lock, sum the month and refuse when `total + bound >
+  AI_MONTHLY_CAP_USD`; otherwise append the `reserved` row. Only then is the request
+  built and sent.
+- `settle`:
+  - `ok`: `actual` from `usage`, also for `incomplete` and parse failures, which are billed;
+  - `failed` (counts 0): only a 4xx reply (400, 401, 403, 404, 413, 429), which generated
+    nothing;
+  - `unknown` (counts the reservation): 5xx, timeouts and transport errors.
+- **Month total:** per `rid`, the `actual` when `ok`, the reservation when `reserved` or
   `unknown`, 0 when `failed`, over rows whose reservation month is the current UTC month
-  (the X ledger's month rule).
-- The refusal text: "Бюджет ИИ: потрачено $9.95 из $10.00, этот запрос — до $0.08. Спросите
-  оператора; лимит меняется в .env (AI_MONTHLY_CAP_USD)". Nothing is sent.
+  (the X ledger's rule). A reservation left by a killed panel counts, which errs on the
+  safe side.
+- **Refusal text:** «Бюджет ИИ на ноябрь: потрачено $9.99 из $10.00, этот запрос — до
+  $0.05. Новые запросы — с 1 декабря или после увеличения AI_MONTHLY_CAP_USD в .env.»
+  Nothing is sent. Routes answer 409 `{"error": <text>}`.
 
-### 11.2 Reservation bounds (computed before each call)
+### 11.2 Bounds (reserved before each call, shown on each button)
 
-| Call | Input bound | Output bound | Bound (typical) |
-|---|---|---|---|
-| Claude generate | UTF-8 bytes of system + user text (a token is never shorter than a byte) + `⌈w/28⌉·⌈h/28⌉` of the view copy, capped at 4 784 | `max_tokens` 4 000 (6 000 with `en+uk`) | ≈ $0.073, $0.093 with `en+uk` ($0.02) |
-| Claude regenerate | same, plus the bytes of the other variants | 1 500 | ≈ $0.05 with typical texts ($0.01) |
-| Gemini transcription | 32 tokens/s × 180 s + prompt bytes | 2 000 at $2.50 | ≈ $0.007 ($0.002) |
-| Gemini highlight (2K) | prompt bytes + 2 000 for the photo (**U**, G11) at $1.50 | 1 680 image tokens at $30 + 4 000 text or thought tokens at $7.50 (**U**, G11) | ≈ $0.086 ($0.055) |
+Tokens are bounded by UTF-8 bytes, because a token covers at least one byte. The photo is
+at most 1 120 tokens at `resolution: "high"` (G7). Output is bounded by `max_output_tokens`,
+thinking included (G5). Audio is bounded by its length at Opus's lowest bitrate:
+`ceil(bytes × 8 / 6 000)` seconds × 32 tokens (B5, G8).
 
-Settling prices Claude `usage.input_tokens` and `usage.output_tokens`; Gemini
-`total_input_tokens` at the input rate, `total_output_tokens` at the image rate (an upper
-bound when part of it is text) and `total_thought_tokens` at the text rate. A month of 30
-photo posts (one generation, two regenerations, one voice note and one or two styles each)
-comes to about $3.70, inside $10.
+- **Reserved bound:** computed from the actual bytes of this call.
+- **Button bound:** the static worst case (every field at its limit, 4 bytes per
+  character), rounded up to the cent, for the price period of today's UTC date. The
+  reserved bound is never above it.
 
-### 11.3 Price table (`prices.py`, read 2026-11-11)
+| Call | Input bound (worst case) | Output bound | Button: through 2026-12-31 / from 2027-01-01 | Typical (U until LC1) |
+|---|---|---|---|---|
+| Topics (3.8 Flash) | template + profile 3 000 ch + photo ≈ 16 100 | 2 000 | до $0.02 / до $0.04 | ≈ $0.005 |
+| Expand (3.8 Flash) | + topic 2 000 ch ≈ 24 100 | 6 000 | до $0.05 / до $0.09 | ≈ $0.011 |
+| Regenerate (3.8 Flash) | + text 5 000 ch + wish 200 ch ≈ 44 900 | 2 500 | до $0.05 / до $0.09 | ≈ $0.005 |
+| Voice (3.5 Flash-Lite) | 1 MB body → ≤ 1 399 s × 32 + prompt ≈ 45 800 | 2 000 | до $0.02 / до $0.02 | ≈ $0.001 |
 
-| Model | Input / MTok | Output / MTok | Source |
-|---|---|---|---|
-| `claude-sonnet-5-5` | $2.00 | $10.00 | [Anthropic pricing](https://platform.claude.com/docs/en/about-claude/pricing) |
-| `gemini-3.5-flash-lite` | $0.30 (audio too) | $2.50 (including thinking) | [Gemini pricing](https://ai.google.dev/gemini-api/docs/pricing) |
-| `gemini-nano-banana-2.1` | $1.50 | text $7.50, image $30.00 (2K = 1 680 tokens) | [Gemini pricing](https://ai.google.dev/gemini-api/docs/pricing) |
+Settling prices `total_input_tokens` at the input rate and `total_output_tokens +
+total_thought_tokens` at the output rate. If LC1 shows that output already includes
+thought (G14), the sum is an upper bound and the code drops the second term. A month of 30
+photo posts (topics, one expand, two regenerations and one voice note each) comes to about
+$0.8 (about $1.6 at 2027 prices), inside $10.
 
-Prices live in code next to their URL and date; a price change is a reviewed code change.
-The ledger stores the computed dollars, so old rows keep their prices.
+### 11.3 Price table (`prices.py`, read 2026-11-12)
+
+| Model | Input / MTok | Output / MTok (thinking included) | Valid | Source |
+|---|---|---|---|---|
+| `gemini-3.8-flash` | $0.75 | $3.75 | through 2026-12-31 (UTC date of the call) | [Gemini pricing](https://ai.google.dev/gemini-api/docs/pricing) |
+| `gemini-3.8-flash` | $1.50 | $7.50 | from 2027-01-01 | same |
+| `gemini-3.5-flash-lite` | $0.30 (audio too) | $2.50 | — | same |
+| `gemini-nano-banana-2.1` (C) | $1.50 | text $7.50, image $30.00 (2K = 1 680 tokens) | read 2026-11-11 | same |
+
+Prices live in code next to their URL and read date, and a price change is a reviewed code
+change. The ledger stores dollars, so old rows keep their prices.
 
 ### 11.4 Cap setting
 
-`AI_MONTHLY_CAP_USD` in the env file, default `10.00`, a finite decimal ≥ 0 (validated like
-`X_MONTHLY_CAP_USD`). Only the operator changes it.
+`AI_MONTHLY_CAP_USD` in the env file, default `10.00`. It must be a finite decimal ≥ 0,
+validated like `X_MONTHLY_CAP_USD`; a bad value refuses every AI call with «AI_MONTHLY_CAP_USD
+в .env: нужно число, например 10.00». Only the operator changes it.
 
-### 11.5 Top bar
+### 11.5 Where the month is shown, and the top-bar measurement
 
-A text item after the X meter in `.status`: "ИИ $0.84 из $10.00" in mono, with
-`title="Claude + Gemini за <месяц>, по UTC"`. It turns `--red` and reads "ИИ $9.95 из
-$10.00 · лимит" when less than $0.10 remains (above every bound of §11.2 with typical
-texts). It reads the month total through a one-entry cache keyed by the ledger's
-`(ino, mtime_ns, size)` and the current UTC month, owned by the server and passed to the
-view through `Ctx`, so a page costs one `stat` and the snapshot is not rebuilt by AI calls.
+The right side of the row under the top bar on every «Создать» page reads «ИИ · ноябрь
+$0.84 из $10.00» in mono, with `title="Gemini за <месяц>, по UTC"`. It turns `--red` and
+adds «· лимит» when less than the largest button bound remains. The month total is read
+through a one-entry cache keyed by the ledger's `(ino, mtime_ns, size)` and the UTC month.
+The cache is owned by `server.Panel`, so a page costs one `stat` and AI calls never
+rebuild the snapshot.
 
-**Measurement**, taken before choosing where the item goes, because the bar is crowded. Main
-at `f09433c` with the full-width lane's `panel.css` (`ea21c24`) applied, in a scratch
-export; the data fixture of `tests/panel_fixture.py`; the Files tab;
-`chrome-headless-shell` 156.0.8078.4 at device scale 1; text boxes measured with
-`getBoundingClientRect`, `scrollWidth` and `Range.getClientRects`; 2026-11-11.
+**Measurement** (2026-11-12): `main` at `82b8311` exported twice to scratch. The second
+copy has `strings.TABS` with «Создать» first and «Медиатека», plus a sub-row item «ИИ
+ноябрь $10.00 из $10.00» on `/files`. Data fixture of `tests/panel_fixture.py`, `/files`
+and `/connection`. Chrome for Testing 156.0.8078.4 headless shell at device scale 1, `.topbar`
+measured by `getBoundingClientRect`, `scrollWidth` against `clientWidth` for every tab.
 
-| Viewport | Top bar today | With "ИИ $10.00 из $10.00" (text, 126 px) | With bar + text (190 px) | With "ИИ ноябрь $0.84 из $10.00" + bar (230 px) |
-|---|---|---|---|---|
-| 390 | 231.8 px, 3 status rows | 255.2 px, 4 rows | — | 255.2 px |
-| 900 | 109 px | 109 px (fits the status row) | — | 132.4 px (timer wraps to a third row) |
-| 1 280 | 109 px | 109 px | 109 px | 109 px |
-| 1 440 | 67 px, one line (41.3 px free) | 109 px (status row under the tabs) | 109 px | 109 px |
-| 1 600 | 67 px | 67 px (63.5 px free) | 109 px | — |
-| 1 920 | 67 px | 67 px | — | 67 px |
+| Viewport | Top bar today | With «Создать» and «Медиатека» |
+|---|---|---|
+| 390 | 231.8 px (tabs in 3 rows) | 231.8 px (3 rows) |
+| 600 | 170.4 px | 170.4 px |
+| 900, 1 000, 1 280 | 109 px | 109 px |
+| 1 414, 1 440 | 67 px (one line) | 109 px (status under the tabs) |
+| 1 600, 1 920 | 67 px | 67 px |
 
-No text was cut in any case (`scrollWidth = clientWidth`, one line per item) and no page
-scrolled sideways. The text-only item keeps 900 and 1 600 unchanged and moves the
-one-line threshold from about 1 399 px to about 1 537 px of viewport; between them the
-status row sits under the tabs, as it already does at 1 280. Folding "· ИИ $0.84 из $10"
-into the X meter would need about 113 px (17 mono characters at the measured 6.6 px) where
-41 px are free, so it would wrap too while changing the X meter's agreed text. The visual
-check's 1 440 screenshots will show the two-row top bar; that is the expected result.
+- The one-line threshold moves from 1 399 px to 1 514 px of viewport.
+- The sticky bar (from 900 px) stays at or under 109 px, inside the 136 px
+  `scroll-padding-top`.
+- No tab text was cut, and no page scrolled sideways at any width.
+- The sub row stayed one 32 px row with the AI item at every width.
+- The visual check's 1 440 screenshots of every tab will show the two-row top bar, as at 1
+  280 today; that is the expected result.
 
 ## 12. Keys and models
 
 | Name (env file) | Purpose | Used by |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | Claude Messages API, header `x-api-key` | `factory/authoring/claude.py` |
 | `GEMINI_API_KEY` | Gemini Interactions API, header `x-goog-api-key` | `factory/authoring/gemini.py` |
 | `AI_MONTHLY_CAP_USD` | optional, AI month cap (default `10.00`) | `budget.py` |
 
-- `KEYS.md` moves `GEMINI_API_KEY` from "Planned" into a new "AI (panel authoring)" table
-  with the other two names. Values only in the env file.
-- Both key names contain `KEY`, so `poster.redact.Redactor.add_env` already masks their
-  values in every page, JSON reply and log line.
-- Keys are read from the env file at call time (`config.load_env`), never from the process
-  environment, like every other credential here.
-- Models (verified 2026-11-11): `claude-sonnet-5-5` (A1), `gemini-3.5-flash-lite` (G2),
-  `gemini-nano-banana-2.1` (G6). They are constants in `prompts.py`.
-- The Gemini key must belong to a Google Cloud project with an active billing account.
-  Otherwise the service is "Unpaid", and Google may have people read the operator's photos
-  and voice (G9). The panel cannot detect the tier; the operator confirms it (§17).
+- `KEYS.md` moves `GEMINI_API_KEY` from «Planned» into a new table «AI (panel)» with
+  `AI_MONTHLY_CAP_USD`. Values live only in the env file.
+- The name contains `KEY`, so `Redactor.add_env` already masks its value in every page,
+  JSON reply and log line.
+- The key is read from the env file at call time (`config.load_env`), never from the
+  process environment, and travels only in the header. It never appears in a URL, so no
+  URL in an error can carry it.
+- Models are constants in `prompts.py`: `gemini-3.8-flash` (topics, texts),
+  `gemini-3.5-flash-lite` (voice), and `gemini-nano-banana-2.1` (C).
+- The project has no Anthropic key and no Anthropic code path (decision of 2026-11-12).
+- The key's Google Cloud project must have an active billing account; otherwise photos
+  and voice fall under the unpaid terms (G10). The panel cannot detect the tier; the
+  operator answered on 2026-11-12 that billing is on or will be turned on.
 
 ## 13. Security
 
 | Threat | Server-side check | Test (hostile input) |
 |---|---|---|
-| A foreign site posts an upload or starts a paid call from the operator's browser | Every new POST: `Host` (421); for `fetch` bodies `Origin` must be present and equal `http://<Host>`, and `X-CSRF-Token` must match (403). A custom header forces a CORS preflight; the server has no `do_OPTIONS`, so the preflight gets 501 and the browser never sends the request. Form POSTs keep the `csrf` field | POST without the header, with a wrong token, with `Origin: http://evil.example`, without `Origin`; each gets 403 and the ledger, drafts and photos are unchanged |
+| A foreign site starts an upload or a paid call from the operator's browser | Every new POST: `Host` (421). For JSON and audio bodies `Origin` must be present and equal `http://<Host>`, and `X-CSRF-Token` must match (403) before any body byte. A custom header forces a CORS preflight, which the server refuses (no `do_OPTIONS`, 501). The profile form keeps the `csrf` field | POST each new route without the header, with a wrong token, with `Origin: http://evil.example`, without `Origin`: 403; the ledger, drafts and profile are unchanged and the fake transport saw nothing |
 | DNS rebinding | `Host` check on every route (421) | Wrong `Host` on each new GET and POST |
-| Oversized or endless bodies | Per-route `Content-Length` limit checked before reading (413, connection closed); streaming stops at the declared length; free-space check (507) | 26 MB `orig`, 9 MB rendered image, 5 MB audio, 70 KB JSON; missing `Content-Length` (411) |
-| Path traversal and symlinks | Folder names by `NAME_RE` and must exist; photo ids by pattern; draft ids by the poster id pattern; draft files from a fixed set (`img/<style>.jpg`, `out/<network>.jpg`); `realpath` must stay inside its root; `photos/` must not be a symlink; temp files `O_EXCL` | `folder=../x`, `id=../../.env`, `name=../../draft.json`, a `photos` symlink to `/tmp`; all 404 or 409 and nothing written outside |
-| A non-image saved as a photo | `poster.rules.sniff` on the stored bytes; `orig` JPEG/PNG/WebP, others JPEG | an HTML file sent as `image/jpeg`: 415, temp removed |
-| Camera metadata (GPS) reaching a network | Every published image is a canvas re-encode (§9.1). The server walks the JPEG markers of each rendered image and refuses an APP1 segment that starts with `Exif\0\0` | a rendered JPEG with an injected Exif segment: 422 |
-| Key values in pages, JSON or logs | Keys only in headers; JSON and HTML replies pass `Redactor.redact`; vendor errors pass `vendor_message`; the panel logs one redacted line per failure and never a request or response body | canary values for both keys; a fake vendor error that echoes the key; no page, JSON reply or log line contains them |
-| Photos and voice in git | `content/` is ignored; nothing is written outside `content/` and the state dir | `git check-ignore` holds for `content/stock/f/photos/p.jpg` and `content/drafts/d/voice-1.webm` |
-| Data kept by vendors | Gemini requests carry `store: false` (G7); only the view copy (no EXIF) and the hints are sent, never file names or the original | request bodies in tests contain `"store": false` and no `name` field |
-| Spending without the operator | Every paid call is one click; the ledger reserves before sending and refuses above the cap; no automatic retries; at most two calls at once | concurrent generate clicks: the second gets 409; a month at $9.95 refuses a $0.08 bound with no vendor request sent |
+| Oversized or endless bodies | Per-route `Content-Length` limit before reading (413, connection closed): JSON 64 KB, audio 1 MB, profile form 16 KB | 70 KB JSON, 1.1 MB audio, missing `Content-Length` (411) |
+| Path traversal | Draft ids by the §7.1 pattern; folder and photo ids by A's patterns and the index; the draft folder's real path must lie inside `content/drafts/`; `drafts/` and each draft folder must not be symlinks | `/create/../../.env`, `id=../x`, a draft folder symlinked to `/tmp`: 404 or 409, nothing written outside |
+| Camera metadata reaching Google | Only the view copy is sent; it must sniff as JPEG and carry no `Exif` APP1 segment (§8.4) | a view copy with an injected Exif segment: 409, no request |
+| Voice kept on disk | The audio body is read into memory and never written (D14) | after a voice call, no file under the content or state folders has an audio signature or a `.webm`/`.ogg` name |
+| Key values in pages, JSON, logs, ledger, drafts | The key is only in a header; JSON and HTML replies pass `Redactor.redact`; vendor errors pass `vendor_message`; the panel logs one redacted line per failure and never a request or reply body; ledger rows and drafts hold no request bodies | a canary `GEMINI_API_KEY`; a fake vendor error that echoes it; no page, JSON reply, log line, ledger row or draft contains it |
+| Data kept by the vendor | Every request carries `"store": false` (G9); no file name or original is sent | every captured request body has `"store": false` and no `name` field |
+| Spending without the operator | Every paid call is one action (one automatic topic request per new draft, D13); reservation before sending; refusal above the cap; no automatic retries; at most two calls at once and one per draft | a month at $9.99 refuses each op with no request sent; a second click on one draft gets 409 and one request is seen; reloading a draft page twice sends one topic request |
+| Prompt injection through text in the photo | The model's output is only shown to the operator for editing and is never published or executed in B′; D shows every text before approval | — |
 | Microphone over plain HTTP from another host | The browser refuses it (B1); the panel binds 127.0.0.1 only | — |
+| Photos, profile and drafts in git | `content/` is ignored | `git check-ignore` holds for `content/profile.json`, `content/drafts/d/draft.json`, `content/stock/my-photos/photos/p.jpg` |
 
 The panel's CSP needs no change: `fetch` to the same origin falls under `default-src
-'self'`, canvas drawing uses same-origin images, and the design uses no `blob:` URL in
-`img-src` or `media-src`. `author.js` sets sizes through the CSSOM, which `style-src
-'self'` allows, never through `style` attributes.
+'self'`, the view copy is a same-origin `<img>`, and recording needs no `blob:` URL.
+`create.js` sets sizes through the CSSOM, never through `style` attributes.
 
 ## 14. Panel changes
 
 ### 14.1 POST route table
 
-`do_POST` stops assuming a form. A table maps each path pattern to its body kind; the
-checks run in this order for every POST: `Host`; route lookup (404); `Origin`
-(foreign → 403, absent → 403 for non-form kinds); `Content-Length` (411, 400, 413);
-`Content-Type` against the kind (415); CSRF (form: the `csrf` field after parsing; other
-kinds: `X-CSRF-Token` before reading the body); then the handler.
+The checks run in the order of `do_POST` today (§2). The `Route` gains the kinds `json`
+and `audio`; non-form kinds dispatch to their handler after the CSRF header check.
 
-| Path | Kind | Limit | Content types |
-|---|---|---|---|
-| `/rules/<action>`, `/files/new-folder` (existing) | form | 16 KB | `application/x-www-form-urlencoded` |
-| `/compose/new`, `/compose/<id>/publish`, `/compose/<id>/queue`, `/compose/<id>/delete` | form | 16 KB | same |
-| `/files/photos` | image | `orig` 25 MB, `thumb`/`view` 2 MB | `image/jpeg`, `image/png`, `image/webp` |
-| `/compose/<id>/image` | image | 8 MB | `image/jpeg` |
-| `/compose/<id>/voice` | audio | 4 MB | `audio/webm` |
-| `/compose/<id>/generate`, `/text`, `/settings`, `/highlight` | json | 64 KB | `application/json` |
+| Path | Kind | Limit | Content types | Slice |
+|---|---|---|---|---|
+| `/rules/<action>`, `/files/new-folder` (existing) | form | 16 KB | `application/x-www-form-urlencoded` | — |
+| `/files/photos` (existing) | image | `orig` 25 MB, `thumb`/`view` 2 MB | `image/jpeg`, `image/png`, `image/webp` | A (B′ adds the default folder) |
+| `/create/profile` | form | 16 KB | form | B′ |
+| `/create/new`, `/create/<id>/topics`, `/topic`, `/expand`, `/regenerate`, `/text` | json | 64 KB | `application/json` | B′ |
+| `/create/<id>/voice` | audio | 1 MB | `audio/webm`, `audio/ogg` | B′ |
+| `/create/<id>/image` | image | 8 MB | `image/jpeg` | C |
+| `/create/<id>/highlight`, `/settings` | json | 64 KB | `application/json` | C |
+| `/create/<id>/publish`, `/queue`, `/delete` | form | 16 KB | form | D |
 
-JSON replies go through one helper: `Content-Type: application/json; charset=utf-8`,
-`Cache-Control: no-store`, the body redacted, errors as `{"error": "<Russian text>"}` with
-400, 403, 404, 409, 413, 415, 422, 502 (vendor error) or 504 (vendor timeout).
+JSON bodies must decode as a UTF-8 JSON object (else 400 «неверный запрос»). JSON replies
+use the existing `_json` helper; errors are `{"error": "<Russian>"}` with 400, 403, 404,
+409, 413, 415, 502 or 504. Every AI reply also carries `month` (the new month total as
+text), so the sub row updates without a reload.
 
 ### 14.2 GET routes
 
-`/photo` (§6.5), `/compose` (drafts list), `/compose/<id>`, `/compose/<id>/review`,
-`/compose/<id>/file?name=…` (draft images, same checks as §6.5), `/compose/<id>/status`
-(JSON, §10.3).
+- B′: `/` (302 to `/create`), `/create`, `/create/<id>`, `/create/profile`.
+- C: `/create/<id>/file?name=…`.
+- D: `/create/<id>/review`, `/create/<id>/status`.
 
 ### 14.3 Rendering rules for the new pages
 
 The rules of `factory.md` §14 apply. In addition:
 
-- Each state has its own visible words: "черновик", "генерация…", "расшифровка…",
-  "длиннее лимита: X 312/280", "бюджет ИИ исчерпан", "нет GEMINI_API_KEY в .env",
-  "запись голоса работает только по адресу localhost", "публикуется…", "опубликован ·
-  открыть", "ошибка: …", "прервано — проверьте аккаунт", "в очереди: <папка> · ближайший
-  слот <дата>".
-- A button that spends shows its bound ("до $0.08") as text, and the top bar shows the month.
-- The publish confirmation is a modal `<dialog>`; Escape and Cancel close it.
-- Busy buttons are disabled and keep their width; results replace their own card, never
-  the page.
-- No horizontal scroll from 390 to 1 920; long texts wrap (`overflow-wrap: anywhere`);
-  previews keep their aspect ratio inside a fixed box.
+- Each state has its own visible words: «Бросьте фото сюда», «Загрузка фото…», «Gemini
+  подбирает темы…», «выбрано», «Gemini пишет тексты…», «расшифровка…», «Стоп · 0:07»,
+  «длиннее лимита: 312/280», «Бюджет ИИ на ноябрь: …», «нет GEMINI_API_KEY в .env —
+  темы, тексты и голос недоступны», «Gemini не ответил: HTTP 503 — повторите»,
+  «сохранено». No two neighbouring states share their words; colour is never the only
+  difference.
+- A button that spends shows its bound («до $0.05») as text; the sub row shows the month.
+- Busy buttons are disabled, look dimmed (slice A's `.btn:disabled` style) and keep their
+  width; results replace their own section, never the page.
+- No horizontal scroll from 390 to 1 920; long texts wrap (`overflow-wrap: anywhere`); the
+  photo keeps its aspect ratio inside a fixed box; every target is at least 24 × 24 px.
 
 ## 15. Slices (build lanes)
 
-Order **A → B → C → D**. A needs no keys. B adds the ledger with the first paid call. C
-adds images. D sends. After B, D can already send text posts if the operator wants that
-sooner; photo posts need C for the per-network crop (Instagram refuses a 3:4 phone photo,
-aspect 0.75, `rules.py:26`).
+Order **A (built) → B′ → C → D**. M can follow B′ at any time. B′ adds the ledger with the
+first paid call. C adds images; D sends. Photo posts need C before D, because Instagram
+refuses a 3:4 phone photo (aspect 0.75, `rules.py:26`).
 
-### 15.1 A: Photos in Files
-
-- **Builds:** `factory/authoring/photos.py`; the POST route table (§14.1) with the header
-  CSRF; `/files/photos`; `/photo`; the "Фото · N" section, grid and photo chips; photo
-  counts on cards; the upload loop in `author.js`; strings; a README paragraph.
-- **Acceptance:**
-  1. Server (unit tests over `http.client`, port 0): posting the three bodies of 18
-     fixture images (JPEG with EXIF orientation 6, PNG, WebP; made by the fixture's
-     stdlib JPEG writer and byte templates) stores 18 originals byte-identical (SHA-256
-     equal), their thumbs and view copies, and 18 index rows; a HEIC-signature body and a
-     text body get 415 and leave nothing behind. Posting the same originals again answers
-     `dup: true` and stores nothing.
-  2. Browser (visual check, probe mode): the probe passes the stored EXIF-6 original,
-     fetched from `/photo`, to the same `author.js` function the upload loop uses, and
-     reports the thumb and view sizes; the copies are portrait (height > width). The
-     folder-picker part is LC5.
-  3. Every §13 row that concerns uploads and `/photo` holds (tests over `http.client`
-     against port 0).
-  4. The existing rules and new-folder forms behave exactly as before (the existing panel
-     tests pass unchanged).
-  5. An upload cut after `orig` leaves no index row; a repeat completes it.
-- **Checks:** `python3 -I -B -m unittest discover -s tests -t .`;
-  `python3 tools/visual_check.py --out DIR` with new states "files with photos" and "folder
-  view with photos" at 390, 900, 1 280, 1 440, 1 600 and 1 920; `git status --short
-  --ignored` clean after the tests.
-- **Operator provides:** nothing.
-- **Live check:** LC5 (upload part) by the operator.
-
-### 15.2 B: Drafts, texts, voice, budget
-
-- **Builds:** `drafts.py`, `budget.py`, `prices.py`, `prompts.py`, `claude.py`,
-  `gemini.py` (transcription), the composer page without image templates, the AI item in the
-  top bar, `KEYS.md` and the README section "Создание постов в панели".
-- **Acceptance:**
-  1. With a fake transport, "Сгенерировать" sends one request whose body matches §8.4 (model,
-     version header, `output_config`, the image block, no `temperature`), stores the four
-     variants and answers the poster's checks; an X variant of 312 weighted characters is
-     kept whole and marked with the poster's error.
-  2. `refusal` and `max_tokens` answers show their texts and settle as billed.
-  3. Regenerating X changes only `variants.x`.
-  4. Budget: with the month at $9.95 and a cap of $10, generate is refused before any
-     request (the fake transport sees zero calls); the top bar is red. Two concurrent
-     reservations that each fit alone but not together: exactly one passes. A 500 answer
-     settles `unknown` and keeps the reservation; a 400 settles `failed` at 0.
-  5. Voice: a fixture WebM is posted, the fake Gemini answers a transcript, it lands in the
-     hints, and the audio file is gone; on a fake 503 the file stays and "Повторить
-     расшифровку" is offered. The request carries `"store": false`.
-  6. Revision: two saves from the same revision; the second is refused with the reload
-     text.
-  7. Canary values for both keys never appear in pages, JSON replies or the captured log.
-- **Checks:** the project's test command; the visual check with states "composer empty",
-  "composer generated with an X error", "budget refused", "no keys"; clean
-  `git status --short --ignored`.
-- **Operator provides:** `ANTHROPIC_API_KEY` and `GEMINI_API_KEY` in the env file; the
-  Gemini project's billing confirmation (§12).
-- **Live checks:** LC1, LC2.
-
-### 15.3 C: Images
-
-- **Builds:** canvas templates (§9.1), `/compose/<id>/image`, the Exif marker walk, the
-  Gemini edit call (§9.2), the side-by-side strip and the pick (§9.3).
-- **Acceptance:**
-  1. In probe mode the composer renders a 3024 × 4032 fixture photo for each network and
-     posts the results to `/compose/<id>/image`: Instagram 1080 × 1350, Facebook and
-     LinkedIn 1536 × 2048, X 1600 × 900, all JPEG; each passes `check_image` for its
-     network; none has an APP1 Exif segment.
-  2. Frame and quote render inside the output; the quote text fits in at most 4 lines at
-     the widths of the fixture (measured by the probe with a `Range`).
-  3. With a fake Gemini answer holding a JPEG, "Размыть фон" stores `img/blur.jpg`, shows it
-     next to the original, and the ledger has one reservation and one `ok` row. An answer
-     with only text shows "Gemini не вернул картинку".
-  4. Choosing a style as the base redraws every network preview from it.
-- **Checks:** the project's test command; the visual check with states "composer with
-  styles side by side" and "per-network previews" at the six widths; the reviewer looks at
-  every PNG.
-- **Operator provides:** one photo of themselves for LC3, and a verdict on whether the face
-  stayed the same.
-- **Live check:** LC3.
-
-### 15.4 D: Review and send
-
-- **Builds:** the review page, `send.py`, publish thread and status polling, queue
-  writing, interrupted-publish attention item, Ctrl+C wait.
-- **Acceptance:**
-  1. Review lists every variant with the poster's checks; a missing variable disables both
-     buttons with the variable's name.
-  2. Publish now with a fake poster entry point that records rows for two targets and fails
-     a third: the page shows two links and one error, the draft is `partial`, and "Повторить
-     упавшие" calls the poster again with the same targets.
-  3. A second publish click while one runs gets 409; the poster is called once.
-  4. Queue writes `NNN-<id>.json` with `approved_by_operator` and media; `factory check`
-     passes; `factory plan` assigns it to the first slot of the folder's rule after the
-     folder's earlier ready packages (file order); the draft is gone.
+- **A: photos in Files.** Built (§6).
+- **B′: «Создать» → topics → Gemini texts.** Pinned in §16.
+- **C: images.** Builds the canvas templates (§9.1), `/create/<id>/image`, the Nano Banana
+  edit (§9.2), the side-by-side strip (§9.3) and the `quote` field in the expand schema.
+  Acceptance, as in the first revision:
+  1. A 3024 × 4032 fixture renders to Instagram 1080 × 1350, Facebook and LinkedIn 1536 ×
+     2048, and X 1600 × 900, all JPEG; each passes `check_image`, and none has APP1 Exif.
+  2. Frame and quote fit inside the image, with at most 4 quote lines (measured with a
+     `Range`).
+  3. A fake Gemini image is stored as `img/blur.jpg` and shown beside the original, with one
+     reservation and one `ok` row. A text-only answer shows «Gemini не вернул картинку».
+  4. Choosing a style as the base redraws every preview.
+  - Live check: LC3. The operator provides one photo of themselves and a verdict on the
+    face.
+- **D: review and send.** Builds §10: the review page, `send.py`, the publish thread and
+  status, queue writing with the offered rule, «Удалить черновик», the interrupted-publish
+  attention item and the Ctrl+C wait. Acceptance as in the first revision:
+  1. Review lists every check, and a missing variable disables both buttons.
+  2. A partial publish shows links and errors, and «Повторить упавшие» works.
+  3. A second publish click while one runs gets 409.
+  4. The queue writes `NNN-<id>.json` that `factory check` and `factory plan` accept.
   5. A queued package's images open through `/img`.
-  6. A crash injected after `publishing` shows "прервано — проверьте аккаунт" and the
-     attention item after restart; nothing is published again by itself.
-- **Checks:** the project's test command; the visual check with states "review", "review
-  with a problem", "publishing", "partial"; clean `git status --short --ignored`.
-- **Operator provides:** OK for LC4 and the name of the test Page.
-- **Live check:** LC4.
+  6. A crash during a publish shows «прервано — проверьте аккаунт».
+  - Live check: LC4.
+- **M: «Медиатека» layout** (cut from B′, §16.5). On `/files`:
+  - a section «Все фото» on top: the newest photos across photo-lane folders, 60 per step,
+    each with its chip and a «Пост» button posting `/create/new`;
+  - the lanes moved below into a collapsed `<details>` «Очереди по расписанию», whose
+    one-line explainer says that a queue is a folder a rule publishes from;
+  - the new-folder cards inside it.
+  Acceptance: every slice A and B′ test passes. «Все фото» lists `my-photos` and `city`
+  photos newest first. «Пост» opens a draft. The closed section still contains every card
+  (tests read the HTML). The visual check's `files` states run with the section open by a
+  query parameter, so the ellipsis checks keep measuring the cards.
 
-## 16. Unconfirmed facts and live checks
+## 16. Slice B′: pinned acceptance (the lane is judged against this section)
 
-All live checks need the operator's OK; their total cost is under $0.20.
+**Builds:**
+
+- Python: `drafts.py`, `profile.py`, `budget.py`, `prices.py`, `prompts.py`, `gemini.py`
+  (topics, expand, regenerate, transcribe) and `photos.ensure_default`.
+- Panel: the route kinds and routes of §14.1–14.2 marked B′; the pages of §8.1–8.7; the
+  «Медиатека» label, the draft chip and the `author.js` export of §8.8; `create.js` and
+  its CSS.
+- Tests, fixture fakes and visual-check states (§16.4).
+- `KEYS.md` (§12) and a README section «Создание постов в панели».
+
+### 16.1 Acceptance list
+
+Each item is observable by a test, a probe or a screenshot named in §16.4. Items 1–3
+carry spec item 1, 4–7 item 2, 8–12 item 3, 13 item 4, 14 item 5, 15–16 item 6, 17 item 7,
+19 item 8 and 20 item 9.
+
+1. **Entry and tabs.** `GET /` answers 302 with `Location: /create`. Every page's tab bar
+   reads, in order, «Создать», «Подключение», «Медиатека», «Правила», «Календарь»,
+   «Охваты», «Подписчики», «Диалоги · выкл». On `/create`, «Создать» carries
+   `aria-current="page"`. No tab reads «Файлы».
+2. **Медиатека keeps slice A.** `/files` and `/files?folder=<f>` render everything slice A
+   renders: lanes, cards with thumbs and photo counts, the «Фото · N» section with both
+   upload buttons, the newest-first grid, «показать ещё», and the chips. Their heading is
+   «Медиатека». Every existing test passes, except the two that pin what the
+   specification changes: `test_root_redirects_to_connection` (now `/create`) and the
+   tab-label list in `ShellTest.test_tab_bar_and_top_right` (now «Медиатека» and
+   «Создать»). Those two are updated, not deleted. The visual check's existing states
+   pass.
+3. **Default folder.** With no `stock/my-photos`, the first `orig` upload to `folder=my-photos`
+   creates `stock/my-photos/` (0700) with `folder.json` = `{"schema": 1, "title": "Мои
+   фото", "lane": "photo"}` (0600) and stores the photo.
+   - Two concurrent first uploads both get 200, and exactly one valid `folder.json` exists.
+   - A pre-existing `my-photos` of lane `text` gives 409 «папка «my-photos» не из полосы
+     фото-постов» and nothing is written.
+   - No «Создать» page has a folder field or folder choice.
+   - `python3 -m factory check` on the fixture reports no problem line about `my-photos`;
+     its problem lines before and after the folder appears are the same.
+4. **«Создать» page.** `/create` shows:
+   - the drop zone «Бросьте фото сюда» with «Выбрать фото» (single file, `accept` JPEG,
+     PNG, WebP);
+   - the profile line;
+   - «Недавние фото» (8 newest across photo-lane folders) and «Черновики · N» (10 newest),
+     each only when non-empty;
+   - the AI month in the sub row.
+
+   In probe mode, `create.js` takes a generated JPEG through the drop path: three posts to
+   `/files/photos?folder=my-photos`, then `POST /create/new`, then navigation to
+   `/create/<id>`. The index gains one row named after the file. Two files dropped show
+   «Перетащите одно фото», and no request is sent (fetch counted). A recent-photo button
+   creates a draft without any `/files/photos` request.
+5. **Automatic topics.** A new draft with the key has `topics_auto: "pending"`. Opening its
+   page sends exactly one topics request (fake transport) and shows «Gemini подбирает
+   темы…» while it is held, then 3–5 cards, each with a title and a line.
+   - The request matches §8.4: URL, headers, `model` `gemini-3.8-flash`, `store` false,
+     `thinking_level` `low`, `max_output_tokens` 2 000, the topics schema, a text block
+     holding every non-empty profile field, and an image block with `resolution: "high"`
+     and the base64 of the view copy.
+   - Reloading the page twice sends no further request.
+   - «Ещё темы · до $0.02» sends one request per click.
+6. **Choosing or typing.** Tapping a card puts «<title> — <angle>» in the topic box, saves
+   it (`draft.json` `topic` equals it) and shows «выбрано» on that card with
+   `aria-pressed="true"`. Typing autosaves after 800 ms and shows «сохранено». With an
+   empty box, «Развернуть» is disabled and «выберите тему или впишите свою» is visible.
+7. **Voice.** With the probe's oscillator stream:
+   - «Голос» records, and the button reads «Стоп · 0:0N» with `aria-pressed="true"`;
+   - stopping posts the blob as `audio/webm` (or `audio/ogg`);
+   - the fake transcript «Утренняя пробежка у моря» is appended to the topic box and to
+     `draft.json`;
+   - the transcription request has `model` `gemini-3.5-flash-lite`, `store` false and an
+     audio block.
+
+   After the call, a walk of the fixture root finds no file with an EBML or `OggS`
+   signature. A fake 503 leaves the blob in the page and shows «Повторить расшифровку»;
+   clicking it sends the same bytes again. The four permission and context states of §8.5
+   each render their own words (probe stubs). Recording stops by itself at 2:00 (probe
+   with a fake clock).
+8. **Expand.** «Развернуть · до $0.05» sends one request matching §8.4: expand schema,
+   `max_output_tokens` 6 000, the topic, the profile, the image. Four cards appear in the
+   order X, LinkedIn, Instagram, Facebook, with «англ.», «англ.», «укр.», «укр.». Each
+   shows the vendor's text in a textarea and the poster's count line, and `draft.json`
+   holds the four texts with `source: gemini`.
+9. **Edit.** Typing in a card autosaves to `/create/<id>/text` after 800 ms. `draft.json`
+   then holds the NFC form with `source: edited`, and the count line shows the server's
+   `check_text` counts. A 5 001-character text is refused with «текст длиннее 5 000
+   знаков», and the stored text is unchanged.
+10. **Nothing truncated.** A fake X text of 312 weighted characters is stored and rendered
+    whole (equal to the vendor string after NFC) and its card reads «длиннее лимита:
+    312/280» in red with `role="alert"` plus the poster's error. The same holds for an
+    Instagram caption of 2 300 UTF-16 units and one with 31 hashtags, and for a LinkedIn
+    text of 3 100 units after escaping. No code path shortens a text: a test feeds each
+    through every route and compares bytes.
+11. **Regenerate.** «Перегенерировать» on LinkedIn with the wish «короче» sends one request
+    with the regenerate schema, `max_output_tokens` 2 500, LinkedIn's current text and the
+    wish. Only `variants.linkedin` changes in `draft.json`; the other three are
+    byte-identical.
+12. **Expand again.** After an edit the button reads «Развернуть заново — правки пропадут ·
+    до $0.05». Pressing it replaces all four variants.
+13. **Draft.**
+    - `content/drafts/<id>/draft.json` (0600, folder 0700) has the fields of §7.1, and
+      `id` matches the poster's id pattern.
+    - After a panel restart, `/create/<id>` shows the same topic, cards, texts and stored
+      error.
+    - `/create` lists the draft under «Черновики».
+    - `/files?folder=my-photos` shows «черновик» on its photo; for a photo also named by a
+      queued package it shows «в очереди».
+    - The run writes nothing to `stock/*/*.json`, `content/packages/`, `rules.json`, the
+      poster record or the X ledger (hashes before and after).
+    - The fake transport sees only Gemini URLs, and the network guard sees no other
+      connection.
+14. **Profile.**
+    - `/create/profile` saves the eight fields to `content/profile.json` (0600) and shows
+      «Профиль сохранён»; `git check-ignore content/profile.json` holds.
+    - A 601-character «Кто вы» is refused with its limit, and the form keeps the text.
+    - Every topics, expand and regenerate request body contains every non-empty field.
+    - With no profile, `/create` reads «Профиль автора не заполнен — темы и тексты будут
+      общими» and the requests carry «not filled in».
+    - The page works with JavaScript off.
+15. **Ledger and month.**
+    - Each paid call appends one `reserved` row before the fake transport is called (the
+      fake asserts the row exists) and one settle row after.
+    - The sub row reads «ИИ · ноябрь $X из $10.00» from the UTC-month total and updates
+      from each reply's `month`.
+    - Prices: a call on 2026-12-31 23:59 UTC uses $0.75 / $3.75; one on 2027-01-01 00:00
+      UTC uses $1.50 / $7.50.
+    - For every op, the button bound is at least the reserved bound with every field at
+      its limit.
+16. **Cap.** With the month at $9.99 and the cap at $10.00:
+    - every spending control (topics, expand, regenerate, voice) shows «Бюджет ИИ на
+      ноябрь: потрачено $9.99 из $10.00, этот запрос — до $0.0N. Новые запросы — с 1
+      декабря или после увеличения AI_MONTHLY_CAP_USD в .env.» instead of acting;
+    - a forced POST to each route answers 409 with that text, and the fake transport saw
+      zero requests;
+    - the sub row is red with «· лимит».
+    - Two threads each reserving a bound that fits alone but not together: exactly one
+      passes.
+    - A 503 settles `unknown`, and the reservation counts. A 429 settles `failed` and
+      counts 0. A timeout settles `unknown`. An `incomplete` reply settles `ok` at its
+      usage.
+17. **Key.**
+    - `GEMINI_API_KEY` is read from the env file per call and appears only in the
+      `x-goog-api-key` header of captured requests: not in a URL or body.
+    - With the key absent, every spending control reads «нет GEMINI_API_KEY в .env — темы,
+      тексты и голос недоступны», no request is built, the draft gets `topics_auto:
+      "manual"`, and upload, topic typing, profile and editing still work.
+    - A canary key never appears in any page, JSON reply, captured log line, ledger row,
+      draft or profile, including when the fake vendor echoes it in an error body.
+    - `grep -riE "anthropic|claude" factory/ tests/ tools/ KEYS.md README.md` finds no
+      code path, key name or model id.
+18. **Errors and concurrency.**
+    - A fake 503 on topics stores `error` and shows «Gemini не ответил: HTTP 503 —
+      повторите» with «Повторить» after a reload.
+    - `incomplete` shows «ответ Gemini обрезан — повторите».
+    - Invalid JSON, or 2 topics against `minItems` 3, shows «Gemini вернул неполный
+      ответ — повторите».
+    - A transport error shows «нет связи с Gemini — повторите».
+    - A view copy with an injected Exif segment answers 409 with no request.
+    - Two concurrent expand clicks on one draft: one request, and the other gets 409
+      «уже выполняется».
+    - A third concurrent AI call across drafts gets 409 «ИИ занят двумя запросами —
+      подождите».
+19. **Checks.** `python3 -I -B -m unittest discover -s tests -t .` passes, and so does
+    `python3 tools/visual_check.py --out DIR` with every state of §16.2 at all seven
+    widths. `git status --short --ignored` in the worktree shows nothing new after both.
+20. **Live check.** LC1 (§17) ran with at most 6 real Gemini calls, a non-personal test
+    image and clip, and a cumulative reserved bound under $0.10. Each call is in the
+    ledger, and the lane's report lists every call.
+
+### 16.2 UI states and widths for the visual critic
+
+Every state below runs in `tools/visual_check.py` at 390, 900, 1000, 1280, 1440, 1600 and
+1920, with the probe's existing checks: cut text, sideways scroll, overlaps, targets under
+24 × 24, an alert below the first screen, and contrast. The visual critic frames each
+state at **390, 900, 1440 and 1920** (the named widths, the width between them, and the
+widest). Each state is defined by visible text that must be whole on the first screen at
+every width (measured with a `Range`). States marked *anchor* load with `#texts` so the
+cards are on the first screen at 390.
+
+Two fixtures carry the states. FakeGemini runs in process in both.
+
+- **«create»** is static: the data fixture, plus `my-photos` with 12 photos, five drafts
+  (topics, own topic, texts, over limit, error) and a filled profile.
+- **«create-live»** has one draft per width for each state that locks or changes a draft
+  (topics loading, expand loading, voice, drop), because the visual check runs widths in
+  parallel. Without it, one width's held request or `topics_auto` flip would change what
+  another width shows.
+
+| State | Setup | Defining text on the first screen |
+|---|---|---|
+| `create-empty` | Empty fixture with the key, no photos, no drafts, no profile | «Бросьте фото сюда», «Выбрать фото», «Профиль автора не заполнен — темы и тексты будут общими», «ИИ · ноябрь $0.00 из $10.00» |
+| `create-start` | «create» at `/create` | «Бросьте фото сюда», «Недавние фото», «Черновики · 5» |
+| `create-topics-loading` | «create-live»: the width's draft with `topics_auto: "pending"`; FakeGemini holds the request until teardown | «Gemini подбирает темы…» and the dimmed, disabled «Ещё темы · до $0.02» |
+| `create-topics` | «create»: a draft with 5 topics, the second chosen | the five card titles, «выбрано», «Развернуть · до $0.05» |
+| `create-own-topic` | «create»: a draft with a typed topic, no topics, `topics_auto: "done"` | the typed topic in the box, «Предложить темы · до $0.02», «Развернуть · до $0.05» enabled |
+| `create-voice` | «create-live»: the width's own-topic draft; probe: oscillator stream, «Голос» clicked, 1.2 s live | «Стоп · 0:01», the timer status |
+| `create-expand-loading` | «create-live»: the width's topics draft; probe clicks «Развернуть»; FakeGemini holds | «Gemini пишет тексты…», a dimmed, disabled «Развернуть · до $0.05» |
+| `create-drop` (functional, not framed) | «create-live» at `/create`; probe passes a generated JPEG named `drop-<width>.jpg` to the drop handler | probe JSON: three upload posts, one `/create/new`, the navigation URL, and one new index row with that name |
+| `create-texts` (*anchor*) | A draft with four texts within limits | «X · англ.», «LinkedIn · англ.», «Instagram · укр.», «Facebook · укр.», each count line (the 390 frame is scrolled until each card is whole) |
+| `create-over-limit` (*anchor*) | A draft whose X text is 312 weighted characters | «длиннее лимита: 312/280», the whole X text |
+| `create-budget` | «create» fixture with the ledger at $9.99, the `create-topics` draft | «Бюджет ИИ на ноябрь: потрачено $9.99 из $10.00…», the red «· лимит» |
+| `create-error` | A draft with a stored `error` (topics, HTTP 503) | «Gemini не ответил: HTTP 503 — повторите», «Повторить» |
+| `create-nokey` | «create» fixture whose env file has no `GEMINI_API_KEY`, the `create-topics` draft and `/create` | «нет GEMINI_API_KEY в .env — темы, тексты и голос недоступны»; the drop zone still active |
+| `create-profile` | `/create/profile?saved=1` with every field filled | «Профиль автора», «Профиль сохранён», the eight labels |
+| `files-mediateka` | «create» fixture at `/files` | tab «Медиатека» current, the card «Мои фото» with «12 фото» |
+| `files-mine` | `/files?folder=my-photos` | «Фото · 12», the chip «черновик» on a drafted photo |
+
+The existing states (`connection` … `files-photos-upload`) run as today and show the new tab
+bar. The critic also checks that:
+
+- the sticky bar never covers the defining text from 900 px up;
+- busy buttons keep their width and look disabled;
+- «выбрано», the loading lines and the error lines are text, not colour only;
+- the voice timer and the loading lines do not shift the layout.
+
+### 16.3 Not touched
+
+- `poster/**`: no change at all.
+- The factory core: `factory/{stock,ruleset,planner,runner,journal,checks,attention,cli,
+  inputs,paths}.py` and `factory/panel/actions.py`.
+- The pages Подключение, Правила, Календарь, Охваты, Подписчики and Диалоги. Their content
+  is unchanged; they only show the new tab bar.
+- The top-bar status items (bell, X meter, LinkedIn, timer). No AI item goes there.
+- `/files` URL and parameters, folder cards, new-folder forms, `/rules/*`, `/img`,
+  `/photo`, and the upload route except the `my-photos` creation.
+- The snapshot's `state_key` and `build` (drafts and the ledger stay outside).
+- No package is written; `content/packages/`, stock `*.json`, `rules.json`, the poster
+  record and the X ledger are never written; nothing is published; no X spend.
+- No new dependency (standard library only), no vendor but Google Gemini, no Anthropic
+  code, key or model. The CSP is unchanged.
+- C and D features: crops, frames, quote, highlight, review, publish, queue, draft
+  deletion.
+- The operator's running panel on port 8770 and the primary checkout. Tests and the
+  visual check use port 0 and scratch fixtures.
+
+### 16.4 Test plan and mocks
+
+No test opens a non-loopback socket. The guard in `tests/base.py` turns any real Gemini
+call into a failure. `GEMINI_API_KEY` joins `CANARIES` with a canary value, and
+`AI_MONTHLY_CAP_USD` stays at its default in fixtures unless a test sets it.
+
+| File | Covers (acceptance items) | Mocks |
+|---|---|---|
+| `tests/test_author_gemini.py` | Request shapes for the four ops; `store` false; key only in the header; the parse rules of §8.4 (completed via `steps`, via `output_text`, incomplete, failed, empty, bad JSON, wrong shape); usage → price on both sides of 2027-01-01; Exif refusal (5, 7, 8, 11, 15, 17, 18) | `FakeTransport` with scripted replies; a frozen clock |
+| `tests/test_author_budget.py` | Reserve, settle, month total, cap refusal with zero sends, two-thread race, statuses per HTTP class, button bound ≥ reserved bound (15, 16) | No transport; temp state folder; threads |
+| `tests/test_author_drafts.py` | Create, id pattern, per-field writes under the lock, `topics_auto` once, list cache key and rebuild, 500 cap, traversal and symlink refusals (5, 13) | Temp content folder |
+| `tests/test_author_profile.py` | Limits, save and load, prompt block, empty profile (14) | Temp content folder |
+| `tests/test_author_create.py` | Every route over `http.client` on port 0: statuses, Host, Origin, CSRF, length and type; `/` redirect and tab bar; default folder including the race and the wrong-lane refusal; recent photos and drafts lists; topics, expand, regenerate, text edits with `check_text` counts and over-limit texts; voice in and no audio on disk; budget and key states; canaries in pages, JSON and the captured log; Медиатека chip (1–18) | `server.make_server(..., ai_transport=FakeTransport)`; the panel fixture's «create» builder |
+| Existing `tests/test_panel_server.py`, `tests/test_panel_tabs.py` | Updated only for the redirect and the tab labels (2) | — |
+| `tools/visual_check.py` | The states of §16.2, plus probe-mode functional checks: the drop path (4), the voice path with an oscillator stream (7), `MFAuthor.makeCopies` and the slice A upload loop unchanged (2) | An in-process `FakeGemini` passed to `make_server`, which answers by op (taken from the schema or the audio block) and by draft id: canned Russian topics; English and Ukrainian texts, one X text of 312 weighted characters; a 503 for the error draft; a hold on an `Event` released at teardown for the loading states. The probe replaces `getUserMedia` with an `AudioContext` oscillator `MediaStream` and counts `fetch` calls |
+
+`panel_fixture.build_create(root, key=True, ledger_usd=None, live_widths=())` adds the
+following to `build_data`:
+
+- `my-photos` with 12 photos stored through `photos.store`;
+- the five static drafts of §16.2, or, with `live_widths`, one draft per width and state
+  for the «create-live» states;
+- a filled profile;
+- optionally a ledger with one `ok` row of the given amount, in the current UTC month.
+
+The project's checks run as written in `README.md` and `AGENTS.md`. The lane runs the
+suite and the visual check one at a time.
+
+### 16.5 What was cut from B′, and where it went
+
+B′ as specified fits one lane only without the items below; acceptance items 1–7 of the
+specification are whole in §16.1.
+
+| Cut | Goes to | Why it can wait |
+|---|---|---|
+| «Медиатека» as "all photos on top, queue folders deeper", and a «Пост» button on each tile | Slice M (§15) | Spec item 1 asks for the rename, everything slice A shows, and a folder the operator never makes. Those are in B′. The re-layout changes the visual check's ellipsis states and every Files test, so it reviews better on its own |
+| Both-language variants (`en+uk`), per-network on/off switches | §19 | The languages are fixed by the decisions; no one asked for switches |
+| The `quote` line for the quote-on-photo template | C (§9.1) | Only C draws it |
+| «Удалить черновик», removing drafts after send | D (§10.5) | B′ caps drafts at 500 and lists the 10 newest |
+| AI month in the top bar | Replaced by the «Создать» sub row (D10) | Measured and simpler |
+| Profile that learns from repeated edits | §19 | Not in the acceptance; needs a design for what counts as a repeated edit |
+| Text-only posts (no photo) | §19 | The operator asked to start with photos; Instagram needs an image |
+
+## 17. Unconfirmed facts and live checks
+
+Every live check needs the operator's OK. B′'s LC1 is pre-approved by the pinned
+specification within its limits.
 
 | Id | Settles | Cheapest check | Cost |
 |---|---|---|---|
-| LC1 | A8; the Claude reply shape and `usage` on the real key | One "Сгенерировать" on one fixture photo with short hints. If `between_tools` is refused with the JSON format, omit `thinking` (adaptive at `effort: low`) | ≈ $0.02 |
-| LC2 | G10, G11 (thinking bound); WebM accepted inline; transcript location; `usage` names | One 5-second voice note in Ukrainian or Russian. If `v1beta` with `Api-Revision` fails, switch the URL to `v1` (G8) | ≈ $0.001 |
-| LC3 | G11 (photo token count), G12, G13; the image block's place in the reply | One "Размыть фон" on a photo of the operator at 2K. If `aspect_ratio` is refused, drop the field. If Gemini refuses or changes the face, build the code "spotlight" of §18 | ≈ $0.06 |
-| LC4 | The panel's publish path end to end | "Опубликовать сейчас" of one photo post to a test Page only; then `python3 -m poster delete` | free |
-| LC5 | B5, B6; folder upload from Windows | The operator opens `http://localhost:8770/`, uploads about 20 phone photos, records a short voice note; `MediaRecorder.isTypeSupported("audio/webm;codecs=opus")` is shown in the composer's details | free |
+| LC1 | G12–G16; the reply shape and `usage` on the real key; the typical costs of §11.2 | Below | < $0.10, at most 6 calls |
+| LC2 | Merged into LC1 on 2026-11-12 (transcription now runs on a public-domain clip) | — | — |
+| LC3 | G17; the image block's place in the reply | One «Размыть фон» on a photo of the operator at 2K. If `aspect_ratio` is refused, drop the field. If Gemini refuses or changes the face, build the code "spotlight" of §19 | ≈ $0.06 |
+| LC4 | The panel's publish path end to end | «Опубликовать сейчас» of one photo post to a test Page only; then `python3 -m poster delete` | free |
+| LC5 | B6; folder upload and the microphone from Windows; transcription of the operator's own voice | The operator opens `http://localhost:8770/` after the merge, drops two phone photos on «Создать», and dictates a topic | ≈ $0.002 |
 
-If B6 fails (the panel is reached by a WSL address), voice stays off with its message, and
-the rest works; a Chrome flag that treats that origin as secure would be the operator's own
-choice.
+**LC1 (slice B′):**
 
-## 17. Open items for the operator (non-blocking)
+- **Inputs** (never the operator's photos or voice):
+  - a public-domain or CC0 photograph without people, such as a street or landscape from
+    Wikimedia Commons;
+  - a public-domain spoken clip of at most 10 seconds in Russian or Ukrainian, OGG/Opus
+    or WebM, from Wikimedia Commons.
 
-1. **Gemini billing:** the key's Google Cloud project has an active billing account (G9).
-   Without it, photos and voice fall under the free tier's human review.
-2. **Keys:** `ANTHROPIC_API_KEY` and `GEMINI_API_KEY` in the env file (lane B).
-3. **Cap:** `AI_MONTHLY_CAP_USD` stays at the decided 10.00 unless the operator changes it.
-4. **LC3 photo and verdict**, and **the test Page for LC4**.
+  Both are stored in the lane's scratch folder only, and their licences are recorded in
+  the report.
+- **Setup:**
+  - The panel runs in-process on port 0 with the real `UrllibTransport`.
+  - The env file is the repository's, read in place, never copied or printed.
+  - `MF_CONTENT_DIR` is a scratch folder.
+  - The factory state is the operator's default, so the rows land in the real ledger and
+    the month total stays honest.
+  - The photo is uploaded through `/files/photos` into `my-photos`, as the browser does
+    (copies made by the probe).
+  - A short test profile (about 5 lines, no personal data) is saved through
+    `/create/profile`.
+- **Calls,** through the panel's own routes:
+  1. topics;
+  2. expand on the first topic;
+  3. regenerate X with «короче»;
+  4. voice with the clip.
+
+  Two more calls are allowed only to retry a shape failure after its reply was read and
+  the code adjusted. Examples: `v1beta` with `Api-Revision` refused → `v1` (G12); text not
+  found in `steps` → `output_text` (G13).
+- **Guard:** the driver adds up the reserved bounds and stops before the sum would pass
+  $0.10. With a short profile the four planned calls bound to about $0.06.
+- **Report**, per call:
+  - op, model, HTTP status, interaction `status`;
+  - the `usage` numbers, and whether `total_tokens` equals input + output + thought (G14);
+  - reserved bound, settled price, ledger `rid`;
+  - which parse path found the text;
+  - the four texts and the transcript, which are not personal.
+
+  Also the month total before and after. The key, and the image or audio bytes, never
+  appear.
+
+If B6 fails (the panel is reached by a WSL address), voice stays off with its message and
+the rest works.
+
+## 18. Open items for the operator (non-blocking)
+
+1. **Gemini billing.** The key's Google Cloud project has, or will have, an active billing
+   account (answered 2026-11-12). Until then, photos and voice fall under the unpaid
+   terms (G10). LC1 uses non-personal inputs, so it does not depend on this.
+2. **Profile.** About 5–10 lines in «Профиль автора» after B′ is merged.
+3. **Cap.** `AI_MONTHLY_CAP_USD` stays at the decided 10.00 unless the operator changes
+   it.
+4. **LC3 photo and verdict** (C) and **the test Page for LC4** (D).
 
 No question here changes the design; each has a default above.
 
-## 18. Deferred — not currently justified
+## 19. Deferred — not currently justified
 
 | Item | Why deferred | Trigger to build |
 |---|---|---|
 | Code "spotlight" highlight (darken or blur outside an oval the operator places) | The operator chose Gemini for highlighting | LC3 shows a refusal or a changed face |
 | Drag-to-crop | One click for the focus point plus ratio choices covers the crops | Operator asks for finer crops |
-| `claude-haiku-5-5` or a model picker | Sonnet 5.5 costs about $0.02 a post, far inside the budget | Budget pressure or the operator asks |
-| `gemini-3.5-transcribe` | Needs a Files API upload first; flash-lite takes inline audio | Poor transcripts of mixed Russian and Ukrainian |
-| Generating all styles at once | Spends on results nobody asked for | Operator asks |
+| Another Gemini text model (`gemini-4-hydrogen`) or a model picker | 3.8 Flash costs about $0.02 a post, is stable, and is the report's choice (D7) | A deprecation notice for 3.8 Flash, poor texts in LC1 or use, or the operator asks |
+| Claude (Anthropic API) for texts | Removed by the operator's decision of 2026-11-12; no Anthropic key in this project | None |
+| `gemini-3.5-transcribe` | Needs a Files API upload first; Flash-Lite takes inline audio | Poor transcripts of mixed Russian and Ukrainian |
+| Generating all highlight styles at once | Spends on results nobody asked for | Operator asks |
 | Audio playback before transcription; keeping recordings | The transcript is what gets checked; recordings are personal data | Operator asks |
+| Both-language variants (`en+uk`) and per-network on/off switches | Languages are fixed by the decisions; all four networks are wanted | Operator asks |
+| Profile that learns from repeated edits (the research's "self-updating profile") | Needs a rule for what counts as repeated; the operator can edit the profile | Operator asks, or the same edit recurs in many drafts |
+| Topics from trends (Google Search grounding) | Topics from the photo and profile answer "suggest a topic" | Operator asks for trend topics |
+| Text-only posts | The operator starts from photos; Instagram needs an image | Operator asks |
 | HEIC decoding | No decoder in the browser on Windows or in the standard library | Operator's phone cannot export JPEG |
-| Several photos per post, carousels, video | The poster publishes one image per network | Poster gains carousels or video |
+| Several photos per post, carousels | The poster publishes one image per network | Poster gains carousels |
+| Video (topic → recording → automatic edit → Reels and Shorts) | A separate task in the research plan, with its own probe and design | That task's design |
 | Alt text | Not asked; the poster does not send it (`poster.md` §17) | Operator asks |
 | "Publish at a chosen time" for one post | The queue and the rules cover scheduling | Operator asks |
 | "Next in queue" placement | File order decides; reordering is deferred in `factory.md` §18 | Frequent reordering |
-| Editing queued packages in the panel | Approval happens on the review page; the orchestrator can still edit files | Operator asks |
-| Batch generation for a whole folder | AGENTS rule 1: no bulk paid generation without a confirmed budget; one click per post fits USD 10 | Operator confirms a batch budget |
+| Editing queued packages in the panel | Approval happens on the review page | Operator asks |
+| Batch generation for a whole folder | AGENTS rule 1: no bulk paid generation without a confirmed budget | Operator confirms a batch budget |
 | Prompt caching, Files APIs | Small prompts, one photo per call | Larger prompts or many photos per call |
 | Price overrides in the env file | Prices come from official pages with dates; a change is a code change | Prices change often |
 | Server-side image processing | Needs pip or a system tool | A dependency is accepted |
-| No-JS authoring, multipart parsing with `email` | The steps need JS (D9) | — |
-| AI keys on the Connection tab | Their state shows where they are used (composer) | Operator asks |
-| A CLI for the AI ledger | The top bar shows the month | The ledger needs auditing outside the panel |
+| No-JS authoring beyond the profile form; multipart parsing | The steps need JS (D9) | — |
+| AI key state on the Connection tab | Its state shows where it is used («Создать») | Operator asks |
+| A CLI for the AI ledger | The «Создать» sub row shows the month | The ledger needs auditing outside the panel |
 
-## 19. Sources (read 2026-11-11)
+## 20. Sources
 
-Anthropic: [Models overview](https://platform.claude.com/docs/en/about-claude/models/overview) ·
-[Pricing](https://platform.claude.com/docs/en/about-claude/pricing) ·
-[Vision](https://platform.claude.com/docs/en/build-with-claude/vision) ·
-[API versions](https://platform.claude.com/docs/en/api/versioning) ·
-[Structured outputs](https://platform.claude.com/docs/en/build-with-claude/structured-outputs) ·
-[Effort](https://platform.claude.com/docs/en/build-with-claude/effort) ·
-[API and data retention](https://platform.claude.com/docs/en/manage-claude/api-and-data-retention)
-
-Google: [Models](https://ai.google.dev/gemini-api/docs/models) ·
+Google, read 2026-11-12 (`ai.google.dev` redirects to `aistudio.google.com/docs`):
+[Models](https://ai.google.dev/gemini-api/docs/models) ·
+[Gemini 3.8 Flash](https://ai.google.dev/gemini-api/docs/models/gemini-3.8-flash) ·
 [Gemini 3.5 Flash-Lite](https://ai.google.dev/gemini-api/docs/models/gemini-3.5-flash-lite) ·
-[Nano Banana 2.1](https://ai.google.dev/gemini-api/docs/models/gemini-nano-banana-2.1) ·
 [Pricing](https://ai.google.dev/gemini-api/docs/pricing) ·
-[Audio understanding](https://ai.google.dev/gemini-api/docs/audio) ·
-[Transcription](https://ai.google.dev/gemini-api/docs/transcribe) ·
-[Image generation](https://ai.google.dev/gemini-api/docs/image-generation) ·
+[Structured output](https://ai.google.dev/gemini-api/docs/structured-output) ·
+[Thinking](https://ai.google.dev/gemini-api/docs/thinking) ·
 [Interactions](https://ai.google.dev/gemini-api/docs/interactions) ·
 [Interactions API reference](https://ai.google.dev/api/interactions-api-v1) ·
-[Terms](https://ai.google.dev/gemini-api/terms)
-(the `ai.google.dev` pages redirect to `aistudio.google.com/docs/…` with the same content)
+[Image understanding](https://ai.google.dev/gemini-api/docs/image-understanding) ·
+[Media resolution](https://ai.google.dev/gemini-api/docs/media-resolution) ·
+[Audio understanding](https://ai.google.dev/gemini-api/docs/audio).
+Read 2026-11-11: [Transcription](https://ai.google.dev/gemini-api/docs/transcribe) ·
+[Image generation](https://ai.google.dev/gemini-api/docs/image-generation) ·
+[Nano Banana 2.1](https://ai.google.dev/gemini-api/docs/models/gemini-nano-banana-2.1) ·
+[Terms](https://ai.google.dev/gemini-api/terms).
 
-Browser: [getUserMedia](https://developer.mozilla.org/en-US/docs/Web/API/MediaDevices/getUserMedia) ·
+Browser and codecs: [File drag and drop](https://developer.mozilla.org/en-US/docs/Web/API/HTML_Drag_and_Drop_API/File_drag_and_drop)
+and [MediaRecorder()](https://developer.mozilla.org/en-US/docs/Web/API/MediaRecorder/MediaRecorder)
+and [RFC 6716](https://www.rfc-editor.org/rfc/rfc6716) (2026-11-12);
+[getUserMedia](https://developer.mozilla.org/en-US/docs/Web/API/MediaDevices/getUserMedia) ·
 [Secure contexts](https://developer.mozilla.org/en-US/docs/Web/Security/Secure_Contexts) ·
 [webkitdirectory](https://developer.mozilla.org/en-US/docs/Web/API/HTMLInputElement/webkitdirectory) ·
 [createImageBitmap](https://developer.mozilla.org/en-US/docs/Web/API/Window/createImageBitmap) ·
-[toBlob](https://developer.mozilla.org/en-US/docs/Web/API/HTMLCanvasElement/toBlob)
+[toBlob](https://developer.mozilla.org/en-US/docs/Web/API/HTMLCanvasElement/toBlob) (2026-11-11).
 
 Project: `docs/design/poster.md` (limits, ledger, record) · `docs/design/factory.md`
-(stock, approval, panel §11, §14, §18) · `docs/design/panel-brief.md` (named widths).
+(stock, approval, panel §11, §14, §18) · `docs/design/panel-brief.md` (named widths) ·
+the seed-to-result research report of 2026-11-12 (§5.2, §5.3, §5.5, §6; kept outside the
+repository).
