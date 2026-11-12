@@ -55,6 +55,7 @@ def _guard_getaddrinfo(host, *a, **kw):
 
 # Canary secret values: unique strings that must never appear in any output or state file.
 CANARIES = {
+    "GEMINI_API_KEY": "cnry-gemini-api-key-dd17",
     "META_USER_TOKEN": "cnry-meta-user-token-91af",
     "FB_PAGE_KOTLETA_TOKEN": "cnry-fb-kotleta-token-33cd",
     "FB_PAGE_DEMO_TOKEN": "cnry-fb-demo-token+/=4",

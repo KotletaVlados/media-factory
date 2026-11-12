@@ -58,6 +58,8 @@ import threading
 import time
 import urllib.parse
 
+sys.dont_write_bytecode = True
+
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO)
 
@@ -163,6 +165,8 @@ class Chrome:
                                   " return p ? p.textContent : null; })()", 60)
             result = json.loads(raw)
             page.screenshot(png)
+            if "probe_create=create-voice" in url:
+                result["author_voice"] = page.evaluate("window.MFProbeVoiceFinish()", await_promise=True)
             full_h = min(max(h, int(result.get("height", h))), FULL_MAX)
             if full_png and full_h > h:
                 page.send("Emulation.setDeviceMetricsOverride", {
@@ -199,7 +203,7 @@ class Live:
         env = dict(self.chrome.env, MF_CDP_IN=str(cmd_r), MF_CDP_OUT=str(out_w))
         self.proc = subprocess.Popen(
             [sys.executable, "-I", "-c", DUP_EXEC, self.chrome.binary, "--no-sandbox",
-             "--disable-gpu", "--hide-scrollbars",
+             "--disable-gpu", "--hide-scrollbars", "--autoplay-policy=no-user-gesture-required",
              "--force-device-scale-factor=1", "--no-first-run", "--mute-audio",
              "--disable-extensions", f"--user-data-dir={self.profile}",
              "--remote-debugging-pipe", f"--window-size={self.w},{self.h}", "about:blank"],
@@ -257,6 +261,9 @@ class Live:
     def evaluate(self, expression: str, await_promise: bool = False):
         r = self.send("Runtime.evaluate", {"expression": expression, "returnByValue": True,
                                            "awaitPromise": await_promise}, timeout=60)
+        if "exceptionDetails" in r:
+            detail = r["exceptionDetails"]
+            raise RuntimeError(detail.get("exception", {}).get("description", detail.get("text", "browser error")))
         return r.get("result", {}).get("value")
 
     def wait_value(self, expression: str, timeout: float):
@@ -289,9 +296,9 @@ def with_probe(url: str) -> str:
     return urllib.parse.urlunsplit(parts._replace(query=query))
 
 
-def start(fixture):
+def start(fixture, ai_transport=None):
     srv = server.make_server(fixture.paths, fixture.clock, fixture.machine_tz, 0,
-                             log=io.StringIO())
+                             log=io.StringIO(), ai_transport=ai_transport or panel_fixture.FakeGemini())
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     return srv
 
@@ -426,6 +433,49 @@ def upload_index_problems(fx, widths) -> list:
     return out
 
 
+def author_problems(state, result):
+    author = result.get("author") or {}
+    problems = list(author.get("problems", []))
+    if not author:
+        problems.append("no author probe result")
+    for look in author.get("busy", []):
+        if not look["disabled"] or float(look["opacity"]) >= 1 or look["cursor"] == "pointer":
+            problems.append(f"busy control looks enabled: {look}")
+    if state == "create-drop":
+        drop = author.get("drop", {})
+        if drop.get("uploads") != 3 or drop.get("new") != 1 or not drop.get("url", "").startswith("/create/"):
+            problems.append(f"drop path: {drop}")
+        if author.get("many", {}).get("calls") != 0 or not author.get("many", {}).get("message"):
+            problems.append("multiple-file drop sent a request or lost its reason")
+        if author.get("duplicate", {}).get("uploads") != 1:
+            problems.append("duplicate drop must send only orig, then new draft")
+        if author.get("recent", {}).get("uploads") != 0 or author.get("recent", {}).get("new") != 1:
+            problems.append("recent photo uploaded or did not create a draft")
+        if author.get("hostile", {}).get("status") != 403:
+            problems.append("mutated CSRF header was not refused")
+    if state == "create-voice":
+        voice = result.get("author_voice") or {}
+        if voice.get("calls") != 1 or not voice.get("transcript") or not voice.get("energy", 0) > 0:
+            problems.append(f"voice stop/transcript/audio energy: {voice}")
+    return problems
+
+
+def author_index_problems(fx, widths, dropped):
+    out = []
+    rows = fphotos.read_index(os.path.join(fx.paths.stock, "my-photos", fphotos.PHOTOS))
+    for w in widths if dropped else ():
+        named = [r for r in rows if r["name"] == f"drop-{w}.jpg"]
+        if len(named) != 1:
+            out.append(f"drop-{w}.jpg: {len(named)} index rows, expected one")
+    if len(rows) != 12 + (len(widths) if dropped else 0):
+        out.append(f"{len(rows)} photo rows, expected {12 + (len(widths) if dropped else 0)}")
+    for root, _, files in os.walk(fx.root):
+        for name in files:
+            if name.endswith((".webm", ".ogg")):
+                out.append("audio on disk")
+    return out
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--out", required=True)
@@ -459,9 +509,26 @@ def main(argv=None) -> int:
     # the grid lists the newest photo first: the probe is told which one is the EXIF-6 original
     exif_id = {name: fphotos.read_index(os.path.join(fx.paths.stock, "city", fphotos.PHOTOS))[0]["id"]
                for name, fx in (("photos", with_photos), ("upload", uploading))}
+    create = panel_fixture.build_create(os.path.join(fixtures_root, "create"))
+    create_live = panel_fixture.build_create(os.path.join(fixtures_root, "create-live"), live_widths=widths)
+    create_empty = panel_fixture.build_empty(os.path.join(fixtures_root, "create-empty"))
+    panel_fixture._env_file(create_empty.paths.env_file, {"GEMINI_API_KEY": panel_fixture.CANARIES["GEMINI_API_KEY"]})
+    create_budget = panel_fixture.build_create(os.path.join(fixtures_root, "create-budget"), ledger_usd="9.99")
+    create_nokey = panel_fixture.build_create(os.path.join(fixtures_root, "create-nokey"), key=False)
+    fake = panel_fixture.FakeGemini()
+    fake.hold = {did for name, did in create_live.create_ids.items() if "loading" in name}
     servers = {name: start(fx) for name, fx in
                (("data", data), ("empty", empty), ("bad-rules", bad_rules), ("no-env", no_env),
                 ("photos", with_photos), ("upload", uploading))}
+    for name, fx in (("create", create), ("create-empty", create_empty),
+                     ("create-budget", create_budget), ("create-nokey", create_nokey)):
+        servers[name] = start(fx, fake)
+    # A held request belongs to one state/width panel. Its two admission slots must
+    # not occupy another state's panel (voice has to be able to transcribe).
+    # The shared fixture still has a different draft for each mutation.
+    for w in widths:
+        for kind in ("topics-loading", "expand-loading", "voice", "drop"):
+            servers[f"create-live-{kind}-{w}"] = start(create_live, fake)
     t0 = time.perf_counter()
     snap = servers["data"].panel.holder.get()
     snapshot_ms = snap.build_ms
@@ -500,6 +567,21 @@ def main(argv=None) -> int:
         # the upload loop's end state (photo states run in real time, see Chrome.live)
         ("files-photos-upload", url("upload", f"/files?folder=city&probe=1&probe_upload=1&probe_webp={webp_id}&probe_orig={exif_id['upload']}")),
     ]
+    author_paths = {
+        "create-empty": ("create-empty", "/create"), "create-start": ("create", "/create"),
+        "create-topics": ("create", "/create/" + create.create_ids["topics"]),
+        "create-own-topic": ("create", "/create/" + create.create_ids["own-topic"]),
+        "create-texts": ("create", "/create/" + create.create_ids["texts"] + "#texts"),
+        "create-over-limit": ("create", "/create/" + create.create_ids["over-limit"] + "#texts"),
+        "create-budget": ("create-budget", "/create/" + create_budget.create_ids["topics"]),
+        "create-error": ("create", "/create/" + create.create_ids["error"]),
+        "create-nokey": ("create-nokey", "/create/" + create_nokey.create_ids["topics"]),
+        "create-nokey-start": ("create-nokey", "/create"),
+        "create-profile": ("create", "/create/profile?saved=1"),
+        "files-mediateka": ("create", "/files"), "files-mine": ("create", "/files?folder=my-photos"),
+    }
+    states += [(name, url(fixture, path)) for name, (fixture, path) in author_paths.items()]
+    states += [("create-" + name, "") for name in ("topics-loading", "expand-loading", "voice", "drop")]
     # the 409 refusal: starting the draft with validation problems
     pages = os.path.join(scratch, "pages")
     os.makedirs(pages)
@@ -530,6 +612,26 @@ def main(argv=None) -> int:
 
     def one(state, address, w):
         h = WIDTHS.get(w, 900)
+        if state in author_paths or state in ("create-topics-loading", "create-expand-loading", "create-voice", "create-drop"):
+            if not address:
+                name = state[len("create-"):]
+                path = "/create" if name == "drop" else "/create/" + create_live.create_ids[f"{name}-{w}"]
+                address = url(f"create-live-{name}-{w}", path)
+            parts = urllib.parse.urlsplit(address)
+            query = parts.query + ("&" if parts.query else "") + "probe=1&probe_create=" + state
+            address = urllib.parse.urlunsplit(parts._replace(query=query))
+            result = chrome.live(address, w, h, os.path.join(out, f"{state}-{w}.png"),
+                                 os.path.join(out, f"{state}-{w}-full.png"))
+            # Each text card also has its own mobile frame, with its entire editor visible.
+            if state == "create-texts" and w == 390:
+                with Live(chrome, address, w, h) as mobile:
+                    mobile.wait_value("document.getElementById('probe') ? true : null", 60)
+                    for n in ("x", "linkedin", "instagram", "facebook"):
+                        mobile.evaluate(f"document.querySelector('[data-network={n}]').scrollIntoView(); true")
+                        mobile.screenshot(os.path.join(out, f"{state}-{w}-{n}.png"))
+            with open(os.path.join(out, f"{state}-{w}-probe.json"), "w", encoding="utf-8") as fh:
+                json.dump(result, fh, ensure_ascii=False, indent=2)
+            return state, w, result, min(max(h, int(result.get("height", h))), FULL_MAX)
         if state.startswith("files-photos"):
             result = chrome.live(address if "probe=1" in address else with_probe(address), w, h,
                                  os.path.join(out, f"{state}-{w}.png"),
@@ -555,6 +657,10 @@ def main(argv=None) -> int:
                         {"kind": "photo-copies", "el": "", "text": "", "detail": problem})
                 if w == widths[0]:
                     print(f"photos: {state}: {json.dumps(result.get('photos'), ensure_ascii=False)}")
+            if state in author_paths or state.startswith("create-"):
+                for problem in author_problems(state, result):
+                    findings.setdefault(f"{state}-{w}", []).append(
+                        {"kind": "authoring", "el": "", "text": "", "detail": problem})
             # the long fixture title is either whole or cut with a rendered "…", never cut bare
             if state in ELLIPSIS_STATES:
                 if LONG_TITLE in result.get("ellipsis", []):
@@ -599,6 +705,10 @@ def main(argv=None) -> int:
         for problem in upload_index_problems(uploading, widths):
             failed = True
             print(f"UPLOAD INDEX: {problem}")
+    for problem in author_index_problems(create_live, widths, "create-drop" in [s[0] for s in states]):
+        failed = True
+        print(f"AUTHOR INDEX: {problem}")
+    fake.release.set()
     for srv in servers.values():
         srv.shutdown()
         srv.server_close()

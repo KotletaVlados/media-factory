@@ -5,9 +5,9 @@ and "never shows a secret":
 
 - every request: `Host` must be `127.0.0.1:<port>` or `localhost:<port>`, otherwise 421
   (DNS rebinding);
-- every POST: an `Origin` that is present must match the Host, and the form field `csrf` must
-  equal the token made at start, otherwise 403. The body must be
-  `application/x-www-form-urlencoded` (415) and at most 16 KB (413);
+- every POST: Origin must match Host (required for non-form bodies); CSRF is checked
+  in the form field or X-CSRF-Token header. Each route declares its media types and
+  length bound (415/413), including authoring JSON and in-memory audio;
 - `/img` serves only an image ref that one of the package's variants names, whose real path
   lies inside the library or the package's folder and that sniffs as JPEG, PNG, GIF or WEBP;
   anything else is 404;
@@ -31,7 +31,8 @@ from dataclasses import dataclass
 from poster import config, package as poster_package, rules as poster_rules
 from poster.redact import Redactor
 from factory import ruleset as fruleset
-from factory.authoring import photos
+from factory.authoring import photos, drafts, profile, budget, gemini
+from factory.authoring.common import Refusal, text
 from factory.panel import actions, model, strings as S, views
 
 MAX_BODY = 16 * 1024
@@ -40,7 +41,8 @@ STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 STATIC = {"panel.css": "text/css; charset=utf-8",
           "panel.js": "text/javascript; charset=utf-8",
           "probe.js": "text/javascript; charset=utf-8",
-          "author.js": "text/javascript; charset=utf-8"}
+          "author.js": "text/javascript; charset=utf-8",
+          "create.js": "text/javascript; charset=utf-8"}
 SECURITY_HEADERS = {
     "Content-Security-Policy": "default-src 'self'; img-src 'self'; style-src 'self'; "
                                "script-src 'self'; frame-ancestors 'none'",
@@ -52,7 +54,7 @@ PAGES = {"/connection": ("connection", views.connection), "/files": ("files", vi
          "/reach": ("reach", views.reach), "/followers": ("followers", views.followers),
          "/dialogs": ("dialogs", views.dialogs)}
 RULE_ACTIONS = ("day", "hour", "zone", "start", "stop", "new")
-FORM, IMAGE = "form", "image"
+FORM, IMAGE, JSON, AUDIO = "form", "image", "json", "audio"
 
 
 @dataclass(frozen=True)
@@ -82,6 +84,17 @@ def post_route(path: str, query: dict) -> Route | None:
     if path == "/files/photos":
         kind = (query.get("kind") or [""])[0]
         return Route(IMAGE, photos.limit_for(kind), photos.types_for(kind))
+    if path == "/create/profile":
+        return Route(FORM, MAX_BODY, (FORM_TYPE,), "profile")
+    if path == "/create/new":
+        return Route(JSON, 64 * 1024, ("application/json",), "create", "new")
+    match = re.fullmatch(r"/create/([^/]+)/(topics|topic|expand|regenerate|text|voice)", path)
+    if match:
+        op = match[2]
+        return Route(AUDIO if op == "voice" else JSON,
+                     1024 * 1024 if op == "voice" else 64 * 1024,
+                     ("audio/webm", "audio/ogg") if op == "voice" else ("application/json",),
+                     match[1], op)
     return None
 
 
@@ -89,11 +102,14 @@ class Panel:
     """State shared by the request threads: the snapshot holder, the CSRF token, the lock
     that serialises the panel's own writes."""
 
-    def __init__(self, paths, clock, machine_tz: str, log=None):
+    def __init__(self, paths, clock, machine_tz: str, log=None, ai_transport=None):
         self.paths, self.clock, self.machine_tz = paths, clock, machine_tz
         self.holder = model.Holder(paths, clock, machine_tz, log)
         self.csrf = secrets.token_hex(32)
         self.write_lock = threading.Lock()
+        self.drafts = drafts.Store(paths.content, clock, machine_tz)
+        self.ai_ledger = budget.Ledger(paths.state, clock)
+        self.ai = gemini.Service(paths, clock, self.drafts, self.ai_ledger, self.redactor, ai_transport)
 
     def redactor(self, snap=None) -> Redactor:
         if snap is not None:
@@ -140,14 +156,19 @@ class Handler(http.server.BaseHTTPRequestHandler):
         return self.server.panel
 
     def _send(self, status: int, body: bytes, ctype: str, headers: dict | None = None):
-        self.send_response(status)
-        self.send_header("Content-Type", ctype)
-        self.send_header("Content-Length", str(len(body)))
-        for name, value in (headers or {}).items():
-            self.send_header(name, value)
-        self.end_headers()
-        if self.command != "HEAD":
-            self.wfile.write(body)
+        try:
+            self.send_response(status)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Content-Length", str(len(body)))
+            for name, value in (headers or {}).items():
+                self.send_header(name, value)
+            self.end_headers()
+            if self.command != "HEAD":
+                self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError):
+            # Closing a page cannot undo a settled AI call. Its draft and reservation
+            # already persist; do not turn a disconnected response into a second error.
+            self.close_connection = True
 
     def _plain(self, status: int, text: str):
         self._send(status, (text + "\n").encode(), "text/plain; charset=utf-8",
@@ -173,13 +194,24 @@ class Handler(http.server.BaseHTTPRequestHandler):
         path = url.path
         query = urllib.parse.parse_qs(url.query, keep_blank_values=True, max_num_fields=50)
         if path == "/":
-            return self._redirect("/connection", 302)
+            return self._redirect("/create", 302)
         if path.startswith("/static/"):
             return self._static(path[len("/static/"):])
         if path == "/img":
             return self._img(query)
         if path == "/photo":
             return self._photo(query)
+        if path == "/create":
+            return self._page(path, query, "create", views.create)
+        if path == "/create/profile":
+            return self._page(path, query, "create", views.create_profile)
+        if path.startswith("/create/"):
+            did = path[len("/create/"):]
+            try:
+                self.panel.drafts.load(did)
+            except Refusal as exc:
+                return self._page(path, query, "error", views.not_found_page, status=exc.status)
+            return self._page(path, query, "create", views.create_draft)
         if path in PAGES:
             tab, render = PAGES[path]
             return self._page(path, query, tab, render)
@@ -198,7 +230,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         try:
             snap = self.panel.holder.get()
             ctx = views.Ctx(snap, path, query, self.panel.csrf,
-                            probe=(query.get("probe") or [""])[0] == "1")
+                            probe=(query.get("probe") or [""])[0] == "1", author=self.panel)
             if snap.env_error and tab not in ("dialogs", "error"):
                 html = views.env_error_page(ctx, tab)
             elif refusal is not None:
@@ -328,7 +360,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if not hmac.compare_digest(token.encode(), self.panel.csrf.encode()):
                 self._drain(length)   # a stale page after a restart reads the reason
                 return self._json(403, {"error": S.UP_FORBIDDEN})
-            return self._upload(query, length)
+            if route.kind == IMAGE:
+                return self._upload(query, length)
+            return self._create_write(route, length, ctype)
         data = self.rfile.read(length)
         try:
             form = urllib.parse.parse_qs(data.decode("utf-8"), keep_blank_values=True,
@@ -338,7 +372,95 @@ class Handler(http.server.BaseHTTPRequestHandler):
         token = (form.get("csrf") or [""])[0]
         if not hmac.compare_digest(token.encode(), self.panel.csrf.encode()):
             return self._plain(403, "forbidden: missing or wrong csrf")
+        if route.handler == "profile":
+            return self._profile_write(form, query)
         return self._write(route.handler, route.action, form, query)
+
+    def _profile_write(self, form, query):
+        values = {"audience": {}}
+        for name, *_ in profile.FIELDS:
+            v = (form.get(name) or [""])[0]
+            if name.startswith("audience."):
+                values["audience"][name.split(".")[1]] = v
+            else:
+                values[name] = v
+        try:
+            clean = json.loads(self.panel.redactor().redact(json.dumps(values, ensure_ascii=False)))
+            profile.save(self.panel.paths.content, clean, self.panel.clock())
+        except Refusal as exc:
+            return self._page("/create/profile", query, "create", views.create_profile,
+                              status=exc.status, refusal={"values": values, "error": exc.message})
+        except Exception as exc:
+            return self._last_resort("/create/profile", query, exc)
+        return self._redirect("/create/profile?saved=1")
+
+    def _create_write(self, route, length, ctype):
+        panel, op, did = self.panel, route.action, route.handler
+        try:
+            raw = self.rfile.read(length)
+            if len(raw) != length:
+                raise Refusal("неверный запрос", 400)
+            if route.kind == JSON:
+                try:
+                    data = json.loads(raw.decode("utf-8"))
+                except (ValueError, UnicodeDecodeError, RecursionError):
+                    raise Refusal("неверный запрос", 400) from None
+                if not isinstance(data, dict):
+                    raise Refusal("неверный запрос", 400)
+                # All persisted operator text crosses the same redaction boundary.
+                data = json.loads(panel.redactor().redact(json.dumps(data, ensure_ascii=False)))
+            else:
+                data = {}
+            if op == "new":
+                draft = panel.drafts.create(panel.paths.stock, data.get("folder"), data.get("photo"),
+                                            bool(panel.ai.env().get("GEMINI_API_KEY", "").strip()))
+                return self._json(200, {"id": draft["id"], "url": "/create/" + draft["id"]})
+            panel.drafts.load(did)
+            if op == "topic":
+                value = text(data.get("topic"), 2000, "тема")
+                draft = panel.drafts.update(did, lambda d: d.update(topic=value))
+                return self._json(200, {"topic": draft["topic"]})
+            network = data.get("network", "")
+            if op in ("text", "regenerate") and (not isinstance(network, str) or network not in drafts.LANGS):
+                raise Refusal("неверная сеть", 400)
+            if op == "text":
+                value = data.get("text")
+                if isinstance(value, str) and len(value) > 5000:
+                    raise Refusal("текст длиннее 5 000 знаков")
+                value = text(value, 5000, "текст")
+                def edit(d):
+                    d["variants"][network] = {"text": value, "lang": drafts.LANGS[network], "source": "edited"}
+                draft = panel.drafts.update(did, edit)
+                check = poster_rules.check_text(network, draft["variants"][network]["text"])
+                return self._json(200, {"counts": check.counts, "errors": check.errors})
+            auto = data.get("auto", False)
+            if op == "topics" and not isinstance(auto, bool):
+                raise Refusal("неверный запрос", 400)
+            wish = text(data.get("wish", ""), 200, "пожелание") if op == "regenerate" else ""
+            try:
+                result = panel.ai.run(did, op, auto=auto, network=network, wish=wish,
+                                      audio=raw if op == "voice" else b"", mime=ctype)
+            except Refusal as exc:
+                if exc.status != 400:
+                    def error(d):
+                        d["error"] = {"op": op, "network": network if isinstance(network, str) else "",
+                                      "text": panel.redactor().redact(exc.message),
+                                      "ts": config.iso_utc(panel.clock())}
+                    panel.drafts.update(did, error)
+                raise
+            result["month"] = panel.ai_ledger.display(panel.ai.env())
+            return self._json(200, result)
+        except (Refusal, photos.UploadError) as exc:
+            reply = {"error": exc.message}
+            try:
+                reply["month"] = panel.ai_ledger.display(panel.ai.env())
+            except (Refusal, config.ConfigError, OSError):
+                pass
+            return self._json(exc.status, reply)
+        except Exception as exc:
+            message = panel.redactor().redact(f"{type(exc).__name__}: {exc}")
+            print(f"panel: create: {message}", file=panel.holder.log, flush=True)
+            return self._json(500, {"error": "Ошибка панели — повторите"})
 
     def _refuse(self, status: int, text: str, as_json: bool = False):
         """A refusal before the body is read: the unread body would be taken for the next
@@ -439,9 +561,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
                           refusal=refusal)
 
 
-def make_server(paths, clock, machine_tz: str, port: int = 0, log=None) -> Server:
+def make_server(paths, clock, machine_tz: str, port: int = 0, log=None, ai_transport=None) -> Server:
     """Bind 127.0.0.1:port (0 picks a free port; read it back from `.port`)."""
-    return Server(("127.0.0.1", port), Panel(paths, clock, machine_tz, log))
+    return Server(("127.0.0.1", port), Panel(paths, clock, machine_tz, log, ai_transport))
 
 
 def serve(app, port: int) -> int:

@@ -230,7 +230,7 @@
                                           controls: controls.length, findings: findings, scrollY: window.scrollY,
                                           hash: location.hash, expanders: measured,
                                           ellipsis: ellipsized.map(clampText),
-                                          whole: whole.map(clampText), photos: photos});
+                                          whole: whole.map(clampText), photos: photos, author: window.MFProbeAuthor});
         document.body.appendChild(pre);
       });
     });
@@ -516,9 +516,159 @@
     next();
   }
 
+  // Authoring states run with the real browser clock. All Gemini replies come from
+  // the fixture's FakeGemini; no probe ever calls a vendor.
+  async function authorChecks() {
+    var state = new URLSearchParams(location.search).get("probe_create");
+    if (!state) { return; }
+    var root = document.querySelector("[data-create]");
+    var out = {state: state, problems: [], busy: [], defining: []};
+    window.MFProbeAuthor = out;
+    async function until(predicate, label, timeout) {
+      var deadline = performance.now() + (timeout || 10000);
+      while (!predicate()) {
+        if (performance.now() > deadline) { throw new Error("timed out: " + label); }
+        await new Promise(function (ok) { requestAnimationFrame(ok); });
+      }
+    }
+    function see(selector, expected, scope) {
+      var el = (scope || document).querySelector(selector);
+      if (!el) { out.problems.push("missing " + selector); return; }
+      var text = el.value !== undefined && el.tagName === "TEXTAREA" ? el.value : el.textContent;
+      if (expected && text.indexOf(expected) < 0) { out.problems.push(selector + " lacks " + expected); }
+      var range = document.createRange(); range.selectNodeContents(el);
+      var r = el.tagName === "TEXTAREA" ? el.getBoundingClientRect() : range.getBoundingClientRect();
+      out.defining.push({selector: selector, text: text, top: Math.round(r.top), bottom: Math.round(r.bottom)});
+      // Text inside the sticky bar is measured against the viewport, not below the bar.
+      var top = el.closest(".topbar") ? 0 : stickyBottom();
+      if (r.top < top - 1 || r.bottom > innerHeight + 1) {
+        out.problems.push("defining text off screen: " + selector + " " + Math.round(r.top) + ".." + Math.round(r.bottom));
+      }
+    }
+    function scroll(selector) { var el = document.querySelector(selector); if (el) { el.scrollIntoView({block: "start"}); } }
+    function looks(selector) {
+      document.querySelectorAll(selector).forEach(function (el) {
+        var cs = getComputedStyle(el);
+        out.busy.push({text: el.textContent, disabled: el.disabled, opacity: cs.opacity, cursor: cs.cursor,
+                       width: el.getBoundingClientRect().width});
+      });
+    }
+    try {
+      if (state === "create-topics-loading") {
+        await until(function () { return document.querySelector(".ai-status").textContent.indexOf("Gemini") >= 0; }, "topics loading");
+        scroll(".create-topic");
+        see(".ai-status", "Gemini подбирает темы…");
+        see('[data-op="topics"]', "Ещё темы · до $0.02");
+        looks('[data-op="topics"], [data-op="expand"]');
+      } else if (state === "create-expand-loading") {
+        document.querySelector('[data-op="expand"]').click();
+        await until(function () { return root.getAttribute("aria-busy") === "true"; }, "expand loading");
+        scroll(".create-topic");
+        see(".ai-status", "Gemini пишет тексты…");
+        see('[data-op="expand"]', "Развернуть · до $0.05");
+        looks('[data-op="topics"], [data-op="expand"]');
+      } else if (state === "create-voice") {
+        var audioContext = new AudioContext(), source = audioContext.createOscillator();
+        source.frequency.value = 250;
+        var dest = audioContext.createMediaStreamDestination(); source.connect(dest); source.start();
+        await audioContext.resume();
+        navigator.mediaDevices.getUserMedia = async function () { return dest.stream; };
+        var audioBlob, voiceCalls = 0, realFetch = window.fetch;
+        window.fetch = function (url, options) {
+          if (String(url).endsWith("/voice")) { audioBlob = options.body; voiceCalls++; }
+          return realFetch(url, options);
+        };
+        document.querySelector('[data-op="voice"]').click();
+        await until(function () { return document.querySelector('[data-op="voice"]').textContent.indexOf("0:01") >= 0; }, "voice timer");
+        scroll(".create-actions");
+        see('[data-op="voice"]', "Стоп · 0:01"); see(".voice-status", "0:01");
+        window.MFProbeVoiceFinish = async function () {
+          window.MFCreate.stopVoice();
+          await until(function () { return audioBlob && root.getAttribute("aria-busy") === "false" && document.querySelector("#topic").value.indexOf("Утренняя пробежка у моря") >= 0; }, "voice transcript");
+          var buffer = await audioContext.decodeAudioData(await audioBlob.arrayBuffer());
+          var energy = buffer.getChannelData(0).reduce(function (sum, x) { return sum + x * x; }, 0);
+          source.stop(); await audioContext.close(); window.fetch = realFetch;
+          return {calls: voiceCalls, energy: energy, transcript: document.querySelector("#topic").value};
+        };
+      } else if (state === "create-drop") {
+        var calls = [], actualFetch = window.fetch, navigation;
+        window.fetch = function (url, options) { calls.push(String(url)); return actualFetch(url, options); };
+        window.MFCreate.navigate(function (url) { navigation = url; });
+        var w = innerWidth, blob = await canvasJpeg(40 + w % 97, 30 + w % 53, w % 255);
+        var file = new File([blob], "drop-" + w + ".jpg", {type: "image/jpeg"});
+        function counted() { return {uploads: calls.filter(function (u) { return u.indexOf("/files/photos?") === 0; }).length,
+          new: calls.filter(function (u) { return u === "/create/new"; }).length, url: navigation}; }
+        await window.MFCreate.drop([file, file]);
+        out.many = {calls: calls.length, message: document.querySelector(".create-status").textContent.indexOf("Перетащите одно фото") >= 0};
+        calls = []; await window.MFCreate.drop([file]); out.drop = counted();
+        calls = []; await window.MFCreate.drop([file]); out.duplicate = counted();
+        calls = []; document.querySelector("[data-recent]").click();
+        await until(function () { return root.getAttribute("aria-busy") === "false"; }, "recent draft");
+        out.recent = counted();
+        var C = JSON.parse(root.dataset.create);
+        var response = await actualFetch("/create/new", {method: "POST", headers: {"Content-Type": "application/json", "X-CSRF-Token": C.csrf + "mutated"}, body: "{}"});
+        out.hostile = {status: response.status}; window.fetch = actualFetch;
+      } else if (state === "create-topics") {
+        scroll(".create-topic");
+        document.querySelectorAll(".topic-card").forEach(function (el, i) { see("strong", null, el); });
+        see('.topic-card[aria-pressed="true"] .chosen', "выбрано");
+        see('[data-op="expand"]', "Развернуть · до $0.05");
+      } else if (state === "create-own-topic") {
+        scroll(".create-topic"); see("#topic", "Прогулянка і робочі звички");
+        see('[data-op="topics"]', "Предложить темы · до $0.02");
+        see('[data-op="expand"]', "Развернуть · до $0.05");
+        if (document.querySelector('[data-op="expand"]').disabled) { out.problems.push("own topic expand disabled"); }
+      } else if (state === "create-texts" || state === "create-over-limit") {
+        scroll("#texts");
+        if (state === "create-over-limit") { see(".text-errors", "длиннее лимита: 312/280"); }
+        document.querySelectorAll(".create-text").forEach(function (card) {
+          card.scrollIntoView(); see("h3", null, card); see(".text-check", null, card);
+          var el = card.querySelector("textarea");
+          if (el.scrollHeight > el.clientHeight + 2) { out.problems.push("text editor clips " + card.dataset.network); }
+        });
+        scroll("#texts");
+      } else if (state === "create-empty" || state === "create-start" || state === "create-nokey-start") {
+        see(".create-drop strong", "Бросьте фото сюда"); see(".create-drop .btn", "Выбрать фото");
+        if (state === "create-empty") { see(".profile-line", "Профиль автора не заполнен"); see("#ai-month", "ИИ · ноябрь $0.00 из $10.00"); }
+        if (state === "create-start") {
+          see(".recent-photos", null);
+          var draftHeading = document.querySelector(".draft-list").previousElementSibling;
+          var dr = document.createRange(); dr.selectNodeContents(draftHeading);
+          var db = dr.getBoundingClientRect();
+          if (draftHeading.textContent !== "Черновики · 5" || db.bottom > innerHeight) { out.problems.push("draft heading off screen"); }
+        }
+        if (state === "create-nokey-start" && document.querySelector("#create-file").disabled) { out.problems.push("no key disabled upload"); }
+      } else if (state === "create-budget") {
+        see(".create-notice", "потрачено $9.99 из $10.00"); see("#ai-month", "· лимит");
+      } else if (state === "create-error") {
+        see(".create-error", "Gemini не ответил: HTTP 503 — повторите"); see("[data-retry]", "Повторить");
+      } else if (state === "create-nokey" || state === "create-nokey-start") {
+        see(".create-notice", "нет GEMINI_API_KEY в .env — темы, тексты и голос недоступны");
+      } else if (state === "create-profile") {
+        see(".create-profile h2", "Профиль автора"); see(".create-profile [role=status]", "Профиль сохранён");
+        document.querySelectorAll(".profile-field label").forEach(function (el) { see("label", null, el.parentElement); });
+      } else if (state === "files-mediateka") {
+        see('.tab[aria-current="page"]', "Медиатека");
+        var mine = Array.from(document.querySelectorAll(".fcard")).find(function (card) {
+          return card.querySelector('a[href*="folder=my-photos"]') || (card.href || "").indexOf("folder=my-photos") >= 0;
+        });
+        if (!mine) { out.problems.push("missing Мои фото card"); }
+        else {
+          if (!/12\s*фото/.test(mine.textContent.replace(/\u00a0/g, " "))) { out.problems.push("Мои фото card lacks 12 фото"); }
+          mine.setAttribute("data-probe-mine", ""); see("[data-probe-mine]", "Мои фото");
+        }
+      } else if (state === "files-mine") {
+        see("#photos-h", "Фото · 12");
+        if (!document.querySelector(".pgrid").textContent.includes("черновик")) { out.problems.push("missing draft chip"); }
+      }
+    } catch (err) { out.problems.push(err.message); }
+  }
+
   // after the load event, so the browser has already scrolled to a #fragment
   function later() {
-    setTimeout(run, 100);
+    authorChecks().then(function () { setTimeout(run, 100); }, function (err) {
+      window.MFProbeAuthor = {problems: [err.message]}; setTimeout(run, 100);
+    });
   }
 
   if (document.readyState === "complete") {

@@ -11,8 +11,9 @@ import datetime as _dt
 import re
 
 TABS = (
+    ("create", "Создать"),
     ("connection", "Подключение"),
-    ("files", "Файлы"),
+    ("files", "Медиатека"),
     ("rules", "Правила"),
     ("calendar", "Календарь"),
     ("reach", "Охваты"),
@@ -388,3 +389,30 @@ def ago(minutes: int) -> str:
     if minutes < 48 * 60:
         return f"{minutes // 60} ч"
     return f"{minutes // (24 * 60)} дн."
+
+# ---------------------------------------------------------------- Создать (authoring.md §8)
+CREATE_DROP = "Бросьте фото сюда"
+CREATE_PICK = "Выбрать фото"
+CREATE_PROFILE_EMPTY = "Профиль автора не заполнен — темы и тексты будут общими"
+CREATE_PROFILE_FILLED = "Профиль автора · заполнен"
+CREATE_PROFILE_HINT = ("Профиль уходит в каждый запрос к Gemini вместе с фото. "
+                       "Хранится только на этом компьютере (content/profile.json).")
+CREATE_NEED_JS = "Создание постов работает только с включённым JavaScript."
+CREATE_JS = {
+    "uploading": "Загрузка фото…", "drafting": "Создаю черновик…",
+    "many": "Перетащите одно фото", "drop": "Отпустите — загружу",
+    "topics_loading": "Gemini подбирает темы…", "expand_loading": "Gemini пишет тексты…",
+    "saved": "сохранено", "saving": "сохраняю…", "chosen": "выбрано", "voice": "Голос",
+    "stop": "Стоп", "transcribing": "расшифровка…", "voice_retry": "Повторить расшифровку",
+    "voice_denied": "микрофон запрещён в браузере", "voice_missing": "микрофон не найден",
+    "voice_context": "запись голоса работает только по адресу localhost",
+    "voice_unsupported": "браузер не записывает звук — откройте панель в Chrome или Edge",
+    "network": "нет связи с панелью — повторите", "empty_topic": "выберите тему или впишите свою",
+    "expand": "Развернуть", "expand_again": "Развернуть заново — правки пропадут",
+    "topics": "Предложить темы", "more_topics": "Ещё темы", "regenerate": "Перегенерировать",
+    "wish": "пожелание: короче, без хештегов…", "problem": "Проблема:",
+    "over": "длиннее лимита: ", "repeat": "Повторить", "text_long": "текст длиннее 5 000 знаков",
+    "topic_long": "тема: не больше 2000 знаков", "before_texts": "Тексты появятся после «Развернуть»",
+}
+CREATE_NETWORKS = {"x": "X · англ.", "linkedin": "LinkedIn · англ.",
+                   "instagram": "Instagram · укр.", "facebook": "Facebook · укр."}

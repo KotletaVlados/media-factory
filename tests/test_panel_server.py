@@ -27,10 +27,10 @@ WRITES = ["/rules/day", "/rules/hour", "/rules/zone", "/rules/start", "/rules/st
 
 
 class RoutesTest(pf.PanelCase):
-    def test_root_redirects_to_connection(self):
+    def test_root_redirects_to_create(self):
         status, headers, _ = self.get("/")
         self.assertEqual(status, 302)
-        self.assertEqual(headers["location"], "/connection")
+        self.assertEqual(headers["location"], "/create")
 
     def test_every_page_answers_html_with_the_security_headers(self):
         for path in PAGES:

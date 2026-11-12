@@ -619,3 +619,108 @@ class PanelCase(PosterTestCase):
                 path = os.path.join(dirpath, f)
                 out[os.path.relpath(path, self.fx.root)] = self.file_hash(path)
         return out
+
+
+# ---------------------------------------------------------------- Создать (authoring.md §16.2)
+
+TOPICS = [
+    {"title": "Маленькие шаги", "angle": "Как ежедневные привычки помогают двигаться вперёд."},
+    {"title": "Время заметить", "angle": "Почему полезно остановиться и посмотреть вокруг."},
+    {"title": "Новый маршрут", "angle": "Что меняется, когда выбираешь другой путь."},
+    {"title": "Простое решение", "angle": "Как убрать лишнее и оставить главное."},
+    {"title": "Свежий взгляд", "angle": "Чему можно научиться у обычной прогулки."},
+]
+TEXTS = {
+    "x": "Small steps make room for a fresh perspective. Today I am taking a moment to notice what is already around me.",
+    "linkedin": ("A change of perspective often starts with a pause.\n\nI find that a short walk helps me separate urgent tasks from useful work. "
+                 "It is a simple habit, but it makes the next decision easier.\n\nWhat helps you find a fresh angle at work?"),
+    "instagram": "Іноді достатньо зупинитися й озирнутися. Маленькі кроки відкривають нові маршрути.\n\n#прогулянка #натхнення #звички",
+    "facebook": "Сьогодні я обираю трохи сповільнитися. Під час прогулянки легше помітити те, повз що зазвичай проходжу. А що допомагає вам перемкнутися?",
+}
+AUTHOR_PROFILE = {"who": "Пишу про міські прогулянки та робочі звички.", "topics": "Місто, природа, прості рішення.",
+                  "audience": {"x": "Curious readers", "linkedin": "Small business teams",
+                               "instagram": "Люди, які люблять прогулянки", "facebook": "Друзі та спільнота"},
+                  "tone": "Спокійний, конкретний", "avoid": "Гучні обіцянки"}
+
+
+def gemini_reply(value, *, status="completed", path="steps", usage=None):
+    from tests.base import resp
+    text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
+    data = {"status": status, "usage": usage or {"total_input_tokens": 2000, "total_output_tokens": 700,
+                                                "total_thought_tokens": 100, "total_tokens": 2800}}
+    if path == "steps":
+        data["steps"] = [{"type": "model_output", "content": [{"type": "text", "text": text}]}]
+    else:
+        data["output_text"] = text
+    return resp(obj=data)
+
+
+class FakeGemini:
+    """No sockets. Calls identified from their schema/audio; private display metadata only
+    picks held/error drafts. Every fixture response is synthetic, not a vendor observation."""
+    def __init__(self):
+        self.requests = []
+        self.release = threading.Event()
+        self.entered = threading.Event()
+        self.hold = set()
+        self.fail = set()
+
+    def send(self, req):
+        from tests.base import resp
+        self.requests.append(req)
+        self.entered.set()
+        did = req.fields.get("draft")
+        if did in self.hold and not self.release.wait(120):
+            from poster.http import TransportError
+            raise TransportError("fixture deadline")
+        if did in self.fail:
+            return resp(503, {"error": {"message": "temporarily unavailable"}})
+        body = json.loads(req.body)
+        schema = body.get("response_format", {}).get("schema", {}).get("properties", {})
+        if "topics" in schema:
+            return gemini_reply({"topics": TOPICS})
+        if "x" in schema:
+            return gemini_reply(TEXTS)
+        if "text" in schema:
+            return gemini_reply({"text": "A shorter post, with a clear point."})
+        return gemini_reply("Утренняя пробежка у моря")
+
+
+def build_create(root: str, key=True, ledger_usd=None, live_widths=()) -> Fixture:
+    from unittest import mock
+    from factory.authoring import drafts, profile, budget
+    fx = build_data(root)
+    if not key:
+        with open(fx.paths.env_file, encoding="utf-8") as fh:
+            lines = [line for line in fh if not line.startswith("GEMINI_API_KEY=")]
+        with open(fx.paths.env_file, "w", encoding="utf-8") as fh:
+            fh.writelines(lines)
+    ids = []
+    for k in range(12):
+        orig = make_photo(320, 240, 1100 + k)
+        ids.append(store_photo(fx, "my-photos", orig, make_photo(160, 120, 1100 + k), orig, f"walk-{k + 1:02d}.jpg"))
+    profile.save(fx.paths.content, AUTHOR_PROFILE, fx.now)
+    store = drafts.Store(fx.paths.content, fx.clock, fx.machine_tz)
+    fx.create_ids = {}
+    states = [f"{state}-{w}" for w in live_widths for state in ("topics-loading", "expand-loading", "voice")] if live_widths else ["topics", "own-topic", "texts", "over-limit", "error"]
+    for i, name in enumerate(states):
+        with mock.patch("factory.authoring.drafts.secrets.token_hex", return_value=f"{i + 1:04x}"):
+            d = store.create(fx.paths.stock, "my-photos", ids[i % len(ids)], key)
+        def fill(d):
+            d["topics_auto"] = "pending" if name.startswith("topics-loading") else "done" if key else "manual"
+            d["topics"] = [] if name.startswith(("own-topic", "voice")) else TOPICS
+            d["topic"] = "Прогулянка і робочі звички" if not d["topics"] else TOPICS[1]["title"] + " — " + TOPICS[1]["angle"]
+            if name in ("texts", "over-limit"):
+                d["variants"] = {n: {"text": t, "lang": drafts.LANGS[n], "source": "gemini"} for n, t in TEXTS.items()}
+                if name == "over-limit":
+                    d["variants"]["x"]["text"] = "x" * 312
+            if name == "error":
+                d["error"] = {"op": "topics", "text": "Gemini не ответил: HTTP 503 — повторите", "ts": config.iso_utc(fx.now)}
+        store.update(d["id"], fill)
+        fx.create_ids[name] = d["id"]
+    if ledger_usd is not None:
+        ledger = budget.Ledger(fx.paths.state, fx.clock)
+        from decimal import Decimal
+        rid = ledger.reserve("topics", Decimal(str(ledger_usd)), Decimal("10"), "fixture")
+        ledger.settle(rid, "ok", actual=Decimal(str(ledger_usd)))
+    return fx

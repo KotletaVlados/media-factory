@@ -32,11 +32,12 @@ Instagram, `IG_<NAME>_USER_ID` give the targets `fb:<name>` and `ig:<name>`.
 | `X_MONTHLY_CAP_USD` | optional, monthly spending cap (default `5.00`) |
 | `X_PRICE_POST`, `X_PRICE_POST_WITH_URL`, `X_PRICE_POST_WITH_MEDIA`, `X_PRICE_MEDIA_UPLOAD` | optional, prices used by the local budget ledger |
 
-## Planned
+## AI (panel)
 
 | Variable | Purpose |
 |---|---|
-| `GEMINI_API_KEY` | Google Gemini, for text and image generation (not used by the code yet) |
+| `GEMINI_API_KEY` | Gemini Interactions API: topics, per-network texts and voice transcription |
+| `AI_MONTHLY_CAP_USD` | optional, shared monthly AI spending cap (default `10.00`) |
 
 ## Poster and factory paths (process environment, not secrets)
 
