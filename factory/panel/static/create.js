@@ -9,7 +9,7 @@
   let busy = false, recording = false, disposed = false;
   let navigate = url => window.location.assign(url);
   const report = (el, message) => { el.textContent = message; };
-  function error(message, retry) {
+  function error(message, retry, op) {
     let el = $(".create-error") || $(".create-status");
     if (!el) { return; }
     el.hidden = false;
@@ -21,7 +21,8 @@
     el.setAttribute("role", "alert");
     if (retry) {
       const button = document.createElement("button");
-      button.className = "btn"; button.type = "button"; button.textContent = T.repeat;
+      button.className = "btn"; button.type = "button";
+      button.textContent = T.repeat + (op && C.bounds[op] ? " · " + C.bounds[op] : "");
       button.addEventListener("click", retry); el.appendChild(button);
     }
   }
@@ -73,16 +74,16 @@
   window.MFCreate = {drop, navigate: fn => { navigate = fn; }};
   if (!C.draft) {
     const zone = $(".create-drop"), file = $("#create-file"), hint = $(".drop-hint");
-    const originalHint = hint.textContent;
+    const originalHint = hint.innerHTML;
     window.addEventListener("dragover", e => e.preventDefault());
     window.addEventListener("drop", e => e.preventDefault());
     zone.addEventListener("dragover", e => {
       e.preventDefault(); if (busy) { return; }
       zone.classList.add("dragover"); hint.textContent = T.drop;
     });
-    zone.addEventListener("dragleave", () => { zone.classList.remove("dragover"); hint.textContent = originalHint; });
+    zone.addEventListener("dragleave", () => { zone.classList.remove("dragover"); hint.innerHTML = originalHint; });
     zone.addEventListener("drop", e => {
-      e.preventDefault(); zone.classList.remove("dragover"); hint.textContent = originalHint;
+      e.preventDefault(); zone.classList.remove("dragover"); hint.innerHTML = originalHint;
       drop(Array.from(e.dataTransfer.files));
     });
     file.addEventListener("change", () => { if (file.files.length) { drop(Array.from(file.files)); } file.value = ""; });
@@ -165,12 +166,10 @@
     function line(parent, message, cls) {
       const p = document.createElement("p"); p.className = cls || ""; p.textContent = message; parent.appendChild(p);
     }
-    result.counts.forEach(c => line(box, c, "mono small"));
-    if (result.errors.length) {
+    if (result.line) { line(box, result.line, "mono small"); }
+    if (result.problems.length) {
       const errors = document.createElement("div"); errors.className = "k-bad text-errors"; errors.setAttribute("role", "alert");
-      const m = (result.counts[0] || "").match(/(\d+)\/(\d+)/);
-      if (m && +m[1] > +m[2]) { line(errors, T.over + m[0]); }
-      result.errors.forEach(e => line(errors, T.problem + " " + e)); box.appendChild(errors);
+      result.problems.forEach(e => line(errors, e)); box.appendChild(errors);
     }
   }
   function expandLabel() {
@@ -232,6 +231,7 @@
       }
       const result = await post(base + "/" + op, audio || data, mime || "application/json");
       if (activeError === op) { $(".create-error").hidden = true; activeError = ""; }
+      if (op === "topics") { $("[data-op=topics]").hidden = false; }
       if (op === "topics") { renderTopics(result.topics); }
       if (result.variants) { renderTexts(result.variants, op === "regenerate" ? data.network : ""); }
       if (op === "voice") {
@@ -247,7 +247,9 @@
     } catch (err) {
       activeError = op;
       // The automatic topics request is spent once on the server; a retry is a real request.
-      error(err.message, op === "voice" ? null : () => ai(op, op === "topics" ? {} : data, audio, mime));
+      error(err.message, op === "voice" ? null : () => ai(op, op === "topics" ? {} : data, audio, mime), op);
+      // the banner's «Повторить» is the one button for a failed topics request
+      if (op === "topics") { $("[data-op=topics]").hidden = true; }
       if (op === "voice") { showVoiceRetry(); }
     } finally { writing.forEach(el => { el.readOnly = false; }); report(line, ""); setBusy(false); }
   }
@@ -270,12 +272,12 @@
     clearInterval(ticker);
     if (recorder && recorder.state !== "inactive") { stopping = !send; recorder.stop(); }
     recording = false;
-    stopTracks(); voice.textContent = T.voice; voice.setAttribute("aria-pressed", "false");
+    stopTracks(); voice.textContent = T.voice + " · " + C.bounds.voice; voice.setAttribute("aria-pressed", "false");
   }
   function tick() {
     const elapsed = Math.floor((Date.now() - started) / 1000);
     const time = Math.floor(elapsed / 60) + ":" + String(elapsed % 60).padStart(2, "0");
-    voice.textContent = T.stop + " · " + time; report($(".voice-status"), time);
+    voice.textContent = T.stop + " · " + time;
     if (elapsed >= 120) { stopVoice(); }
   }
   voice.addEventListener("click", async () => {
@@ -296,7 +298,7 @@
         await ai("voice", {}, voiceBlob, voiceMime);
       };
       recorder.onerror = () => { stopVoice(false); report($(".voice-status"), T.voice_unsupported); };
-      recorder.start(); recording = true; started = Date.now(); ticker = setInterval(tick, 200); tick();
+      $(".voice-status").replaceChildren(); recorder.start(); recording = true; started = Date.now(); ticker = setInterval(tick, 200); tick();
       voice.setAttribute("aria-pressed", "true");
     } catch (err) {
       stopTracks(); report($(".voice-status"), err.name === "NotAllowedError" ? T.voice_denied :

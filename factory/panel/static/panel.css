@@ -109,6 +109,7 @@ button, input, select { font: inherit; color: inherit; }
 .btn { display: inline-flex; align-items: center; gap: 6px; min-height: 28px; padding: 0 12px;
        border-radius: 8px; background: var(--surface); color: var(--text);
        border: 1px solid var(--head); text-decoration: none; cursor: pointer; white-space: nowrap; }
+.btn[hidden] { display: none; }
 .btn:hover { background: var(--surface-2); }
 .btn:disabled { opacity: .45; cursor: default; }
 .btn:disabled:hover { background: var(--surface); }
@@ -475,11 +476,14 @@ dialog.day::backdrop { background: rgb(0 0 0 / .7); }
 .create-start, .create-profile { max-width: 960px; margin: 0 auto; }
 .main-create h2 { font-size: 16px; margin-bottom: 12px; }
 .main-create h3 { font-size: 14px; margin-bottom: 8px; }
+.main-create h2 .small { font-weight: 400; }
 .main-create section { margin-bottom: 24px; }
 .create-drop { display: flex; position: relative; flex-direction: column; align-items: center;
   justify-content: center; gap: 12px; min-height: 180px; padding: 20px; text-align: center;
   border: 2px dashed var(--muted); background: var(--surface); border-radius: 12px; cursor: pointer; }
+.create-drop { color: var(--text); }
 .create-drop strong { font-size: 20px; }
+.nowrap { white-space: nowrap; }
 .create-drop.dragover, .create-drop:focus-within { border-color: var(--green); }
 .create-file { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
 .create-drop.busy { opacity: .45; cursor: default; }
@@ -495,6 +499,7 @@ dialog.day::backdrop { background: rgb(0 0 0 / .7); }
 .draft-row { display: grid; grid-template-columns: 48px minmax(0, 1fr) auto; align-items: center;
   gap: 12px; padding: 8px; border-bottom: 1px solid var(--head); text-decoration: none; }
 .draft-row img { width: 48px; height: 48px; object-fit: cover; border-radius: 4px; }
+.draft-meta { display: flex; flex-direction: column; align-items: flex-end; text-align: right; }
 .draft-topic { display: block; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .create-columns { display: grid; gap: 12px 24px; grid-template-columns: minmax(0, 1fr); }
 .create-columns > * { min-width: 0; }
@@ -502,6 +507,7 @@ dialog.day::backdrop { background: rgb(0 0 0 / .7); }
 .create-photo img { width: 100%; height: 100%; object-fit: contain; }
 .topic-cards { display: grid; gap: 8px; margin-bottom: 12px; }
 .topic-card { display: grid; gap: 4px; padding: 12px; width: 100%; text-align: left; background: var(--surface);
+  align-content: start; align-items: start;
   border: 1px solid var(--head); border-radius: 8px; cursor: pointer; }
 .topic-card[aria-pressed="true"] { border-color: var(--green); }
 .topic-card .chosen { min-height: 17px; color: var(--green); font-size: 12px; }
@@ -513,7 +519,6 @@ dialog.day::backdrop { background: rgb(0 0 0 / .7); }
 .create-topic .btn { max-width: 100%; white-space: normal; text-align: left; min-height: 32px; }
 .create-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 4px 0 12px; }
 [data-op="voice"] { min-width: 110px; justify-content: center; font-variant-numeric: tabular-nums; }
-.ai-status, .text-ai-status { min-height: 24px; margin-bottom: 4px; }
 .save-status { min-height: 24px; padding: 4px 0; }
 .topic-save { flex: 1 0 auto; text-align: right; }
 .create-text { padding: 16px; border: 1px solid var(--head); border-radius: 8px;
@@ -532,24 +537,34 @@ dialog.day::backdrop { background: rgb(0 0 0 / .7); }
 .create-error p { margin-bottom: 8px; }
 @media (min-width: 900px) { .recent-photo { width: 96px; height: 96px; } }
 @media (min-width: 1000px) {
-  .create-columns { grid-template-columns: minmax(0, 4fr) minmax(0, 8fr); grid-template-areas: "photo topic" "texts texts";
-    align-items: start; }
-  .create-photo { grid-area: photo; height: min(60vh, 560px); }
+  /* photo and «Тема» on the left, «Тексты» on the right (design §8.3) */
+  .create-columns { grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+    grid-template-areas: "photo texts" "topic texts"; grid-template-rows: auto 1fr; align-items: start; }
+  .create-photo { grid-area: photo; height: clamp(120px, 20vh, 220px); }
   .create-topic { grid-area: topic; }
-  .create-texts { grid-area: texts; max-width: 880px; }
-  .topic-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .create-texts { grid-area: texts; scroll-margin-top: 200px; }   /* already on the first screen: no scroll */
+  .topic-cards { grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
 }
-.profile-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 16px; }
+.profile-fields { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px 16px; align-items: start; }
+@media (min-width: 600px) { .profile-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .profile-field { min-width: 0; }
-.profile-field label { min-height: 34px; margin-top: 4px; }
+/* the label belongs to its own field: tight below, the gap above is the row gap */
+.main-create .profile-field label { display: flex; flex-direction: row; flex-wrap: wrap; align-items: baseline;
+  gap: 0 8px; margin: 0 0 6px; color: var(--text); font-size: 13px; }
+.profile-field .limit::before { content: "· "; }
+.profile-field textarea { field-sizing: content; min-height: 4.5em; }
 @media (max-width: 600px) {
   .create-start .recent-photos { gap: 8px; }
   .create-start section { margin-bottom: 16px; }
   .create-start .recent-photo { width: 72px; height: 72px; }
 }
-.topic-heading { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; justify-content: space-between; }
-.topic-heading h2 { margin: 0; }
-.topic-heading { margin-bottom: 8px; }
+.topic-heading, .texts-heading { display: flex; align-items: baseline; gap: 4px 12px; min-height: 24px; margin-bottom: 8px; }
+.topic-heading h2, .texts-heading h2 { margin: 0; }
+.ai-status, .text-ai-status { flex: 1 1 auto; margin: 0; }
+.voice-status:empty { display: none; }
+.expand-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 12px; }
+.expand-row .topic-hint { flex: 1 1 140px; margin: 0; }
+.btn.green:disabled:hover { background: var(--green); }
 .topic-card { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "title chosen" "angle angle";
   padding: 8px 10px; gap: 3px 8px; }
 .topic-card strong { grid-area: title; overflow-wrap: anywhere; }
@@ -562,4 +577,3 @@ dialog.day::backdrop { background: rgb(0 0 0 / .7); }
 .topic-label .topic-save { min-height: 0; padding: 0; }
 .create-actions { margin: 8px 0; }
 .main-create .create-topic { margin-bottom: 8px; }
-.topic-heading .topic-hint { flex: 1 1 140px; margin: 0; text-align: right; }

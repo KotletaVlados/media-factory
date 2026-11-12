@@ -568,7 +568,7 @@
           return realFetch3(url, options);
         };
         await until(function () { return !document.querySelector(".create-error").hidden && document.querySelector(".create-error [data-retry], .create-error button"); }, "503 with a retry button");
-        see(".create-error p", "Gemini не ответил: HTTP 503 — повторите");
+        see(".create-error p", "Не удалось получить темы от Gemini");
         var retry = document.querySelector(".create-error button");
         retry.click();
         await until(function () { return document.querySelectorAll(".topic-card").length >= 3 && root.getAttribute("aria-busy") === "false"; }, "cards after retry");
@@ -582,7 +582,8 @@
         document.querySelector('[data-op="expand"]').click();
         await until(function () { return root.getAttribute("aria-busy") === "true"; }, "expand loading");
         see(".ai-status", "Gemini пишет тексты…");
-        see('[data-op="expand"]', "Развернуть · до $0.05");
+        // the button sits under the topic box, below the first screen on a narrow page
+        if (document.querySelector('[data-op="expand"]').textContent !== "Развернуть · до $0.05") { out.problems.push("expand label"); }
         looks('[data-op="topics"], [data-op="expand"]');
       } else if (state === "create-voice") {
         var audioContext = new AudioContext(), source = audioContext.createOscillator();
@@ -597,7 +598,9 @@
         };
         document.querySelector('[data-op="voice"]').click();
         await until(function () { return document.querySelector('[data-op="voice"]').textContent.indexOf("0:01") >= 0; }, "voice timer");
-        see('[data-op="voice"]', "Стоп · 0:01"); see(".voice-status", "0:01");
+        see('[data-op="voice"]', "Стоп · 0:01");
+        // one timer: the button carries it, the status line stays empty
+        if (document.querySelector(".voice-status").textContent !== "") { out.problems.push("the voice timer shows twice"); }
         window.MFProbeVoiceFinish = async function () {
           window.MFCreate.stopVoice();
           await until(function () { return audioBlob && root.getAttribute("aria-busy") === "false" && document.querySelector("#topic").value.indexOf("Утренняя пробежка у моря") >= 0; }, "voice transcript");
@@ -669,7 +672,6 @@
         var hint = document.querySelector(".topic-hint");
         topicBox.value = ""; topicBox.dispatchEvent(new Event("input", {bubbles: true}));
         expect(expandBtn.disabled && !hint.hidden && hint.textContent === Tb.empty_topic, "empty box: expand enabled or hint hidden");
-        see(".topic-hint", "выберите тему или впишите свою");
         topicBox.value = "Тема для голоса"; topicBox.dispatchEvent(new Event("input", {bubbles: true}));
         expect(!expandBtn.disabled && hint.hidden, "typed box: expand disabled or hint shown");
         await window.MFCreate.flush();
@@ -710,8 +712,10 @@
         osc.frequency.value = 250;
         var sink = ac.createMediaStreamDestination(); osc.connect(sink); osc.start(); await ac.resume();
         navigator.mediaDevices.getUserMedia = async function () { return sink.stream; };
-        var heard = [], watcher = new MutationObserver(function () { heard.push(voiceLine.textContent); });
-        watcher.observe(voiceLine, {childList: true, characterData: true, subtree: true});
+        var heard = [], watcher = new MutationObserver(function (records) {
+          records.forEach(function (rec) { rec.addedNodes.forEach(function (n) { heard.push(n.textContent); }); });
+        });
+        watcher.observe(voiceBtn, {childList: true, characterData: true, subtree: true});
         var realNow = Date.now.bind(Date), voiceCalls2 = function () { return posts.filter(function (x) { return x.url.endsWith("/voice"); }); };
         var t0 = realNow();
         voiceBtn.click();
@@ -723,13 +727,13 @@
         await sleep(500);
         expect(voiceBtn.getAttribute("aria-pressed") === "true" && voiceCalls2().length === 0, "recording stopped before 2:00");
         clockAt(120100);
-        await until(function () { return heard.indexOf("2:00") >= 0; }, "fake 2:00");
+        await until(function () { return heard.some(function (t) { return t.indexOf("2:00") >= 0; }); }, "fake 2:00");
         Date.now = realNow;
         await until(function () { return voiceLine.querySelector("button"); }, "retry button after 503");
         var again = voiceLine.querySelector("button");
         expect(again.textContent === Tb.voice_retry && voiceCalls2().length === 1 && voiceBtn.getAttribute("aria-pressed") === "false",
                "auto-stop at 2:00 did not send exactly one recording");
-        expect(/503/.test(document.querySelector(".create-error").textContent) && !document.querySelector(".create-error").hidden, "503 not shown");
+        expect(/расшифровку голоса/.test(document.querySelector(".create-error").textContent) && !document.querySelector(".create-error").hidden, "503 not shown");
         see(".voice-status button", "Повторить расшифровку");
         again.click();
         await until(function () { return voiceCalls2().length === 2; }, "retry sent");
@@ -763,7 +767,7 @@
       } else if (state === "create-topics") {
         document.querySelectorAll(".topic-card").forEach(function (el, i) { see("strong", null, el); });
         see('.topic-card[aria-pressed="true"] .chosen', "выбрано");
-        see('[data-op="expand"]', "Развернуть · до $0.05");
+        if (document.querySelector('[data-op="expand"]').textContent !== "Развернуть · до $0.05") { out.problems.push("expand label"); }
       } else if (state === "create-own-topic") {
         see("#topic", "Прогулянка і робочі звички");
         see('[data-op="topics"]', "Предложить темы · до $0.02");
@@ -771,7 +775,8 @@
         if (document.querySelector('[data-op="expand"]').disabled) { out.problems.push("own topic expand disabled"); }
       } else if (state === "create-texts" || state === "create-over-limit") {
         scroll("#texts");
-        if (state === "create-over-limit") { see(".text-errors", "длиннее лимита: 312/280"); }
+        if (state === "create-over-limit") { see(".text-errors", "длиннее лимита: 312 / 280 — сократите");
+          if (document.querySelectorAll(".create-text")[0].textContent.split("312").length !== 2) { out.problems.push("the X count shows more than once"); } }
         document.querySelectorAll(".create-text").forEach(function (card) {
           card.scrollIntoView(); see("h3", null, card); see(".text-check", null, card);
           var el = card.querySelector("textarea");
@@ -800,14 +805,20 @@
         }
         if (state === "create-nokey-start" && document.querySelector("#create-file").disabled) { out.problems.push("no key disabled upload"); }
       } else if (state === "create-budget") {
-        see(".create-notice", "потрачено $9.99 из $10.00"); see("#ai-month", "· лимит");
+        see(".create-notice", "Бюджет ИИ на ноябрь исчерпан"); see("#ai-month", "$9.99 из $10.00 · лимит");
+        if (document.body.textContent.split("$9.99 из $10.00").length !== 2) { out.problems.push("the month amount shows more than once"); }
       } else if (state === "create-error") {
-        see(".create-error", "Gemini не ответил: HTTP 503 — повторите"); see("[data-retry]", "Повторить");
+        see(".create-error", "Не удалось получить темы от Gemini"); see("[data-retry]", "Повторить · до $0.02");
+        if (document.querySelector('[data-op="topics"]').offsetParent !== null) { out.problems.push("two buttons for one retry"); }
+        if (/HTTP/.test(document.querySelector(".create-error").textContent)) { out.problems.push("a status code in the error"); }
       } else if (state === "create-nokey" || state === "create-nokey-start") {
         see(".create-notice", "нет GEMINI_API_KEY в .env — темы, тексты и голос недоступны");
       } else if (state === "create-profile") {
         see(".create-profile h2", "Профиль автора"); see(".create-profile [role=status]", "Профиль сохранён");
-        document.querySelectorAll(".profile-field label").forEach(function (el) { see("label", null, el.parentElement); });
+        document.querySelectorAll(".profile-field label").forEach(function (el, i) {
+          // one column below 600 px: the first fields are on the first screen, the rest are reached by scrolling
+          if (innerWidth >= 600 || i < 2) { see("label", null, el.parentElement); }
+        });
       } else if (state === "files-mediateka") {
         see('.tab[aria-current="page"]', "Медиатека");
         var mine = Array.from(document.querySelectorAll(".fcard")).find(function (card) {
@@ -821,6 +832,27 @@
       } else if (state === "files-mine") {
         see("#photos-h", "Фото · 12");
         if (!document.querySelector(".pgrid").textContent.includes("черновик")) { out.problems.push("missing draft chip"); }
+      }
+      if (state === "files-mine") {
+        var subLeft = document.querySelector(".sub-left").textContent;
+        if (!/^12\s*фото$/.test(subLeft.replace(/\u00a0/g, " ").trim())) { out.problems.push("sub row does not count the photos: " + subLeft); }
+      }
+      if (root && root.classList.contains("create-draft") && anchored.indexOf(state) < 0) {
+        // one layout for every draft state (design §8.3): card → box → «Развернуть», texts on the right
+        var box = document.querySelector("#topic").getBoundingClientRect();
+        var go = document.querySelector('[data-op="expand"]'), goBox = go.getBoundingClientRect();
+        if (!go.classList.contains("green")) { out.problems.push("«Развернуть» is not the primary button"); }
+        if (goBox.top < box.bottom - 1 || Math.abs(goBox.left - box.left) > 1) { out.problems.push("«Развернуть» is not directly under the topic box"); }
+        var head = document.querySelector(".topic-heading").getBoundingClientRect(), first = document.querySelector(".create-actions").getBoundingClientRect();
+        if (first.top - head.bottom > 16) { out.problems.push("a blank band under the «Тема» heading: " + Math.round(first.top - head.bottom) + " px"); }
+        if (innerWidth >= 1000) {
+          var photo = document.querySelector(".create-photo").getBoundingClientRect();
+          var tr = document.createRange(); tr.selectNodeContents(document.querySelector(".texts-heading h2"));
+          var tb = tr.getBoundingClientRect(), col = document.querySelector(".create-texts").getBoundingClientRect();
+          if (tb.left < photo.right || tb.bottom > innerHeight) { out.problems.push("«Тексты» is not in the right column on the first screen"); }
+          if (Math.abs(col.right - document.querySelector(".create-columns").getBoundingClientRect().right) > 1) { out.problems.push("the texts column is not the full right column"); }
+          out.defining.push({selector: ".texts-heading h2", text: "Тексты", top: Math.round(tb.top), bottom: Math.round(tb.bottom)});
+        }
       }
       // §16.2: states that are not anchor states are judged on the first screen, unscrolled
       if (anchored.indexOf(state) < 0 && scrollY !== 0) {
