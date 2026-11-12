@@ -29,7 +29,7 @@ def text_of(fragment: str) -> str:
 class ShellTest(pf.PanelCase):
     def test_tab_bar_and_top_right(self):
         body = self.get("/connection")[2]
-        for label in ("Подключение", "Файлы", "Правила", "Календарь", "Охваты", "Подписчики"):
+        for label in ("Создать", "Подключение", "Медиатека", "Правила", "Календарь", "Охваты", "Подписчики"):
             self.assertIn(f">{label}</a>", body)
         self.assertIn('<span class="tab off" aria-disabled="true">Диалоги · выкл</span>', body)
         self.assertNotIn('href="/dialogs"', body)

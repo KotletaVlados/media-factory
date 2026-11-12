@@ -58,7 +58,40 @@
     });
   }
 
-  window.MFAuthor = {makeCopies: makeCopies};
+  function uploadStrings() {
+    var root = document.querySelector("[data-create]");
+    return root ? JSON.parse(root.dataset.create).upload_strings :
+      JSON.parse(document.querySelector("[data-strings]").dataset.strings);
+  }
+
+  function uploadFile(folder, csrf, file) {
+    var strings = uploadStrings();
+    var reason = HEIC.test(file.name) || /heic|heif/i.test(file.type) ? strings.heic :
+      (!TYPES[file.type] && !EXTS.test(file.name) ? strings.type : "");
+    if (reason) {
+      var invalid = new Error(reason);
+      invalid.status = 422;
+      return Promise.reject(invalid);
+    }
+    return makeCopies(file).catch(function () {
+      var error = new Error(strings.decode);
+      error.status = 422;
+      throw error;
+    }).then(function (copies) {
+      return post({folder: folder, kind: "orig"}, file, file.type || "image/jpeg", csrf)
+        .then(function (answer) {
+          if (answer.dup) { return answer; }
+          return post({folder: folder, kind: "thumb", id: answer.id}, copies.thumb.blob,
+                      "image/jpeg", csrf).then(function () {
+            return post({folder: folder, kind: "view", id: answer.id,
+                         w: copies.view.width, h: copies.view.height, name: file.name},
+                        copies.view.blob, "image/jpeg", csrf);
+          }).then(function () { return {id: answer.id, dup: false}; });
+        });
+    });
+  }
+
+  window.MFAuthor = {makeCopies: makeCopies, uploadFile: uploadFile};
 
   var section = document.querySelector("section[data-photos]");
   if (!section) {
@@ -85,10 +118,10 @@
     return b >= 2 && b <= 4 && (a < 12 || a > 14) ? forms[1] : forms[2];
   }
 
-  function post(params, body, type) {
+  function post(params, body, type, csrfToken) {
     var url = "/files/photos?" + new URLSearchParams(params).toString();
     return fetch(url, {method: "POST", body: body, credentials: "same-origin",
-                       headers: {"Content-Type": type, "X-CSRF-Token": csrf}})
+                       headers: {"Content-Type": type, "X-CSRF-Token": csrfToken}})
       .then(function (resp) {
         return resp.json().catch(function () { return {}; }).then(function (data) {
           if (!resp.ok) {
@@ -99,7 +132,7 @@
           return data;
         });
       }, function () {
-        var err = new Error(T.network);
+        var err = new Error(uploadStrings().network);
         err.status = 0;
         throw err;
       });
@@ -160,31 +193,11 @@
   }
 
   function uploadOne(state, file) {
-    return makeCopies(file).then(function (copies) {
-      return post({folder: folder, kind: "orig"}, file, file.type || "image/jpeg")
-        .then(function (answer) {
-          if (answer.dup) {   // already listed: counted as loaded, and named apart
-            state.done += 1;
-            state.dup += 1;
-            return null;
-          }
-          return post({folder: folder, kind: "thumb", id: answer.id}, copies.thumb.blob,
-                      "image/jpeg").then(function () {
-            return post({folder: folder, kind: "view", id: answer.id, w: copies.view.width,
-                         h: copies.view.height, name: file.name},
-                        copies.view.blob, "image/jpeg");
-          }).then(function () {
-            state.done += 1;
-            state.fresh += 1;
-          });
-        });
-    }, function () {
-      skip(state, file, T.decode);
-      return null;
+    return uploadFile(folder, csrf, file).then(function (answer) {
+      state.done += 1;
+      if (answer.dup) { state.dup += 1; } else { state.fresh += 1; }
     }).catch(function (err) {
-      if (err.status === 403 || err.status === 0) {
-        throw err;   // a stale token or a stopped panel: the rest would fail the same way
-      }
+      if (err.status === 403 || err.status === 0) { throw err; }
       skip(state, file, err.message);
     });
   }

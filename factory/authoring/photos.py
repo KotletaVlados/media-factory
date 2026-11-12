@@ -21,6 +21,8 @@ from __future__ import annotations
 
 import datetime as _dt
 import hashlib
+import json
+import shutil
 import os
 import re
 import secrets
@@ -237,6 +239,8 @@ def pre_check(stock_root: str, folder: str, kind: str, pid: str) -> str:
     """Every check of §6.2 that needs no body byte; returns the `photos/` path."""
     if kind not in KINDS:
         raise UploadError(400, S.UP_BAD_KIND)
+    if kind == "orig" and folder == "my-photos":
+        ensure_default(stock_root)
     real = folder_path(stock_root, folder)
     if kind != "orig" and not (isinstance(pid, str) and ID_RE.match(pid)):
         raise UploadError(404, S.UP_NO_PHOTO)
@@ -296,3 +300,25 @@ def store_body(photos: str, kind: str, pid: str, name: str, rfile, length: int,
             return {"id": pid, "ok": True}
     finally:
         _unlink(tmp)
+
+
+def ensure_default(stock_root: str) -> str:
+    """Prepare then atomically rename the automatic photo folder (§8.8)."""
+    os.makedirs(stock_root, mode=0o700, exist_ok=True)
+    target = os.path.join(stock_root, "my-photos")
+    if not os.path.lexists(target):
+        prepared = os.path.join(stock_root, ".my-photos." + secrets.token_hex(8))
+        os.mkdir(prepared, 0o700)
+        try:
+            fd = os.open(os.path.join(prepared, "folder.json"), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                json.dump({"schema": 1, "title": "Мои фото", "lane": "photo"}, fh, ensure_ascii=False)
+            try:
+                os.rename(prepared, target)
+            except OSError:
+                if not os.path.lexists(target):
+                    raise
+        finally:
+            if os.path.isdir(prepared):
+                shutil.rmtree(prepared)
+    return folder_path(stock_root, "my-photos")

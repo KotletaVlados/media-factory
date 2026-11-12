@@ -37,8 +37,9 @@ def qs(**params) -> str:
 class Ctx:
     """What every page needs: the snapshot, the request path and query, the CSRF token."""
 
-    def __init__(self, snap, path: str, query: dict, csrf: str, probe: bool = False):
+    def __init__(self, snap, path: str, query: dict, csrf: str, probe: bool = False, author=None):
         self.snap, self.path, self.query, self.csrf, self.probe = snap, path, query, csrf, probe
+        self.author = author
 
     def q(self, name: str, default: str = "") -> str:
         values = self.query.get(name) or [default]
@@ -531,7 +532,7 @@ def _photos_section(ctx: Ctx, name: str, photos: list) -> str:
     except ValueError:
         limit = PHOTO_PAGE
     limit = max(PHOTO_PAGE, min(limit, fphotos.MAX_PHOTOS))
-    uses = M.photo_uses(snap, name)
+    uses = M.photo_uses(snap, name, ctx.author.drafts.summaries() if ctx.author else ())
     tiles = []
     for i, p in enumerate(photos[:limit]):
         title = snap.red(p["name"])
@@ -759,7 +760,7 @@ def _new_rule_form(ctx: Ctx, refusal) -> str:
             f'autocomplete="off"></label>'
             f'<label>{esc(S.NEW_RULE_FOLDER)}<select name="folder" required>{folders}</select></label>'
             + ("" if folders else f'<p class="muted">{esc(S.NO_FOLDERS_YET)} '
-                                  f'<a class="btn" href="/files">{esc(S.TABS[1][1])}</a></p>') +
+                                  f'<a class="btn" href="/files">{esc(dict(S.TABS)["files"])}</a></p>') +
             f'<fieldset><legend>{esc(S.NEW_RULE_TARGETS)}</legend>{targets}</fieldset>'
             f'<fieldset><legend>{esc(S.COL_DAYS)}</legend>{days}</fieldset>'
             f'<fieldset class="hours-set"><legend>{esc(S.COL_HOURS)}</legend>{hours}</fieldset>'
@@ -1028,3 +1029,177 @@ def dialogs(ctx: Ctx) -> str:
     body = (f'<section class="card dialogs"><h2>{esc(S.DIALOGS_TITLE)}</h2><ul>{reasons}</ul>'
             f'<p class="muted">{esc(S.DIALOGS_TRIGGER)}</p></section>')
     return page(ctx, "dialogs", body, title=S.DIALOGS_OFF)
+
+
+# ---------------------------------------------------------------- Создать (authoring.md §8)
+
+def _author_state(ctx):
+    from factory.authoring import budget, profile
+    a = ctx.author
+    env = a.ai.env()
+    why = {}
+    for op in ("topics", "expand", "regenerate", "voice"):
+        why[op] = a.ai.availability(op, env)
+    bounds = {op: f"до ${budget.button(op, a.clock()):.2f}" for op in why}
+    try:
+        month = a.ai_ledger.display(env)
+        limited = a.ai_ledger.month_total() + max(budget.button(op, a.clock()) for op in why) > budget.cap(env)
+    except budget.Refusal as exc:
+        month, limited = exc.message, True
+    month_html = (f'<span id="ai-month" class="mono small{" k-bad" if limited else ""}" '
+                  f'title="Gemini за {esc(budget.MONTHS[a.ai_ledger.now().month - 1])}, по UTC">'
+                  f'{esc(month)}{" · лимит" if limited else ""}</span>')
+    author = profile.load(a.paths.content)
+    return why, bounds, month_html, author
+
+
+def _create_data(ctx, why, bounds, **extra):
+    from factory.authoring import gemini
+    values = dict(strings=S.CREATE_JS, upload_strings=S.UPLOAD_JS, networks=S.CREATE_NETWORKS,
+                  why=why, bounds=bounds, csrf=ctx.csrf, **extra)
+    return esc(json.dumps(values, ensure_ascii=False))
+
+
+def _create_notice(why):
+    # One visible reason per state. Each spending control also carries its own title.
+    reasons = list(dict.fromkeys(v for v in why.values() if v))
+    if reasons and all(r.startswith("Бюджет ИИ") for r in reasons):
+        reasons = [why["expand"] or reasons[0]]
+    return "".join(f'<p class="create-notice k-bad" role="alert">{esc(v)}</p>' for v in reasons)
+
+
+def create(ctx: Ctx) -> str:
+    from factory.authoring import profile
+    why, bounds, month, author = _author_state(ctx)
+    cards = M.folder_cards(ctx.snap) if ctx.snap.inputs is not None else []
+    recent = []
+    for card in cards:
+        if card.lane == "photo":
+            recent.extend(dict(p, folder=card.name) for p in card.photos)
+    recent.sort(key=lambda p: (p["ts"], p["id"]), reverse=True)
+    recent_html = ""
+    if recent:
+        buttons = "".join(
+            f'<button class="recent-photo" type="button" data-recent="{esc(p["id"])}" '
+            f'data-folder="{esc(p["folder"])}" aria-label="Пост из фото {esc(p["name"])}">'
+            f'<img src="{esc(photo_url(p["folder"], p["id"], "thumb"))}" alt="{esc(p["name"])}"></button>'
+            for p in recent[:8])
+        recent_html = f'<section><h2>Недавние фото</h2><div class="recent-photos">{buttons}</div></section>'
+    summaries = ctx.author.drafts.summaries()
+    drafts_html = ""
+    if summaries:
+        rows = "".join(
+            f'<li><a class="draft-row" href="/create/{esc(d["id"])}">'
+            f'<img src="{esc(photo_url(d["folder"], d["photo"], "thumb"))}" alt="">'
+            f'<span class="draft-topic" title="{esc(d["topic"] or "без темы")}">{esc(d["topic"] or "без темы")}</span>'
+            f'<span class="muted mono small">{esc(S.day_short(config.parse_utc(d["updated"])))}</span></a></li>'
+            for d in summaries[:10])
+        drafts_html = f'<section><h2>Черновики · {len(summaries)}</h2><ul class="draft-list">{rows}</ul></section>'
+    profile_label = S.CREATE_PROFILE_FILLED if any(profile.value(author, n) for n, *_ in profile.FIELDS) else S.CREATE_PROFILE_EMPTY
+    body = (f'<div class="create-start" data-create="{_create_data(ctx, why, bounds)}">'
+            f'{_create_notice(why)}<label class="create-drop" id="create-drop">'
+            f'<strong>{esc(S.CREATE_DROP)}</strong><span class="btn">{esc(S.CREATE_PICK)}</span>'
+            f'<span class="small muted drop-hint">JPEG, PNG или WebP · Gemini предложит темы ({esc(bounds["topics"])})</span>'
+            f'<input id="create-file" type="file" accept="image/jpeg,image/png,image/webp" class="create-file">'
+            f'</label><p class="create-status" role="status" aria-live="polite"></p>'
+            f'<p class="profile-line"><a href="/create/profile">{esc(profile_label)}</a></p>'
+            f'<noscript><p>{esc(S.CREATE_NEED_JS)}</p></noscript>{recent_html}{drafts_html}</div>')
+    return page(ctx, "create", body, sub="Новый пост", sub_right=month,
+                scripts=("author.js", "create.js"))
+
+
+def _spend_button(op, label, why, **attrs):
+    extra = " ".join(f'{k.replace("_", "-")}="{esc(v)}"' for k, v in attrs.items())
+    disabled = ' disabled' if why else ""
+    title = f' title="{esc(why)}"' if why else ""
+    return f'<button class="btn" type="button" data-op="{op}"{disabled}{title} {extra}>{esc(label)}</button>'
+
+
+def _text_check(network, value):
+    from factory.authoring import gemini
+    check = gemini.checked_variants({network: value})[network]
+    counts = "".join(f'<p class="mono small">{esc(c)}</p>' for c in check["counts"])
+    errors = ""
+    if check["errors"]:
+        import re
+        first = check["counts"][0] if check["counts"] else ""
+        match = re.search(r"(\d+)/(\d+)", first)
+        over = ""
+        if match and int(match[1]) > int(match[2]):
+            over = f'<p>{esc(S.CREATE_JS["over"] + match[0])}</p>'
+        errors = f'<div class="k-bad text-errors" role="alert">{over}' + "".join(
+            f'<p>{esc(S.PROBLEM)} {esc(e)}</p>' for e in check["errors"]) + '</div>'
+    return counts + errors
+
+
+def _text_card(network, value, why, bounds):
+    n = esc(network)
+    return (f'<article class="create-text" data-network="{n}"><h3>{esc(S.CREATE_NETWORKS[network])}</h3>'
+            f'<label class="sr" for="text-{n}">Текст {esc(S.CREATE_NETWORKS[network])}</label>'
+            f'<textarea id="text-{n}" class="text-editor" rows="5">{esc(value["text"])}</textarea>'
+            f'<div class="text-check">{_text_check(network, value)}</div>'
+            f'<p class="save-status small" role="status"></p>'
+            f'<div class="regenerate-row"><input aria-label="Пожелание для {esc(S.CREATE_NETWORKS[network])}" '
+            f'placeholder="{esc(S.CREATE_JS["wish"])}" maxlength="200" class="wish">'
+            f'{_spend_button("regenerate", S.CREATE_JS["regenerate"] + " · " + bounds["regenerate"], why["regenerate"])}</div></article>')
+
+
+def create_draft(ctx: Ctx) -> str:
+    why, bounds, month, author = _author_state(ctx)
+    draft = ctx.author.drafts.load(ctx.path[len("/create/"):])
+    data = _create_data(ctx, why, bounds, draft=draft)
+    topics = []
+    for item in draft["topics"]:
+        topic = item["title"] + " — " + item["angle"]
+        chosen = draft["topic"] == topic
+        topics.append(f'<button class="topic-card" type="button" aria-pressed="{str(chosen).lower()}" '
+                      f'data-topic="{esc(topic)}"><strong>{esc(item["title"])}</strong>'
+                      f'<span>{esc(item["angle"])}</span><span class="chosen">{"выбрано" if chosen else ""}</span></button>')
+    topic_button = S.CREATE_JS["more_topics"] if topics else S.CREATE_JS["topics"]
+    expand = S.CREATE_JS["expand_again"] if any(v["source"] == "edited" for v in draft["variants"].values()) else S.CREATE_JS["expand"]
+    error = draft["error"]
+    error_html = (f'<div class="create-error k-bad" role="alert"><p>{esc(error["text"])}</p>'
+                  f'<button class="btn" type="button" data-retry="{esc(error["op"])}" '
+                  f'data-network="{esc(error.get("network", ""))}">Повторить</button></div>' if error else '<div class="create-error" hidden></div>')
+    texts = "".join(_text_card(n, draft["variants"][n], why, bounds) for n in S.CREATE_NETWORKS if n in draft["variants"])
+    if not texts:
+        texts = f'<p class="empty">{esc(S.CREATE_JS["before_texts"])}</p>'
+    body = (f'<div class="create-draft" data-create="{data}"><div class="create-alerts">{_create_notice(why)}{error_html}</div>'
+            f'<div class="create-columns"><div class="create-seed">'
+            f'<div class="create-photo"><img src="{esc(photo_url(draft["folder"], draft["photo"], "view"))}" alt="Фото для поста"></div>'
+            f'<section class="create-topic"><div class="topic-heading"><h2>Тема</h2>'
+            f'{_spend_button("expand", expand + " · " + bounds["expand"], why["expand"] or (S.CREATE_JS["empty_topic"] if not draft["topic"].strip() else ""))}'
+            f'</div><p class="ai-status" role="status"></p>'
+            f'<div class="topic-cards">{"".join(topics)}</div>'
+            f'{_spend_button("topics", topic_button + " · " + bounds["topics"], why["topics"])}'
+            f'<label for="topic">Тема поста — выберите карточку или напишите свою</label>'
+            f'<textarea id="topic" rows="4">{esc(draft["topic"])}</textarea>'
+            f'<span class="topic-count small mono" hidden></span><p class="topic-save small" role="status"></p>'
+            f'<div class="create-actions">{_spend_button("voice", "Голос", why["voice"], aria_pressed="false")}'
+            f'<span class="muted small">{esc(bounds["voice"])}</span><span class="voice-status small" role="status"></span></div>'
+            f'<p class="topic-hint muted small"{" hidden" if draft["topic"].strip() else ""}>выберите тему или впишите свою</p>'
+            f'</section></div><section id="texts" class="create-texts"><h2>Тексты</h2><p class="text-ai-status" role="status"></p>'
+            f'<div class="text-cards">{texts}</div></section></div>'
+            f'<p><a href="/create">Новый пост</a> · <a href="/create/profile">Профиль автора</a></p>'
+            f'<noscript><p>{esc(S.CREATE_NEED_JS)}</p></noscript></div>')
+    date = config.parse_utc(draft["updated"])
+    return page(ctx, "create", body, sub=f'Черновик · {esc(S.day_short(date))}, {date:%H:%M}',
+                sub_right=month, scripts=("author.js", "create.js"))
+
+
+def create_profile(ctx: Ctx, refusal=None) -> str:
+    from factory.authoring import profile
+    why, bounds, month, author = _author_state(ctx)
+    if refusal:
+        author = refusal["values"]
+    fields = "".join(
+        f'<div class="profile-field"><label for="profile-{esc(name)}">{esc(label)} <span class="muted small">до {limit} знаков</span></label>'
+        f'<textarea id="profile-{esc(name)}" name="{esc(name)}" rows="2">{esc(profile.value(author, name))}</textarea></div>'
+        for name, label, limit, _ in profile.FIELDS)
+    note = '<p class="k-ok" role="status">Профиль сохранён</p>' if ctx.q("saved") == "1" else ""
+    error = f'<p class="k-bad" role="alert">{esc(refusal["error"])}</p>' if refusal else ""
+    body = (f'<section class="create-profile"><h2>Профиль автора</h2><p>{esc(S.CREATE_PROFILE_HINT)}</p>{note}{error}'
+            f'<form method="post" action="/create/profile">{hidden(ctx)}<div class="profile-fields">{fields}</div>'
+            f'<button class="btn" type="submit">Сохранить профиль</button> <a class="btn" href="/create">Создать пост</a>'
+            f'</form></section>')
+    return page(ctx, "create", body, sub="Профиль автора", sub_right=month)

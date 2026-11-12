@@ -500,7 +500,7 @@ def folder_cards(snap: Snapshot) -> list:
     return out
 
 
-def photo_uses(snap: Snapshot, name: str) -> dict:
+def photo_uses(snap: Snapshot, name: str, drafts=()) -> dict:
     """photo id -> "published" or "queued" for the stock packages of one folder whose
     `meta.photo` names it (authoring.md §6.7; drafts join in lane B). Published means a
     published record row for the package."""
@@ -518,6 +518,9 @@ def photo_uses(snap: Snapshot, name: str) -> dict:
             out[pid] = "published"
         else:
             out.setdefault(pid, "queued")
+    for draft in drafts:
+        if draft["folder"] == name:
+            out.setdefault(draft["photo"], "draft")
     return out
 
 
