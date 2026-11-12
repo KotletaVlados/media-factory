@@ -432,7 +432,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     d["variants"][network] = {"text": value, "lang": drafts.LANGS[network], "source": "edited"}
                 draft = panel.drafts.update(did, edit)
                 check = poster_rules.check_text(network, draft["variants"][network]["text"])
-                return self._json(200, {"counts": check.counts, "errors": check.errors})
+                return self._json(200, dict(gemini.present(network, draft["variants"][network]["text"]),
+                                            counts=check.counts, errors=check.errors))
             auto = data.get("auto", False)
             if op == "topics" and not isinstance(auto, bool):
                 raise Refusal("неверный запрос", 400)

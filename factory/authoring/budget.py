@@ -120,10 +120,10 @@ class Ledger:
 
     def refusal(self, amount, limit, total=None):
         now = self.now()
-        total = self.month_total() if total is None else total
-        return (f"Бюджет ИИ на {MONTHS[now.month - 1]}: потрачено ${total:.2f} из ${limit:.2f}, "
-                f"этот запрос — до ${amount:.2f}. Новые запросы — с 1 {NEXT[now.month % 12]} "
-                "или после увеличения AI_MONTHLY_CAP_USD в .env.")
+        # The month's amounts stand once, in the sub row (#ai-month); this says what to do.
+        return (f"Бюджет ИИ на {MONTHS[now.month - 1]} исчерпан: этот запрос — до ${amount:.2f}. "
+                f"Новые запросы — с 1 {NEXT[now.month % 12]}, раньше — после того, "
+                "как вы поднимете месячный лимит в файле .env.")
 
     def reserve(self, op, amount, limit, draft, admission=None):
         if not amount.is_finite() or amount < 0:

@@ -723,7 +723,7 @@ def build_create(root: str, key=True, ledger_usd=None, live_widths=()) -> Fixtur
                 if name == "over-limit":
                     d["variants"]["x"]["text"] = "x" * 312
             if name == "error":
-                d["error"] = {"op": "topics", "text": "Gemini не ответил: HTTP 503 — повторите", "ts": config.iso_utc(fx.now)}
+                d["error"] = {"op": "topics", "text": "Не удалось получить темы от Gemini", "ts": config.iso_utc(fx.now)}
         store.update(d["id"], fill)
         fx.create_ids[name] = d["id"]
     if ledger_usd is not None:

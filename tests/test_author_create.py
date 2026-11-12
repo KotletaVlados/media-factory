@@ -202,8 +202,12 @@ class CreateTest(pf.PanelCase):
                 status, data = self.call(op, {"network": "x"}, raw=b"OggS" if op == "voice" else None,
                                          ctype="audio/ogg" if op == "voice" else "application/json")
                 self.assertEqual(status, 409)
-                self.assertIn("потрачено $9.99 из $10.00", data["error"])
-            self.assertIn("· лимит", self.get(self.base)[2])
+                self.assertIn("Бюджет ИИ на ноябрь исчерпан", data["error"])
+                self.assertIn("поднимете месячный лимит в файле .env", data["error"])
+                self.assertNotIn("$9.99", data["error"])   # the amounts stand once, in the sub row
+            page = self.get(self.base)[2]
+            self.assertIn("· лимит", page)
+            self.assertEqual(page.count("$9.99 из $10.00"), 1)
         finally:
             srv.shutdown(); srv.server_close(); thread.join(5); self.srv = old
         self.assertFalse(self.transport.requests)
@@ -212,7 +216,7 @@ class CreateTest(pf.PanelCase):
 
     def test_vendor_failure_settlement_stored_error_redaction_and_retry(self):
         for response, status, ledger_status, message in (
-            (resp(503), 502, "unknown", "HTTP 503"), (resp(429), 502, "failed", "HTTP 429"),
+            (resp(503), 502, "unknown", "Не удалось получить темы от Gemini"), (resp(429), 502, "failed", "HTTP 429"),
             (http.TransportError("offline"), 504, "unknown", gemini.OFFLINE),
             (pf.gemini_reply({}, status="incomplete"), 502, "ok", gemini.INCOMPLETE),
             (pf.gemini_reply({"topics": pf.TOPICS[:2]}), 502, "ok", gemini.INVALID),
@@ -224,12 +228,68 @@ class CreateTest(pf.PanelCase):
             self.assertIn(message, answer["error"])
             self.assertIn(message, self.store.load(self.did)["error"]["text"])
             body = self.get(self.base)[2]
-            self.assertIn("Повторить", body)
+            self.assertIn("Повторить · до $0.02", body)
+            self.assertNotIn("HTTP 503", answer["error"])
             self.assert_no_canary(body)
         self.topics()
         self.assertIsNone(self.store.load(self.did)["error"])
         self.assert_no_canary(self.log.getvalue())
         for row in self.rows(): self.assert_no_canary(json.dumps(row))
+
+    def test_draft_page_one_expand_button_after_the_topic_box_and_one_retry_for_topics(self):
+        body = self.get(self.base)[2]
+        box, button = body.index('<textarea id="topic"'), body.index('data-op="expand"')
+        self.assertLess(box, button)                       # card → box → button
+        self.assertIn('class="btn green" type="button" data-op="expand"', body)
+        self.assertIn("Голос · до $0.02", body)
+        self.assertNotIn('Голос</button>', body)
+        self.transport.add(resp(503))
+        self.call("topics")
+        body = self.get(self.base)[2]
+        self.assertRegex(body, r'<button class="btn" type="button" data-op="topics"[^>]* hidden')   # one retry button
+        self.assertEqual(body.count("Повторить · до $0.02"), 1)
+        self.assertIn("Не удалось получить темы от Gemini", body)
+        self.assertNotIn("HTTP 503", body)
+
+    def test_text_cards_show_one_russian_line_and_no_poster_debug_text(self):
+        self.expand(dict(pf.TEXTS, x="a" * 312))
+        body = html.unescape(self.get(self.base)[2])
+        body = body[body.index('<main'):]   # the page's own surface, not the factory's attention list
+        self.assertIn("длиннее лимита: 312 / 280 — сократите", body)
+        for debug in ("weighted", "twitter-text", "UTF-16", "after little-format", "Meta documents", "never truncated"):
+            self.assertNotIn(debug, body)
+        self.assertEqual(body.count("312 / 280"), 1)
+        status, check = self.call("text", {"network": "x", "text": "a" * 312})
+        self.assertEqual(check["problems"], ["длиннее лимита: 312 / 280 — сократите"])
+        self.assertEqual(check["line"], "")
+
+    def test_draft_list_rows_name_the_stage(self):
+        self.assertEqual(self.store.summaries()[0]["stage"], "new")
+        self.call("topic", {"topic": "Своя тема"})
+        self.assertEqual(self.store.summaries()[0]["stage"], "topic")
+        self.topics()
+        self.assertEqual(self.store.summaries()[0]["stage"], "topics")
+        self.expand()
+        self.assertEqual(self.store.summaries()[0]["stage"], "texts")
+        self.expand(dict(pf.TEXTS, x="a" * 312))
+        self.assertEqual(self.store.summaries()[0]["stage"], "over")
+        self.store.update(self.did, lambda d: d.update(error={"op": "expand", "text": "Не удалось", "network": "", "ts": d["updated"]}))
+        self.assertEqual(self.store.summaries()[0]["stage"], "error")
+        page = self.get("/create")[2]
+        self.assertIn(">ошибка<", page)
+        self.assertRegex(page, r"\d+ \S+, \d\d:\d\d")
+
+    def test_start_page_cue_for_recent_photos_and_no_topic_promise_without_a_key(self):
+        page = self.get("/create")[2]
+        self.assertIn("нажмите на фото, чтобы начать пост", page)
+        self.assertIn('<span class="nowrap">до $0.02</span>', page)
+        with open(self.fx.paths.env_file, encoding="utf-8") as fh:
+            lines = [l for l in fh.read().splitlines() if not l.startswith("GEMINI_API_KEY=")]
+        with open(self.fx.paths.env_file, "w", encoding="utf-8") as fh:
+            fh.write("\n".join(lines) + "\n")
+        page = self.get("/create")[2]
+        self.assertIn("нет GEMINI_API_KEY", page)
+        self.assertNotIn("Gemini предложит темы", page)
 
     def test_long_topic_title_is_paid_stored_whole_and_rendered(self):
         title = "Т" * 81
@@ -284,7 +344,9 @@ class CreateTest(pf.PanelCase):
         body = self.get("/create/profile?saved=1")[2]
         self.assertIn("Профиль сохранён", body)
         self.assertNotIn("create.js", body)
-        for name, label, *_ in profile.FIELDS: self.assertIn(label, body)
+        for name, label, limit, _ in profile.FIELDS:
+            self.assertIn(f'<span>{label}</span><span class="muted small limit">до {limit} знаков</span>', body)
+        self.assertNotIn("profile.json", body)   # no file path in the explainer
         old = profile.load(self.fx.paths.content)
         status, _, body = self.post("/create/profile", dict(values, who="w" * 601))
         self.assertEqual(status, 409)
@@ -391,7 +453,8 @@ class CreateTest(pf.PanelCase):
             self.assertIn("ИИ · ноябрь $9.99 из $10.00", body)
             code, body = request("POST", self.base + "/topics", {})
             self.assertEqual(code, 409)
-            self.assertIn("потрачено $9.99", body)
+            self.assertIn("Бюджет ИИ на ноябрь исчерпан", body)
+            self.assertIn("ИИ · ноябрь $9.99 из $10.00", body)
             proc.send_signal(signal.SIGINT)
             self.assertEqual(proc.wait(10), 0)
             if attempt == 0: proc, info = start(port)

@@ -69,3 +69,20 @@ class GeminiTest(PosterTestCase):
         self.assertEqual(gemini.billed_output({"in": 10, "out": 20, "thought": 5, "total": 30}), 20)
         self.assertEqual(gemini.billed_output({"in": 10, "out": 20, "thought": 5, "total": 35}), 25)
         self.assertEqual(gemini.billed_output({"in": 10, "out": 20, "thought": 5}), 25)
+
+    def test_present_gives_short_russian_counts_and_one_problem_per_broken_limit(self):
+        ok = gemini.present("x", "a" * 110)
+        self.assertEqual(ok, {"line": "110 / 280 знаков", "problems": []})
+        over = gemini.present("x", "a" * 312)
+        self.assertEqual(over, {"line": "", "problems": ["длиннее лимита: 312 / 280 — сократите"]})
+        self.assertEqual(gemini.present("linkedin", "b" * 230)["line"], "230 / 3000 знаков")
+        self.assertEqual(gemini.present("linkedin", "b" * 3100)["problems"], ["длиннее лимита: 3100 / 3000 — сократите"])
+        self.assertEqual(gemini.present("facebook", "привет")["line"], "6 знаков")
+        self.assertEqual(gemini.present("instagram", "Строка #a #b")["line"], "12 / 2200 знаков · хештеги 2 / 30")
+        self.assertEqual(gemini.present("instagram", "x @a")["line"], "4 / 2200 знаков · хештеги 0 / 30 · упоминания 1 / 20")
+        tags = gemini.present("instagram", " ".join("#t%d" % i for i in range(31)))
+        self.assertEqual(tags["problems"], ["хештегов 31: Instagram разрешает 30"])
+        self.assertEqual(gemini.present("x", "  "), {"line": "", "problems": ["текст пуст"]})
+        for network in ("x", "linkedin", "instagram", "facebook"):
+            for line in (gemini.present(network, "t" * 5000)["problems"] + [gemini.present(network, "t")["line"]]):
+                self.assertNotRegex(line, "[A-Za-z]{4,}")   # no English debug text

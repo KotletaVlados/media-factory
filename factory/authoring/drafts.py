@@ -65,6 +65,17 @@ def valid_id(did):
     return isinstance(did, str) and len(did) <= 80 and ID_RE.fullmatch(did) is not None
 
 
+def stage(d):
+    """Where a draft stands, for the list: error, over, texts, topics, topic or new."""
+    from poster import rules
+    if d["error"]:
+        return "error"
+    if d["variants"]:
+        broken = any(rules.check_text(n, v["text"]).errors for n, v in d["variants"].items())
+        return "over" if broken else "texts"
+    return "topics" if d["topics"] else "topic" if d["topic"].strip() else "new"
+
+
 class Store:
     def __init__(self, content, clock, machine_tz):
         self.content, self.clock, self.machine_tz = content, clock, machine_tz
@@ -153,7 +164,8 @@ class Store:
                 rows = []
                 for did, *_ in key:
                     d = self.load(did)
-                    rows.append({k: d[k] for k in ("id", "folder", "photo", "topic", "updated")})
+                    rows.append(dict({k: d[k] for k in ("id", "folder", "photo", "topic", "updated")},
+                                     stage=stage(d)))
                 self._summaries = sorted(rows, key=lambda d: (d["updated"], d["id"]), reverse=True)
                 self._key = key
             return copy.deepcopy(self._summaries)

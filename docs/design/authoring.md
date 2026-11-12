@@ -392,17 +392,20 @@ From top to bottom, in one column at every width (max 960 px wide, centred from 
 
 1. **Drop zone** (a `<label>` around a hidden single-file input, `accept="image/jpeg,
    image/png,image/webp"`): «Бросьте фото сюда», the button «Выбрать фото», and the hint
-   «JPEG, PNG или WebP · Gemini предложит темы (до $0.02)». At least 180 px tall at 390
+   «JPEG, PNG или WebP · Gemini предложит темы (до $0.02)» (the price never wraps alone, and
+   with no key or past the cap the hint is only «JPEG, PNG или WebP»). The heading is in
+   the text colour, the way a main action is. At least 180 px tall at 390
    px. Drag-over outlines the zone and changes the hint to «Отпустите — загружу»; drops
    outside it are cancelled (B3).
 2. **Profile line**: «Профиль автора · заполнен» or «Профиль автора не заполнен — темы и
    тексты будут общими», linking to `/create/profile`.
-3. **«Недавние фото»** (when any photo exists): the 8 newest index rows across all
+3. **«Недавние фото · нажмите на фото, чтобы начать пост»** (when any photo exists): the 8 newest index rows across all
    photo-lane folders, by `ts`, as 72 px thumbs (96 px from 900 px) in a wrapping row. Each
    is a `<button>` whose name is «Пост из фото <name>».
 4. **«Черновики · N»** (when any exist): the 10 newest by `updated`. Each row has a 48 px
    thumb, the topic (one line with an ellipsis, the full text in `title`) or «без темы»,
-   and the date, and links to `/create/<id>`.
+   the stage word (`без темы`, `своя тема`, `темы`, `тексты готовы`, `длиннее лимита`,
+   `ошибка`) and the date with the time («11 нояб., 09:40»), and links to `/create/<id>`.
 
 Flow:
 
@@ -423,11 +426,14 @@ Flow:
 
 `GET /create/<id>`. Layout: one column below 1 000 px, in the order photo, «Тема»,
 «Тексты». From 1 000 px there are two columns, `minmax(0, 5fr) minmax(0, 7fr)`: photo and
-«Тема» on the left, «Тексты» on the right. Before «Развернуть», the right column shows
+«Тема» on the left, «Тексты» on the right, starting at the top of the page (the heading is
+on the first screen). The loading lines of «Тема» and «Тексты» sit in their heading rows, so
+no blank band separates a heading from its content. Before «Развернуть», the right column shows
 «Тексты появятся после «Развернуть»».
 
 - **Photo**: the view copy from `/photo?…&v=view`, `object-fit: contain`, at most 280 px
-  tall below 1 000 px and 60vh from 1 000 px, inside a fixed box (no layout shift).
+  tall below 1 000 px and 20vh (120–220 px) from 1 000 px, so that «Тема» starts on the first
+  screen next to the texts, inside a fixed box (no layout shift).
 - **«Тема»** section:
   - **Automatic topics**: when `topics_auto` is `pending`, `create.js` posts
     `/create/<id>/topics` with `{"auto": true}` on load. The server flips `topics_auto` to
@@ -442,8 +448,10 @@ Flow:
   - **Topic box**: label «Тема поста — выберите карточку или напишите свою», a textarea of
     up to 2 000 characters (a counter appears from 1 800). It autosaves 800 ms after
     typing stops through `POST /create/<id>/topic`, showing «сохранено».
-  - **«Голос»** next to the box (§8.5).
-  - **«Развернуть · до $0.05»**: disabled with the hint «выберите тему или впишите свою»
+  - **«Голос · до $0.02»** above the cards, beside the topics button (§8.5); the bound is
+    part of the button's text, and the timer shows once, in the button.
+  - **«Развернуть · до $0.05»**: the primary (green) button, in one fixed place directly
+    under the topic box, with the hint «выберите тему или впишите свою» beside it; disabled
     while the box is empty. After any variant has `source: edited` it reads «Развернуть
     заново — правки пропадут · до $0.05».
 
@@ -526,8 +534,9 @@ write for a general audience.» **TASK**: the topic (expand and regenerate) and 
 2. `status` `incomplete` gives «ответ Gemini обрезан — повторите». `failed` or
    `cancelled`, an empty text, invalid JSON or a wrong shape give «Gemini вернул неполный
    ответ — повторите» (G16). All are settled at the reported `usage` (billed, G5).
-3. A non-2xx reply gives «Gemini не ответил: HTTP <status> — <reduced message>», reduced
-   by `vendor_message` and redacted. `TransportError` or a timeout gives «нет связи с
+3. A non-2xx reply gives «Не удалось получить <темы|тексты|новый текст|расшифровку
+   голоса> от Gemini»; a 4xx adds « (HTTP <status>): <reduced message>», reduced by
+   `vendor_message` and redacted (a 5xx shows no status; the ledger keeps it). `TransportError` or a timeout gives «нет связи с
    Gemini — повторите».
 4. On success the server stores the result under `.lock` and clears `error`:
    - **topics** replace `topics`;
@@ -583,17 +592,21 @@ Facebook. Each card has:
 - **Head**: the network monogram and name, then the language word «англ.» or «укр.».
 - **Textarea**: the full text, `white-space: pre-wrap`, growing with its content; nothing
   is clipped.
-- **Count line**: the poster's own count line in mono (for example «weighted 212/280
-  (twitter-text v3, …)»).
-- **Over a limit**: the line «длиннее лимита: 312/280» in `--red` with `role="alert"`,
-  then the poster's error after the label «Проблема:».
+- **Count line**: one short Russian line in mono, made from the poster's own counters
+  and limits (`gemini.present`): «212 / 280 знаков» (X), «230 / 3000 знаков» (LinkedIn),
+  «114 / 2200 знаков · хештеги 3 / 30» (Instagram), «136 знаков» (Facebook, which has no
+  documented limit).
+- **Over a limit**: instead of that count, one line in `--red` with `role="alert"`:
+  «длиннее лимита: 312 / 280 — сократите». The count is shown once, and no English text
+  from the poster's `errors` reaches the card.
 - **Regenerate row**: one input «пожелание: короче, без хештегов…» (at most 200
   characters) and «Перегенерировать · до $0.05».
 
 Typing autosaves 800 ms after the last key through `POST /create/<id>/text` (JSON
 `{network, text}`). The server refuses more than 5 000 characters with «текст длиннее 5 000
 знаков» (refused, never cut). It stores the text NFC-normalised, sets `source: edited`, and
-answers `check_text` as `{counts, errors}`. The count line on screen always comes from the
+answers `check_text` as `{counts, errors}` and `gemini.present` as `{line, problems}`
+(the panel shows the second). The count line on screen always comes from the
 server, so JavaScript keeps no copy of the X weighting. A busy card disables its own
 buttons and keeps their width.
 
@@ -809,9 +822,9 @@ with a modal confirmation, only in state `draft`) comes with D.
   `unknown`, 0 when `failed`, over rows whose reservation month is the current UTC month
   (the X ledger's rule). A reservation left by a killed panel counts, which errs on the
   safe side.
-- **Refusal text:** «Бюджет ИИ на ноябрь: потрачено $9.99 из $10.00, этот запрос — до
-  $0.05. Новые запросы — с 1 декабря или после увеличения AI_MONTHLY_CAP_USD в .env.»
-  Nothing is sent. Routes answer 409 `{"error": <text>}`.
+- **Refusal text:** «Бюджет ИИ на ноябрь исчерпан: этот запрос — до $0.05. Новые запросы —
+  с 1 декабря, раньше — после того, как вы поднимете месячный лимит в файле .env.» The
+  amounts stand once, in the sub row («ИИ · ноябрь $9.99 из $10.00 · лимит»). Nothing is sent. Routes answer 409 `{"error": <text>}`.
 
 ### 11.2 Bounds (reserved before each call, shown on each button)
 
@@ -964,8 +977,8 @@ The rules of `factory.md` §14 apply. In addition:
 
 - Each state has its own visible words: «Бросьте фото сюда», «Загрузка фото…», «Gemini
   подбирает темы…», «выбрано», «Gemini пишет тексты…», «расшифровка…», «Стоп · 0:07»,
-  «длиннее лимита: 312/280», «Бюджет ИИ на ноябрь: …», «нет GEMINI_API_KEY в .env —
-  темы, тексты и голос недоступны», «Gemini не ответил: HTTP 503 — повторите»,
+  «длиннее лимита: 312 / 280 — сократите», «Бюджет ИИ на ноябрь исчерпан: …», «нет GEMINI_API_KEY в .env —
+  темы, тексты и голос недоступны», «Не удалось получить темы от Gemini»,
   «сохранено». No two neighbouring states share their words; colour is never the only
   difference.
 - A button that spends shows its bound («до $0.05») as text; the sub row shows the month.
@@ -1104,7 +1117,7 @@ carry spec item 1, 4–7 item 2, 8–12 item 3, 13 item 4, 14 item 5, 15–16 it
    знаков», and the stored text is unchanged.
 10. **Nothing truncated.** A fake X text of 312 weighted characters is stored and rendered
     whole (equal to the vendor string after NFC) and its card reads «длиннее лимита:
-    312/280» in red with `role="alert"` plus the poster's error. The same holds for an
+    312 / 280 — сократите» in red with `role="alert"`, and no other line about the count. The same holds for an
     Instagram caption of 2 300 UTF-16 units and one with 31 hashtags, and for a LinkedIn
     text of 3 100 units after escaping. No code path shortens a text: a test feeds each
     through every route and compares bytes.
@@ -1145,8 +1158,8 @@ carry spec item 1, 4–7 item 2, 8–12 item 3, 13 item 4, 14 item 5, 15–16 it
       its limit.
 16. **Cap.** With the month at $9.99 and the cap at $10.00:
     - every spending control (topics, expand, regenerate, voice) shows «Бюджет ИИ на
-      ноябрь: потрачено $9.99 из $10.00, этот запрос — до $0.0N. Новые запросы — с 1
-      декабря или после увеличения AI_MONTHLY_CAP_USD в .env.» instead of acting;
+      ноябрь исчерпан: этот запрос — до $0.0N. Новые запросы — с 1 декабря, раньше —
+      после того, как вы поднимете месячный лимит в файле .env.» instead of acting;
     - a forced POST to each route answers 409 with that text, and the fake transport saw
       zero requests;
     - the sub row is red with «· лимит».
@@ -1166,8 +1179,9 @@ carry spec item 1, 4–7 item 2, 8–12 item 3, 13 item 4, 14 item 5, 15–16 it
     - `grep -riE "anthropic|claude" factory/ tests/ tools/ KEYS.md README.md` finds no
       code path, key name or model id.
 18. **Errors and concurrency.**
-    - A fake 503 on topics stores `error` and shows «Gemini не ответил: HTTP 503 —
-      повторите» with «Повторить» after a reload.
+    - A fake 503 on topics stores `error` and shows «Не удалось получить темы от Gemini»
+      with one button, «Повторить · до $0.02» (the topics button is hidden while it shows),
+      after a reload.
     - `incomplete` shows «ответ Gemini обрезан — повторите».
     - Invalid JSON, or 2 topics against `minItems` 3, shows «Gemini вернул неполный
       ответ — повторите».
@@ -1208,17 +1222,17 @@ Two fixtures carry the states. FakeGemini runs in process in both.
 | `create-empty` | Empty fixture with the key, no photos, no drafts, no profile | «Бросьте фото сюда», «Выбрать фото», «Профиль автора не заполнен — темы и тексты будут общими», «ИИ · ноябрь $0.00 из $10.00» |
 | `create-start` | «create» at `/create` | «Бросьте фото сюда», «Недавние фото», «Черновики · 5» |
 | `create-topics-loading` | «create-live»: the width's draft with `topics_auto: "pending"`; FakeGemini holds the request until teardown | «Gemini подбирает темы…» and the dimmed, disabled «Ещё темы · до $0.02» |
-| `create-topics` | «create»: a draft with 5 topics, the second chosen | the five card titles, «выбрано», «Развернуть · до $0.05» |
+| `create-topics` | «create»: a draft with 5 topics, the second chosen | the five card titles, «выбрано»; «Развернуть · до $0.05» stands directly under the topic box (below the first screen on a narrow page, reached by scrolling) |
 | `create-own-topic` | «create»: a draft with a typed topic, no topics, `topics_auto: "done"` | the typed topic in the box, «Предложить темы · до $0.02», «Развернуть · до $0.05» enabled |
-| `create-voice` | «create-live»: the width's own-topic draft; probe: oscillator stream, «Голос» clicked, 1.2 s live | «Стоп · 0:01», the timer status |
+| `create-voice` | «create-live»: the width's own-topic draft; probe: oscillator stream, «Голос» clicked, 1.2 s live | «Стоп · 0:01» (the timer shows once, in the button) |
 | `create-expand-loading` | «create-live»: the width's topics draft; probe clicks «Развернуть»; FakeGemini holds | «Gemini пишет тексты…», a dimmed, disabled «Развернуть · до $0.05» |
 | `create-drop` (functional, not framed) | «create-live» at `/create`; probe passes a generated JPEG named `drop-<width>.jpg` to the drop handler | probe JSON: three upload posts, one `/create/new`, the navigation URL, and one new index row with that name |
 | `create-texts` (*anchor*) | A draft with four texts within limits | «X · англ.», «LinkedIn · англ.», «Instagram · укр.», «Facebook · укр.», each count line (the 390 frame is scrolled until each card is whole) |
-| `create-over-limit` (*anchor*) | A draft whose X text is 312 weighted characters | «длиннее лимита: 312/280», the whole X text |
-| `create-budget` | «create» fixture with the ledger at $9.99, the `create-topics` draft | «Бюджет ИИ на ноябрь: потрачено $9.99 из $10.00…», the red «· лимит» |
-| `create-error` | A draft with a stored `error` (topics, HTTP 503) | «Gemini не ответил: HTTP 503 — повторите», «Повторить» |
+| `create-over-limit` (*anchor*) | A draft whose X text is 312 weighted characters | «длиннее лимита: 312 / 280 — сократите», the whole X text |
+| `create-budget` | «create» fixture with the ledger at $9.99, the `create-topics` draft | «Бюджет ИИ на ноябрь исчерпан: …», the red «ИИ · ноябрь $9.99 из $10.00 · лимит» (the amounts once) |
+| `create-error` | A draft with a stored `error` (topics, HTTP 503) | «Не удалось получить темы от Gemini», «Повторить · до $0.02» |
 | `create-nokey` | «create» fixture whose env file has no `GEMINI_API_KEY`, the `create-topics` draft and `/create` | «нет GEMINI_API_KEY в .env — темы, тексты и голос недоступны»; the drop zone still active |
-| `create-profile` | `/create/profile?saved=1` with every field filled | «Профиль автора», «Профиль сохранён», the eight labels |
+| `create-profile` | `/create/profile?saved=1` with every field filled | «Профиль автора», «Профиль сохранён», the eight labels (one column below 600 px: the first two on the first screen, the rest whole when scrolled to) |
 | `files-mediateka` | «create» fixture at `/files` | tab «Медиатека» current, the card «Мои фото» with «12 фото» |
 | `files-mine` | `/files?folder=my-photos` | «Фото · 12», the chip «черновик» on a drafted photo |
 

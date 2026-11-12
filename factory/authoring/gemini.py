@@ -23,6 +23,7 @@ TIMEOUT = 120
 INCOMPLETE = "ответ Gemini обрезан — повторите"
 INVALID = "Gemini вернул неполный ответ — повторите"
 OFFLINE = "нет связи с Gemini — повторите"
+WHAT = {"topics": "темы", "expand": "тексты", "regenerate": "новый текст", "voice": "расшифровку голоса"}
 def billed_output(u):
     # G14: total_tokens disambiguates whether the output count includes thoughts.
     # With no confirming total, retain the conservative sum from §11.2.
@@ -150,11 +151,48 @@ def request(op, key, prompt, media, mime):
     return http.json_request("POST", URL, body, headers=headers, timeout=TIMEOUT, display={})
 
 
+def present(network, value):
+    """The panel's count line and problems for one text, in Russian, from the poster's own
+    counters and limits (no second counting rule). `line` is the short count; `problems`
+    are the limits it breaks, each one red line. A text is never cut (design §8.6)."""
+    if not value.strip():
+        return {"line": "", "problems": ["текст пуст"]}
+    bad = []
+
+    def over(n, limit):
+        if n <= limit:
+            return f"{n} / {limit} знаков"
+        bad.append(f"длиннее лимита: {n} / {limit} — сократите")
+        return ""
+
+    if network == "facebook":
+        parts = [f"{len(value)} знаков"]
+    elif network == "x":
+        parts = [over(rules.x_weighted_length(value), rules.X_MAX_WEIGHTED)]
+        k = rules.count_cashtags(value)
+        if k > rules.X_MAX_CASHTAGS:
+            bad.append(f"тегов $ в тексте {k}: X разрешает {rules.X_MAX_CASHTAGS}")
+    elif network == "linkedin":
+        parts = [over(rules.utf16_len(rules.linkedin_escape(value)), rules.LI_MAX_COMMENTARY)]
+    else:
+        parts = [over(rules.utf16_len(value), rules.IG_MAX_CAPTION)]
+        h, m = rules.count_hashtags(value), rules.count_mentions(value)
+        if h > rules.IG_MAX_HASHTAGS:
+            bad.append(f"хештегов {h}: Instagram разрешает {rules.IG_MAX_HASHTAGS}")
+        else:
+            parts.append(f"хештеги {h} / {rules.IG_MAX_HASHTAGS}")
+        if m > rules.IG_MAX_MENTIONS:
+            bad.append(f"упоминаний {m}: Instagram разрешает {rules.IG_MAX_MENTIONS}")
+        elif m:
+            parts.append(f"упоминания {m} / {rules.IG_MAX_MENTIONS}")
+    return {"line": " · ".join(p for p in parts if p), "problems": bad}
+
+
 def checked_variants(data):
     out = {}
     for n, v in data.items():
         check = rules.check_text(n, v["text"])
-        out[n] = dict(v, counts=check.counts, errors=check.errors)
+        out[n] = dict(v, counts=check.counts, errors=check.errors, **present(n, v["text"]))
     return out
 
 
@@ -245,9 +283,13 @@ class Service:
                                    http=resp.status, interaction=state)
             if not resp.ok:
                 # Empty/503 fixture stays concise. Reduced vendor details never escape redaction.
-                detail = self.redactor().redact(http.vendor_message(resp))
-                detail = "повторите" if resp.status >= 500 else detail
-                raise Refusal(f"Gemini не ответил: HTTP {resp.status} — {detail}", 502)
+                # The panel says what failed, not the status of a server error; a refusal
+                # (4xx) keeps its status and the reduced vendor reason. The status is in the ledger.
+                message = f"Не удалось получить {WHAT[op]} от Gemini"
+                if resp.status < 500:
+                    detail = self.redactor().redact(http.vendor_message(resp))
+                    message += f" (HTTP {resp.status}): {detail}"
+                raise Refusal(message, 502)
             value, path = parse(op, data)
             # Redact before storing, including a malicious model echo of a credential.
             value = json.loads(self.redactor().redact(json.dumps(value, ensure_ascii=False)))
