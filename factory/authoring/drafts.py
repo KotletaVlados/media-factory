@@ -40,7 +40,7 @@ def validate(data):
     for item in topics:
         if not isinstance(item, dict):
             raise Refusal("неверный черновик")
-        text(item.get("title"), 80, "название темы")
+        text(item.get("title"), 1000, "название темы")
         text(item.get("angle"), 1000, "ракурс темы")
     variants = data.get("variants")
     if not isinstance(variants, dict) or any(n not in LANGS for n in variants):

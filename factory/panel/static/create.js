@@ -246,7 +246,8 @@
       return result;
     } catch (err) {
       activeError = op;
-      error(err.message, op === "voice" ? null : () => ai(op, data, audio, mime));
+      // The automatic topics request is spent once on the server; a retry is a real request.
+      error(err.message, op === "voice" ? null : () => ai(op, op === "topics" ? {} : data, audio, mime));
       if (op === "voice") { showVoiceRetry(); }
     } finally { writing.forEach(el => { el.readOnly = false; }); report(line, ""); setBusy(false); }
   }

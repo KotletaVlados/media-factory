@@ -87,7 +87,7 @@ def parse(op, data):
             for item in topics:
                 if not isinstance(item, dict) or set(item) != {"title", "angle"}:
                     raise ValueError()
-                for k, limit in (("title", 80), ("angle", 1000)):
+                for k, limit in (("title", 1000), ("angle", 1000)):
                     if not isinstance(item[k], str) or not item[k].strip() or len(item[k]) > limit:
                         raise ValueError()
         else:

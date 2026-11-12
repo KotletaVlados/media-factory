@@ -231,6 +231,20 @@ class CreateTest(pf.PanelCase):
         self.assert_no_canary(self.log.getvalue())
         for row in self.rows(): self.assert_no_canary(json.dumps(row))
 
+    def test_long_topic_title_is_paid_stored_whole_and_rendered(self):
+        title = "Т" * 81
+        topics = [dict(pf.TOPICS[0], title=title)] + pf.TOPICS[1:3]
+        self.transport.add(pf.gemini_reply({"topics": topics}))
+        status, data = self.call("topics", {"auto": True})
+        self.assertEqual(status, 200)
+        self.assertEqual(data["topics"][0]["title"], title)
+        self.assertEqual(self.store.load(self.did)["topics"][0]["title"], title)
+        self.assertEqual(self.rows()[-1]["status"], "ok")
+        self.assertIn(title, self.get(self.base)[2])
+        self.assertEqual(gemini.parse("topics", pf.gemini_reply({"topics": [dict(pf.TOPICS[0], title="Т" * 1000)] * 3}).json())[0]["topics"][0]["title"], "Т" * 1000)
+        with self.assertRaisesRegex(Refusal, gemini.INVALID):
+            gemini.parse("topics", pf.gemini_reply({"topics": [dict(pf.TOPICS[0], title="Т" * 1001)] * 3}).json())
+
     def test_exif_refused_before_reserve_or_transport(self):
         path = photos.file_path(self.fx.paths.stock, "my-photos", self.pid, "view")
         with open(path, "wb") as fh: fh.write(pf.make_exif6(64, 48, 1))
