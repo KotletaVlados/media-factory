@@ -249,9 +249,25 @@
   }
 
   function runInfo(state, calls) {
-    return {done: state.done, dup: state.dup, stopped: state.stopped, calls: calls,
+    var button = document.querySelector(".upload-status a.btn");
+    // the skip list as rendered: [folder heading or "", [row text, ...]] per group
+    var list = Array.prototype.map.call(document.querySelectorAll(".upload-skipped > li"),
+      function (group) {
+        var heading = group.querySelector(".dir");
+        return [heading ? heading.textContent : "", Array.prototype.map.call(
+          group.querySelectorAll("ul > li"), function (li) { return li.textContent; })];
+      });
+    return {done: state.done, dup: state.dup, fresh: state.fresh, stopped: state.stopped,
+            calls: calls,
             skipped: state.skipped.map(function (s) { return [s.name, s.reason]; }),
+            list: list, button: button ? button.textContent : null,
             status: document.querySelector(".upload-status").textContent};
+  }
+
+  // A file as a folder pick lists it: with its folder-relative path.
+  function inFolder(file, path) {
+    Object.defineProperty(file, "webkitRelativePath", {value: path});
+    return file;
   }
 
   // The real upload loop, three runs on one page (probe_upload=1). Run 1: the first listed
@@ -260,6 +276,8 @@
   // whose size and colour depend on the window width, so parallel widths never collide as
   // duplicates; it goes through the orig, thumb and view posts for real. Runs 2 and 3 stub
   // fetch (a refused request, then a stale-token 403): the loop must stop after one request.
+  // Between run 1 and the stubs, a clean run of one new file ends with the page reload (stubbed
+  // here) and the count it keeps for the new page, which restore() shows as the done line.
   function uploadRuns(origBlob, out) {
     var W = window.innerWidth;
     var realFetch = window.fetch;
@@ -283,14 +301,40 @@
       out.newSize = [40 + (W % 97), 30 + (W % 53)];
       var gif = new File([fresh], "refused.jpg", {type: "image/gif"});
       return run([new File([origBlob], "IMG_0001.jpg", {type: "image/jpeg"}),
-                  new File([new Uint8Array(32)], "IMG_0002.HEIC", {type: ""}),
-                  new File(["notes"], "notes.txt", {type: "text/plain"}),
-                  new File(["not an image"], "broken.jpg", {type: "image/jpeg"}),
+                  inFolder(new File([new Uint8Array(32)], "IMG_0002.HEIC", {type: ""}),
+                           "Поездка/Набережная/IMG_0002.HEIC"),
+                  inFolder(new File(["notes"], "notes.txt", {type: "text/plain"}),
+                           "Поездка/notes.txt"),
+                  inFolder(new File(["not an image"], "broken.jpg", {type: "image/jpeg"}),
+                           "Поездка/Набережная/broken.jpg"),
                   gif,
                   new File([fresh], out.newName, {type: "image/jpeg"})]);
     }).then(function (state) {
       out.upload = runInfo(state, null);
-      stub(function () { return Promise.reject(new TypeError("offline")); });
+      return canvasJpeg(50 + (W % 89), 35 + (W % 47), (W + 90) % 200);
+    }).then(function (clean) {
+      out.cleanName = "clean-" + W + ".jpg";
+      out.cleanSize = [50 + (W % 89), 35 + (W % 47)];
+      var reloads = 0;
+      var realReload = window.MFAuthor.reload;
+      window.MFAuthor.reload = function () { reloads += 1; };
+      return run([new File([clean], out.cleanName, {type: "image/jpeg"})]).then(function (s4) {
+        window.MFAuthor.reload = realReload;
+        out.clean = runInfo(s4, null);
+        out.clean.reloads = reloads;
+        out.clean.kept = window.sessionStorage.getItem("mf-upload-done");
+        var back = window.MFAuthor.restore();
+        out.clean.restored = back ? document.querySelector(".upload-status").textContent : null;
+        out.clean.keptAfter = window.sessionStorage.getItem("mf-upload-done");
+      });
+    }).then(function () {
+      stub(function () {
+        // the buttons are disabled while a request is in flight: they must look it
+        var b = document.querySelector("[data-pick]");
+        var cs = getComputedStyle(b);
+        out.disabledLook = {disabled: b.disabled, opacity: cs.opacity, cursor: cs.cursor};
+        return Promise.reject(new TypeError("offline"));
+      });
       return run([new File([tiny], "a.jpg", {type: "image/jpeg"})]).then(function (s2) {
         out.offline = runInfo(s2, calls);
       });
@@ -323,9 +367,13 @@
       done(null);
       return;
     }
+    // the grid lists the newest photo first, so the fixture's EXIF-6 original (its first
+    // upload) is named by probe_orig=<id>
+    var named = /[?&]probe_orig=([\w-]+)/.exec(location.search);
+    var id = named ? named[1] : tile.getAttribute("data-id");
     var url = "/photo?folder=" + encodeURIComponent(section.getAttribute("data-photos")) +
-      "&id=" + encodeURIComponent(tile.getAttribute("data-id")) + "&v=orig";
-    var out = {id: tile.getAttribute("data-id")};
+      "&id=" + encodeURIComponent(id) + "&v=orig";
+    var out = {id: id};
     fetch(url).then(function (r) { return r.blob(); }).then(function (blob) {
       out.origBytes = blob.size;
       return window.MFAuthor.makeCopies(blob).then(function (c) {

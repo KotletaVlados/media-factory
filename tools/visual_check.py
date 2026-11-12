@@ -20,11 +20,14 @@ The photo states (authoring.md §15.1) run on a fourth fixture with 70 uploaded 
 probe feeds the stored EXIF-6 original, fetched from /photo, to author.js's `makeCopies` and
 reports the copy sizes, which must be portrait. `files-photos-upload` runs on a fifth, small
 fixture that the upload loop may change: it decodes a stored 1 x 1 WebP, then runs the real
-loop three times. Run 1 sends a duplicate, a HEIC file, a text file, an undecodable .jpg, a
-file the server refuses and one new decodable file; the check compares the counts, every
-skip reason and the status line, and afterwards the fixture's index, thumb and view files
-(one new row per width, named after the file). Runs 2 and 3 stub fetch (no connection, then
-a stale-token 403) and must stop after one request.
+loop four times. Run 1 sends a duplicate, a HEIC file, a text file, an undecodable .jpg, a
+file the server refuses and one new decodable file (three of them with a folder-relative
+path); the check compares the counts, the status line (counts only, no reason text and the
+button named "показать загруженные"), the skip list (each folder once, "name: reason" rows),
+and afterwards the fixture's index, thumb and view files (two new rows per width, named after
+the file). Run 2 is a clean run of one new file: the page reload is stubbed, the kept count
+must come back as the done line. Runs 3 and 4 stub fetch (no connection, then a stale-token
+403) and must stop after one request; the buttons must look disabled while the first waits.
 
 It also computes the WCAG contrast of every text colour pair from panel.css. It prints the
 snapshot build time (`snapshot_ms`, budget 1000 ms) and exits 1 on any finding.
@@ -309,13 +312,21 @@ def post_page(srv, path: str, fields: dict, out_file: str) -> str:
     return resp.status
 
 
-UPLOAD_RUN1 = (f"Готово: загружено 2 из 6 · уже были: 1 · пропущено 4 (HEIC, "
-               f"{S.UPLOAD_JS['type']}, {S.UPLOAD_JS['decode']}, {S.UP_BAD_TYPE})")
+UPLOAD_RUN1 = "Готово: загружено 2 из 6 · уже были: 1 · пропущено 4"
+HEIC_PATH = "Поездка/Набережная/IMG_0002.HEIC"
+BROKEN_PATH = "Поездка/Набережная/broken.jpg"
+NOTES_PATH = "Поездка/notes.txt"
 UPLOAD_SKIPS = sorted([
-    ["IMG_0002.HEIC", S.UPLOAD_JS["heic"]],
-    ["notes.txt", S.UPLOAD_JS["type"]],
-    ["broken.jpg", S.UPLOAD_JS["decode"]],
+    [HEIC_PATH, S.UPLOAD_JS["heic"]],
+    [NOTES_PATH, S.UPLOAD_JS["type"]],
+    [BROKEN_PATH, S.UPLOAD_JS["decode"]],
     ["refused.jpg", S.UP_BAD_TYPE]])
+# the skip list as rendered: each folder once as a heading, base names, "name: reason" rows
+UPLOAD_LIST = [   # groups in the order the loop meets them: the sorted pick, filter skips first
+    ["Поездка/", [f"notes.txt: {S.UPLOAD_JS['type']}"]],
+    ["Поездка/Набережная/", [f"IMG_0002.HEIC: {S.UPLOAD_JS['heic']}",
+                              f"broken.jpg: {S.UPLOAD_JS['decode']}"]],
+    ["", [f"refused.jpg: {S.UP_BAD_TYPE}"]]]
 UPLOAD_STOPS = (("offline", S.UPLOAD_JS["network"], "a.jpg", 1),
                 ("forbidden", "stale", "b.jpg", 1))   # "stale": the stub's own error text
 
@@ -344,10 +355,34 @@ def photo_problems(state: str, photos, w: int = 0) -> list:
                        f"{run.get('stopped')}, expected 2/1/False")
         if sorted(run.get("skipped") or []) != UPLOAD_SKIPS:
             out.append(f"run 1 skipped {run.get('skipped')}, expected {UPLOAD_SKIPS}")
-        if not run.get("status", "").startswith(UPLOAD_RUN1) or \
-                not run.get("status", "").endswith(S.UPLOAD_JS["reload"]):
-            out.append(f"run 1 status «{run.get('status')}», expected «{UPLOAD_RUN1} "
-                       f"{S.UPLOAD_JS['reload']}»")
+        want = f"{UPLOAD_RUN1} {S.UPLOAD_JS['reload_new']}"
+        if run.get("status") != want:
+            out.append(f"run 1 status «{run.get('status')}», expected «{want}»")
+        for _, reason in UPLOAD_SKIPS:   # a reason is told once, in the list below
+            if reason in (run.get("status") or ""):
+                out.append(f"run 1 status repeats the reason «{reason}»")
+        if run.get("list") != UPLOAD_LIST:
+            out.append(f"run 1 skip list {run.get('list')}, expected {UPLOAD_LIST}")
+        if run.get("fresh") != 1 or run.get("button") != S.UPLOAD_JS["reload_new"]:
+            out.append(f"run 1 fresh/button {run.get('fresh')}/{run.get('button')}, expected "
+                       f"1/{S.UPLOAD_JS['reload_new']}")
+        clean = photos.get("clean") or {}
+        done_line = f"{S.UPLOAD_JS['done']} {S.UPLOAD_JS['progress'].format(done=1, total=1)}"
+        if (clean.get("done"), clean.get("fresh"), clean.get("stopped"), clean.get("reloads")) \
+                != (1, 1, False, 1):
+            out.append(f"clean run done/fresh/stopped/reloads {clean.get('done')}/"
+                       f"{clean.get('fresh')}/{clean.get('stopped')}/{clean.get('reloads')}, "
+                       f"expected 1/1/False/1")
+        if not clean.get("kept") or clean.get("keptAfter") is not None:
+            out.append(f"clean run kept {clean.get('kept')!r}, after restore "
+                       f"{clean.get('keptAfter')!r}: expected a note, then none")
+        if clean.get("restored") != done_line:
+            out.append(f"clean run restored line «{clean.get('restored')}», expected «{done_line}»")
+        look = photos.get("disabledLook") or {}
+        if look.get("disabled") is not True or float(look.get("opacity") or 1) >= 1 or \
+                look.get("cursor") == "pointer":
+            out.append(f"buttons while a request runs look like {look}: expected disabled, "
+                       f"dimmed, no pointer")
         if photos.get("newName") != f"new-{w}.jpg":
             out.append(f"new file named {photos.get('newName')}, expected new-{w}.jpg")
         for key, reason, name, calls in UPLOAD_STOPS:
@@ -362,29 +397,29 @@ def photo_problems(state: str, photos, w: int = 0) -> list:
 
 
 def upload_index_problems(fx, widths) -> list:
-    """After the upload runs: the fixture's city folder lists the 5 stored photos and one new
-    row per width, named after its file with the size of the browser's copy, with its thumb
+    """After the upload runs: the fixture's city folder lists the 5 stored photos and two new
+    rows per width (run 1's file and the clean run's), named after its file with the size of the browser's copy, with its thumb
     and view files; the refused, undecodable and stubbed files left nothing."""
     folder = os.path.join(fx.paths.stock, "city", fphotos.PHOTOS)
     rows = fphotos.read_index(folder)
     names = [r["name"] for r in rows]
     out = []
-    for w in widths:
-        want = f"new-{w}.jpg"
+    for w, want, size in [(w, f"new-{w}.jpg", [40 + (w % 97), 30 + (w % 53)]) for w in widths] + \
+            [(w, f"clean-{w}.jpg", [50 + (w % 89), 35 + (w % 47)]) for w in widths]:
         got = [r for r in rows if r["name"] == want]
         if len(got) != 1:
             out.append(f"index lists {len(got)} rows named {want}, expected 1")
             continue
         row = got[0]
-        if [row["w"], row["h"]] != [40 + (w % 97), 30 + (w % 53)]:
+        if [row["w"], row["h"]] != size:
             out.append(f"{want}: row size {row['w']} x {row['h']}, expected the copy's size")
         for kind in ("thumb", "view"):
             if not os.path.isfile(os.path.join(folder, kind, row["id"] + ".jpg")):
                 out.append(f"{want}: no {kind} file")
         if not os.path.isfile(os.path.join(folder, f"{row['id']}.jpg")):
             out.append(f"{want}: no original")
-    if len(rows) != 5 + len(widths):
-        out.append(f"index lists {len(rows)} photos {names}, expected {5 + len(widths)}")
+    if len(rows) != 5 + 2 * len(widths):
+        out.append(f"index lists {len(rows)} photos {names}, expected {5 + 2 * len(widths)}")
     stray = [n for n in names if n in ("broken.jpg", "refused.jpg", "a.jpg", "b.jpg", "c.jpg")]
     if stray:
         out.append(f"index lists files that must not load: {stray}")
@@ -421,6 +456,9 @@ def main(argv=None) -> int:
         uploading, "city", panel_fixture.make_webp(1), panel_fixture.make_photo(360, 480, 1),
         panel_fixture.make_photo(1200, 1600, 1), "tiny.webp")
 
+    # the grid lists the newest photo first: the probe is told which one is the EXIF-6 original
+    exif_id = {name: fphotos.read_index(os.path.join(fx.paths.stock, "city", fphotos.PHOTOS))[0]["id"]
+               for name, fx in (("photos", with_photos), ("upload", uploading))}
     servers = {name: start(fx) for name, fx in
                (("data", data), ("empty", empty), ("bad-rules", bad_rules), ("no-env", no_env),
                 ("photos", with_photos), ("upload", uploading))}
@@ -456,11 +494,11 @@ def main(argv=None) -> int:
         ("error-rules", url("bad-rules", "/rules")),
         ("error-rules-connection", url("bad-rules", "/connection")),
         ("error-env", url("no-env", "/files")),
-        ("files-photos", url("photos", "/files")),
-        ("files-photos-folder", url("photos", "/files?folder=city")),
+        ("files-photos", url("photos", f"/files?probe_orig={exif_id['photos']}")),
+        ("files-photos-folder", url("photos", f"/files?folder=city&probe_orig={exif_id['photos']}")),
         ("files-photos-more", url("photos", "/files?folder=city&photos=70#photo-61")),
         # the upload loop's end state (photo states run in real time, see Chrome.live)
-        ("files-photos-upload", url("upload", f"/files?folder=city&probe=1&probe_upload=1&probe_webp={webp_id}")),
+        ("files-photos-upload", url("upload", f"/files?folder=city&probe=1&probe_upload=1&probe_webp={webp_id}&probe_orig={exif_id['upload']}")),
     ]
     # the 409 refusal: starting the draft with validation problems
     pages = os.path.join(scratch, "pages")
