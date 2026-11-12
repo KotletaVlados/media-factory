@@ -496,9 +496,9 @@ dialog.day::backdrop { background: rgb(0 0 0 / .7); }
   gap: 12px; padding: 8px; border-bottom: 1px solid var(--head); text-decoration: none; }
 .draft-row img { width: 48px; height: 48px; object-fit: cover; border-radius: 4px; }
 .draft-topic { display: block; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.create-columns { display: grid; gap: 24px; grid-template-columns: minmax(0, 1fr); }
+.create-columns { display: grid; gap: 12px 24px; grid-template-columns: minmax(0, 1fr); }
 .create-columns > * { min-width: 0; }
-.create-photo { height: 280px; margin-bottom: 20px; background: var(--surface); border-radius: 8px; }
+.create-photo { height: clamp(96px, 12vh, 280px); background: var(--surface); border-radius: 8px; }
 .create-photo img { width: 100%; height: 100%; object-fit: contain; }
 .topic-cards { display: grid; gap: 8px; margin-bottom: 12px; }
 .topic-card { display: grid; gap: 4px; padding: 12px; width: 100%; text-align: left; background: var(--surface);
@@ -513,8 +513,9 @@ dialog.day::backdrop { background: rgb(0 0 0 / .7); }
 .create-topic .btn { max-width: 100%; white-space: normal; text-align: left; min-height: 32px; }
 .create-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 4px 0 12px; }
 [data-op="voice"] { min-width: 110px; justify-content: center; font-variant-numeric: tabular-nums; }
-.ai-status, .text-ai-status { min-height: 24px; margin-bottom: 8px; }
-.topic-save, .save-status { min-height: 24px; padding: 4px 0; }
+.ai-status, .text-ai-status { min-height: 24px; margin-bottom: 4px; }
+.save-status { min-height: 24px; padding: 4px 0; }
+.topic-save { flex: 1 0 auto; text-align: right; }
 .create-text { padding: 16px; border: 1px solid var(--head); border-radius: 8px;
   background: var(--app); margin-bottom: 16px; }
 .text-editor { overflow-y: hidden; }
@@ -531,8 +532,12 @@ dialog.day::backdrop { background: rgb(0 0 0 / .7); }
 .create-error p { margin-bottom: 8px; }
 @media (min-width: 900px) { .recent-photo { width: 96px; height: 96px; } }
 @media (min-width: 1000px) {
-  .create-columns { grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); }
-  .create-photo { height: 60vh; }
+  .create-columns { grid-template-columns: minmax(0, 4fr) minmax(0, 8fr); grid-template-areas: "photo topic" "texts texts";
+    align-items: start; }
+  .create-photo { grid-area: photo; height: min(60vh, 560px); }
+  .create-topic { grid-area: topic; }
+  .create-texts { grid-area: texts; max-width: 880px; }
+  .topic-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 .profile-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 16px; }
 .profile-field { min-width: 0; }
@@ -550,3 +555,11 @@ dialog.day::backdrop { background: rgb(0 0 0 / .7); }
 .topic-card strong { grid-area: title; }
 .topic-card > span:not(.chosen) { grid-area: angle; }
 .topic-card .chosen { grid-area: chosen; min-height: 0; }
+
+.topic-cards { margin-bottom: 8px; }
+.topic-label { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 12px; }
+.topic-label label { margin: 8px 0 4px; }
+.topic-label .topic-save { min-height: 0; padding: 0; }
+.create-actions { margin: 8px 0; }
+.main-create .create-topic { margin-bottom: 8px; }
+.topic-heading .topic-hint { flex: 1 1 140px; margin: 0; text-align: right; }
