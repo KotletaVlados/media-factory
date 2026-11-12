@@ -110,6 +110,8 @@ button, input, select { font: inherit; color: inherit; }
        border-radius: 8px; background: var(--surface); color: var(--text);
        border: 1px solid var(--head); text-decoration: none; cursor: pointer; white-space: nowrap; }
 .btn:hover { background: var(--surface-2); }
+.btn:disabled { opacity: .45; cursor: default; }
+.btn:disabled:hover { background: var(--surface); }
 .btn.green { background: var(--green); color: var(--on-green); border-color: var(--green); }
 .linkbtn { background: none; border: 0; padding: 0 2px; min-height: 24px; min-width: 24px;
            color: var(--text); text-decoration: underline; cursor: pointer; font-size: 12px; }
@@ -263,6 +265,8 @@ label.check input { min-height: 0; width: 16px; height: 16px; }
 .upload-status .btn { margin-left: 4px; }
 .upload-skipped { margin-bottom: 12px; overflow-wrap: anywhere; }
 .upload-skipped li { margin: 2px 0; }
+.upload-skipped ul { margin: 2px 0 6px 12px; }
+.upload-skipped .dir { display: block; color: var(--muted); }
 .pgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 8px; }
 .ptile { display: flex; flex-direction: column; gap: 4px; min-width: 0; scroll-margin-top: 120px; }
 .ptile img { display: block; width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 4px;

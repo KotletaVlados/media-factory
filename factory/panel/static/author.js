@@ -116,35 +116,47 @@
       parts.push(fill(T.skipped, {n: state.skipped.length}));
     }
     statusLine.textContent = "";
-    statusLine.appendChild(document.createTextNode((state.finished ? T.done : T.running) + " "));
+    statusLine.appendChild(document.createTextNode(state.finished ? T.done : T.running));
     parts.forEach(function (text, i) {
       var piece = document.createElement("span");
       piece.className = "nw";
       piece.textContent = text + (i < parts.length - 1 ? " ·" : "");
-      statusLine.appendChild(piece);
       statusLine.appendChild(document.createTextNode(" "));
+      statusLine.appendChild(piece);
     });
-    if (state.skipped.length) {
-      var tags = [];
-      state.skipped.forEach(function (s) {
-        if (tags.indexOf(s.tag) < 0) {
-          tags.push(s.tag);
-        }
-      });
-      statusLine.appendChild(document.createTextNode("(" + tags.join(", ") + ")"));
-    }
   }
 
-  function skip(state, file, reason, tag) {
-    state.skipped.push({name: file.webkitRelativePath || file.name, reason: reason, tag: tag});
+  // A skipped file is listed under its folder (shown once per folder) by base name, then
+  // ": reason". The status line only counts; the reasons live here.
+  var groups = {};
+
+  function skip(state, file, reason) {
+    var path = file.webkitRelativePath || file.name;
+    var cut = path.lastIndexOf("/");
+    var dir = cut < 0 ? "" : path.slice(0, cut + 1);
+    state.skipped.push({name: path, reason: reason});
+    var group = groups[dir];
+    if (!group) {
+      var item = document.createElement("li");
+      if (dir) {
+        var heading = document.createElement("span");
+        heading.className = "dir mono small";
+        heading.textContent = dir;
+        item.appendChild(heading);
+      }
+      group = document.createElement("ul");
+      item.appendChild(group);
+      skippedList.appendChild(item);
+      groups[dir] = group;
+    }
     var li = document.createElement("li");
     li.className = "small";
     var name = document.createElement("span");
     name.className = "mono";
-    name.textContent = file.webkitRelativePath || file.name;
+    name.textContent = path.slice(cut + 1);
     li.appendChild(name);
-    li.appendChild(document.createTextNode(" — " + reason));
-    skippedList.appendChild(li);
+    li.appendChild(document.createTextNode(": " + reason));
+    group.appendChild(li);
   }
 
   function uploadOne(state, file) {
@@ -163,16 +175,17 @@
                         copies.view.blob, "image/jpeg");
           }).then(function () {
             state.done += 1;
+            state.fresh += 1;
           });
         });
     }, function () {
-      skip(state, file, T.decode, T.decode);
+      skip(state, file, T.decode);
       return null;
     }).catch(function (err) {
       if (err.status === 403 || err.status === 0) {
         throw err;   // a stale token or a stopped panel: the rest would fail the same way
       }
-      skip(state, file, err.message, err.message);
+      skip(state, file, err.message);
     });
   }
 
@@ -183,20 +196,21 @@
       return x < y ? -1 : (x > y ? 1 : 0);
     });
     skippedList.textContent = "";
+    groups = {};
     if (list.length > MAX_PICK) {
       statusLine.textContent = fill(T.too_many, {n: list.length,
                                                  files: plural(list.length, T.files)});
       return Promise.resolve(null);
     }
-    var state = {done: 0, dup: 0, total: list.length, skipped: [], finished: false,
+    var state = {done: 0, dup: 0, fresh: 0, total: list.length, skipped: [], finished: false,
                  stopped: false};
     var photos = list.filter(function (f) {
       if (HEIC.test(f.name) || /heic|heif/i.test(f.type)) {
-        skip(state, f, T.heic, "HEIC");
+        skip(state, f, T.heic);
         return false;
       }
       if (!TYPES[f.type] && !EXTS.test(f.name)) {
-        skip(state, f, T.type, T.type);
+        skip(state, f, T.type);
         return false;
       }
       return true;
@@ -221,12 +235,15 @@
     }).then(function (result) {
       buttons.forEach(function (b) { b.disabled = false; });
       if (result.skipped.length === 0 && !result.stopped) {
-        window.location.reload();
+        remember(result);
+        window.MFAuthor.reload();
       } else {
         var again = document.createElement("a");
         again.className = "btn";
         again.href = window.location.pathname + window.location.search;
-        again.textContent = T.reload;
+        // a run that stored photos names what the button shows; a stopped one may need a
+        // fresh page (token) first, so it keeps the plain word
+        again.textContent = result.fresh > 0 && !result.stopped ? T.reload_new : T.reload;
         statusLine.appendChild(document.createTextNode(" "));
         statusLine.appendChild(again);
       }
@@ -234,7 +251,41 @@
     });
   }
 
+  // A clean run ends with a reload; the count of that run is kept for the new page, which
+  // shows it as the done line (the grid lists the newest photos first).
+  var KEY = "mf-upload-done";
+
+  function remember(result) {
+    try {
+      window.sessionStorage.setItem(KEY, JSON.stringify(
+        {folder: folder, done: result.done, dup: result.dup, total: result.total}));
+    } catch (err) {
+      // storage refused: the page reloads without the line
+    }
+  }
+
+  function restore() {
+    var saved = null;
+    try {
+      saved = JSON.parse(window.sessionStorage.getItem(KEY));
+      window.sessionStorage.removeItem(KEY);
+    } catch (err) {
+      return null;
+    }
+    if (!saved || saved.folder !== folder || !(saved.done > 0) || !(saved.total >= saved.done)) {
+      return null;
+    }
+    var state = {done: saved.done, dup: saved.dup > 0 ? saved.dup : 0, total: saved.total,
+                 skipped: [], finished: true};
+    show(state);
+    return state;
+  }
+
+  window.MFAuthor.reload = function () { window.location.reload(); };
+  window.MFAuthor.restore = restore;
   window.MFAuthor.upload = upload;
+
+  restore();
 
   buttons.forEach(function (button) {
     var input = section.querySelector('[data-input="' + button.getAttribute("data-pick") + '"]');

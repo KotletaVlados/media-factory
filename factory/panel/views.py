@@ -521,9 +521,10 @@ PHOTO_PAGE = 60
 
 def _photos_section(ctx: Ctx, name: str, photos: list) -> str:
     """"Фото · N" above the package list of a photo-lane folder (authoring.md §6.1, §6.7):
-    two upload buttons for author.js, a status line, and a grid of thumbs, 60 per step
-    ("показать ещё" links to the next step and works without JS)."""
+    two upload buttons for author.js, a status line, and a grid of thumbs, newest first, 60
+    per step ("показать ещё" links to the next step and works without JS)."""
     snap = ctx.snap
+    photos = photos[::-1]   # newest upload first: a fresh upload is on the first screen
     total = len(photos)
     try:
         limit = int(ctx.q("photos") or PHOTO_PAGE)

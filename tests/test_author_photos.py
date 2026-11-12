@@ -20,6 +20,7 @@ from unittest import mock
 
 from factory.authoring import photos
 from factory.panel import server
+from factory.panel import strings as S
 from tests import panel_fixture as pf
 from tests.base import CANARIES, REPO_ROOT
 
@@ -502,13 +503,48 @@ class FilesTabTest(PhotoCase):
         rows = photos.read_index(os.path.join(fx.paths.stock, "city", "photos"))
         tiles = re.findall(r'<li class="ptile" id="photo-(\d+)" data-id="(p-[0-9a-f]{16})">(.*?)</li>',
                            body)
-        self.assertEqual([t[1] for t in tiles], [r["id"] for r in rows])
+        # newest upload first
+        self.assertEqual([t[1] for t in tiles], [r["id"] for r in reversed(rows)])
+        self.assertEqual([t[0] for t in tiles], ["1", "2", "3", "4"])
         chips = {t[1]: re.sub(r"<[^>]+>", "", t[2]) for t in tiles}
         self.assertEqual(chips[rows[0]["id"]], "")
         self.assertEqual(chips[rows[1]["id"]], "опубликовано")
         self.assertEqual(chips[rows[2]["id"]], "в очереди")
         self.assertIn('alt="walk-0001-portrait.jpg" title="walk-0001-portrait.jpg"', body)
         self.assertIn('<h2 id="photos-h">Фото · <span class="mono">4</span></h2>', body)
+
+    def test_a_new_upload_is_the_first_tile_even_in_a_big_folder(self):
+        os.makedirs(os.path.join(self.photos_dir(), "thumb"), 0o700)
+        os.makedirs(os.path.join(self.photos_dir(), "view"), 0o700)
+        rows = [{"id": f"p-{k:016x}", "name": f"{k}.jpg", "ext": "jpg", "bytes": 10, "w": 4,
+                 "h": 3, "ts": "2026-11-11T00:00:00Z"} for k in range(70)]
+        pf.poster_state.append_jsonl(os.path.join(self.photos_dir(), "index.jsonl"), rows)
+        before = self.get("/files?folder=city")[2]
+        self.assertEqual(re.findall(r'id="photo-1" data-id="(p-[0-9a-f]{16})"', before),
+                         [rows[-1]["id"]])
+        self.full_upload("city", pf.make_photo(16, 16, 77), "image/jpeg", "fresh.jpg")
+        after = self.get("/files?folder=city")[2]
+        first = re.search(r'id="photo-1" data-id="(p-[0-9a-f]{16})".*?alt="([^"]*)"', after, re.S)
+        self.assertEqual(first.group(2), "fresh.jpg")
+        self.assertNotIn(first.group(1), [r["id"] for r in rows])
+        self.assertEqual(after.count('class="ptile"'), 60)   # the 61st step is still behind more
+        self.assertIn("60 из 71", after)
+        self.assertIn(rows[0]["id"], self.get("/files?folder=city&photos=71")[2])   # oldest last
+
+    def test_busy_buttons_look_disabled_and_the_run_has_distinct_button_words(self):
+        with open(os.path.join(REPO_ROOT, "factory", "panel", "static", "panel.css"),
+                  encoding="utf-8") as fh:
+            css = fh.read()
+        rule = re.search(r"\.btn:disabled\s*\{([^}]*)\}", css)
+        self.assertIsNotNone(rule)
+        self.assertRegex(rule.group(1), r"opacity:\s*\.\d+")
+        self.assertIn("cursor: default", rule.group(1))
+        words = S.UPLOAD_JS
+        self.assertNotEqual(words["reload"], words["reload_new"])
+        # the status line counts; no reason text is a part of its strings
+        for key in ("progress", "dup", "skipped", "done", "running"):
+            for reason in (words["heic"], words["type"], words["decode"], S.UP_BAD_TYPE):
+                self.assertNotIn(reason, words[key])
 
     def test_sixty_per_step_with_show_more(self):
         os.makedirs(os.path.join(self.photos_dir(), "thumb"), 0o700)
