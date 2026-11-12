@@ -126,6 +126,51 @@ PKG_PUBLISHED = "опубликован · {date}"
 PKG_PLANNED = "запланирован · {date}"
 NO_IMAGE = "без картинки"
 
+# ---------------------------------------------------------------- photos (authoring.md §6)
+PHOTO_WORD = "фото"                     # indeclinable: "1 фото", "120 фото"
+PHOTOS_H = "Фото"
+UPLOAD_DIR = "Загрузить папку"
+UPLOAD_FILES = "Добавить фото"
+PHOTOS_EMPTY = "Фото пока нет: загрузите папку или отдельные снимки (JPEG, PNG, WebP)."
+PHOTOS_NEED_JS = "Загрузка фото работает только с включённым JavaScript."
+PHOTOS_MORE = "показать ещё"
+PHOTOS_SHOWN = "{shown} из {total}"
+PHOTO_USE = {"draft": "черновик", "queued": "в очереди", "published": "опубликовано"}
+# upload refusals (JSON replies of POST /files/photos)
+UP_BAD_KIND = "kind: orig, thumb или view"
+UP_NO_FOLDER = "такой папки нет"
+UP_NOT_PHOTO_LANE = "папка «{name}» не из полосы фото-постов"
+UP_PHOTOS_NOT_DIR = "photos в этой папке — не каталог (ссылка или файл)"
+UP_NO_PHOTO = "фото не найдено: сначала загружается оригинал"
+UP_THUMB_FIRST = "сначала загружается миниатюра"
+UP_TOO_MANY = "в папке уже {n} фото — создайте новую папку"
+UP_NO_SPACE = "на диске меньше 1 ГБ свободного места"
+UP_CUT = "загрузка оборвалась — повторите"
+UP_NOT_IMAGE = "не JPEG, PNG или WebP (HEIC: экспортируйте JPEG)"
+UP_NOT_JPEG = "копия должна быть JPEG"
+UP_NO_SIZE = "размер картинки не читается"
+UP_TOO_LARGE = "файл больше {mb} МБ"
+UP_BAD_TYPE = "этот тип файла не принимается: JPEG, PNG или WebP"
+UP_FORBIDDEN = "запрос отклонён: обновите страницу панели"
+UP_LENGTH = "нет или неверный Content-Length"
+UP_FAILED = "ошибка панели при загрузке"
+# the upload loop in author.js (passed as data-strings; {n}, {done}, {total} are filled there)
+UPLOAD_JS = {
+    "running": "Загрузка…",
+    "done": "Готово:",
+    "progress": "загружено {done} из {total}",
+    "dup": "уже были: {n}",
+    "skipped": "пропущено {n}",
+    "too_many": "Выбрано {n} {files} — выберите не больше 300 за раз.",
+    "files": ["файл", "файла", "файлов"],
+    "stopped": "Загрузка остановлена: {reason}",
+    "heic": "формат HEIC не открывается — экспортируйте JPEG",
+    "type": "не JPEG, PNG или WebP",
+    "decode": "браузер не открыл файл",
+    "network": "нет связи с панелью",
+    "reload": "обновить",
+}
+
 # ---------------------------------------------------------------- rules
 COL_START = "Пуск"
 COL_ACCOUNT = "Аккаунт"

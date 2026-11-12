@@ -23,6 +23,7 @@ from poster import config, linkedin, state as poster_state
 from poster.redact import Redactor
 from factory import (attention, checks, cli as fcli, inputs as finputs, journal as fjournal,
                      planner, ruleset as fruleset, stock as fstock)
+from factory.authoring import photos as fphotos
 from factory.panel import strings as S
 
 DAY = _dt.timedelta(days=1)
@@ -84,8 +85,16 @@ def state_files(paths) -> list:
 
 
 def state_key(paths, now: _dt.datetime) -> tuple:
+    """One stat walk: the state files, the stock at depth 1, the one-off packages, and the
+    photo index of each stock folder that has `photos/` (one extra stat per such folder: an
+    index append does not change the folder's mtime)."""
     files = tuple(_stat(p) for p in state_files(paths))
-    return (files, tuple(_walk(paths.stock, 1)), tuple(_walk(paths.packages, 0)),
+    stock = tuple(_walk(paths.stock, 1))
+    indexes = tuple(
+        _stat(os.path.join(paths.stock, item[0], fphotos.PHOTOS, fphotos.INDEX))
+        for item in stock
+        if len(item) == 2 and any(sub[0] == fphotos.PHOTOS for sub in item[1]))
+    return (files, stock, indexes, tuple(_walk(paths.packages, 0)),
             now.replace(second=0, microsecond=0))
 
 
@@ -112,6 +121,7 @@ class Snapshot:
     latest: dict | None = None
     collect: dict | None = None
     stats_error: str | None = None
+    photos: dict = field(default_factory=dict)          # photo-lane folder -> index rows
     _more: dict = field(default_factory=dict)
     _lock: threading.Lock = field(default_factory=threading.Lock)
 
@@ -193,6 +203,9 @@ def build(paths, now: _dt.datetime, machine_tz: str) -> Snapshot:
         snap.rules_error = [snap.red(p) for p in exc.problems]
         inputs = _inputs_without_rules(paths, clock, snap.redactor)
     snap.inputs = inputs
+    for name, folder in inputs.stock.folders.items():
+        if folder.lane == "photo":
+            snap.photos[name] = fphotos.list_photos(folder.path)
     zone = snap.zone
     today = snap.today
     start = _month_start(today, -1, zone)
@@ -445,6 +458,7 @@ class FolderCard:
     good: bool
     targets: list
     problems: list
+    photos: list = field(default_factory=list)   # index rows (authoring.md §6.7)
 
 
 def runway_text(summary) -> tuple:
@@ -482,7 +496,28 @@ def folder_cards(snap: Snapshot) -> list:
             counts.get("ready", 0) + counts.get("used", 0), counts.get("invalid", 0),
             counts.get("not-approved", 0), list(summary.readers if summary else []),
             label, fill, good, sorted(targets, key=target_order),
-            [snap.red(p) for p in folder.problems]))
+            [snap.red(p) for p in folder.problems], snap.photos.get(name, [])))
+    return out
+
+
+def photo_uses(snap: Snapshot, name: str) -> dict:
+    """photo id -> "published" or "queued" for the stock packages of one folder whose
+    `meta.photo` names it (authoring.md §6.7; drafts join in lane B). Published means a
+    published record row for the package."""
+    folder = snap.inputs.stock.folders.get(name)
+    if folder is None:
+        return {}
+    published = record_index(snap.inputs.records)
+    done = {pid for pid, _ in published}
+    out: dict = {}
+    for e in folder.entries:
+        pid = e.package.meta.get("photo") if e.package else None
+        if not isinstance(pid, str) or not fphotos.ID_RE.match(pid):
+            continue
+        if e.id in done:
+            out[pid] = "published"
+        else:
+            out.setdefault(pid, "queued")
     return out
 
 

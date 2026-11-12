@@ -16,6 +16,11 @@ state at each width:
   line are below the first screen after a ring-node link, and an expander whose form top lands
   outside the viewport when it opens with its summary 40 px above the bottom edge).
 
+The photo states (authoring.md §15.1) run on a fourth fixture with 70 uploaded photos: the
+probe feeds the stored EXIF-6 original, fetched from /photo, to author.js's `makeCopies` and
+reports the copy sizes, which must be portrait; `files-photos-upload` also runs the real
+upload loop (a duplicate, a HEIC file and a text file) and checks its status line.
+
 It also computes the WCAG contrast of every text colour pair from panel.css. It prints the
 snapshot build time (`snapshot_ms`, budget 1000 ms) and exits 1 on any finding.
 
@@ -29,6 +34,7 @@ is about 107 characters).
 from __future__ import annotations
 
 import argparse
+import base64
 import concurrent.futures
 import glob
 import html
@@ -137,12 +143,132 @@ class Chrome:
         if not os.path.exists(out):
             raise RuntimeError(f"screenshot failed for {url}: {r.stderr.decode()[-400:]}")
 
+    def live(self, url: str, w: int, h: int, png: str, full_png: str | None) -> dict:
+        """Real time over the DevTools pipe, for pages whose probe waits on the browser's own
+        async image work (createImageBitmap, toBlob), which does not run on virtual time:
+        load `url` (with probe=1), wait for the probe's JSON, then wait for the images on
+        screen and save the viewport PNG, and the whole-page PNG when the page is taller."""
+        with Live(self, url, w, h) as page:
+            raw = page.wait_value("(function () { var p = document.getElementById('probe');"
+                                  " return p ? p.textContent : null; })()", 60)
+            result = json.loads(raw)
+            page.screenshot(png)
+            full_h = min(max(h, int(result.get("height", h))), FULL_MAX)
+            if full_png and full_h > h:
+                page.send("Emulation.setDeviceMetricsOverride", {
+                    "width": w, "height": full_h, "deviceScaleFactor": 1, "mobile": False})
+                page.screenshot(full_png)
+        return result
+
     def probe(self, url: str, w: int, h: int) -> dict:
         r = self.run([f"--window-size={w},{h}", "--virtual-time-budget=2000", "--dump-dom", url])
         m = re.search(r'<pre id="probe">(.*?)</pre>', r.stdout.decode("utf-8", "replace"), re.S)
         if not m:
             raise RuntimeError(f"no probe output for {url}: {r.stderr.decode()[-400:]}")
         return json.loads(html.unescape(m.group(1)))
+
+
+# the browser reads DevTools commands on fd 3 and writes replies on fd 4
+DUP_EXEC = ("import os, sys; os.dup2(int(os.environ['MF_CDP_IN']), 3); "
+            "os.dup2(int(os.environ['MF_CDP_OUT']), 4); os.execv(sys.argv[1], sys.argv[1:])")
+
+
+class Live:
+    """A minimal DevTools-protocol client over --remote-debugging-pipe (fd 3 in, fd 4 out,
+    NUL-terminated JSON), standard library only."""
+
+    def __init__(self, chrome: Chrome, url: str, w: int, h: int):
+        self.chrome, self.url, self.w, self.h = chrome, url, w, h
+        self.n = 0
+        self.buf = b""
+
+    def __enter__(self):
+        self.profile = self.chrome._profile()
+        cmd_r, self.cmd_w = os.pipe()
+        self.out_r, out_w = os.pipe()
+        env = dict(self.chrome.env, MF_CDP_IN=str(cmd_r), MF_CDP_OUT=str(out_w))
+        self.proc = subprocess.Popen(
+            [sys.executable, "-I", "-c", DUP_EXEC, self.chrome.binary, "--no-sandbox",
+             "--disable-gpu", "--hide-scrollbars",
+             "--force-device-scale-factor=1", "--no-first-run", "--mute-audio",
+             "--disable-extensions", f"--user-data-dir={self.profile}",
+             "--remote-debugging-pipe", f"--window-size={self.w},{self.h}", "about:blank"],
+            env=env, pass_fds=(cmd_r, out_w), stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL)
+        os.close(cmd_r)
+        os.close(out_w)
+        target = next(t for t in self.send("Target.getTargets")["targetInfos"]
+                      if t["type"] == "page")
+        self.session = self.send("Target.attachToTarget", {"targetId": target["targetId"],
+                                                           "flatten": True})["sessionId"]
+        self.send("Emulation.setDeviceMetricsOverride", {
+            "width": self.w, "height": self.h, "deviceScaleFactor": 1, "mobile": False})
+        self.send("Page.navigate", {"url": self.url})
+        return self
+
+    def __exit__(self, *exc):
+        try:
+            self.send("Browser.close", session=False, timeout=10)
+        except (RuntimeError, OSError):
+            pass
+        try:
+            self.proc.wait(15)
+        except subprocess.TimeoutExpired:
+            self.proc.kill()      # the browser this object started, by its own handle
+            self.proc.wait(10)
+        os.close(self.cmd_w)
+        os.close(self.out_r)
+        shutil.rmtree(self.profile, ignore_errors=True)
+
+    def send(self, method: str, params: dict | None = None, session=True, timeout: float = 30):
+        import select
+        self.n += 1
+        msg = {"id": self.n, "method": method, "params": params or {}}
+        if session and getattr(self, "session", None):
+            msg["sessionId"] = self.session
+        os.write(self.cmd_w, json.dumps(msg).encode() + b"\0")
+        deadline = time.monotonic() + timeout
+        while True:
+            while b"\0" not in self.buf:
+                left = deadline - time.monotonic()
+                if left <= 0 or not select.select([self.out_r], [], [], left)[0]:
+                    raise RuntimeError(f"no DevTools answer to {method} within {timeout} s")
+                chunk = os.read(self.out_r, 1 << 16)
+                if not chunk:
+                    raise RuntimeError(f"browser closed the DevTools pipe during {method}")
+                self.buf += chunk
+            raw, self.buf = self.buf.split(b"\0", 1)
+            reply = json.loads(raw)
+            if reply.get("id") == self.n:
+                if "error" in reply:
+                    raise RuntimeError(f"{method}: {reply['error']}")
+                return reply.get("result", {})
+
+    def evaluate(self, expression: str, await_promise: bool = False):
+        r = self.send("Runtime.evaluate", {"expression": expression, "returnByValue": True,
+                                           "awaitPromise": await_promise}, timeout=60)
+        return r.get("result", {}).get("value")
+
+    def wait_value(self, expression: str, timeout: float):
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            value = self.evaluate(expression)
+            if value is not None:
+                return value
+            time.sleep(0.2)
+        raise RuntimeError(f"no probe output for {self.url} within {timeout} s")
+
+    def screenshot(self, out: str) -> None:
+        # every image inside the viewport has loaded (lazy tiles included) before the capture
+        self.evaluate("Promise.all(Array.prototype.filter.call(document.images, function (i) {"
+                      " var r = i.getBoundingClientRect();"
+                      " return !i.complete && r.bottom > 0 && r.top < innerHeight; })"
+                      ".map(function (i) { return new Promise(function (ok) {"
+                      " i.addEventListener('load', ok); i.addEventListener('error', ok); }); }))"
+                      ".then(function () { return true; })", await_promise=True)
+        data = self.send("Page.captureScreenshot", {"format": "png"}, timeout=60)["data"]
+        with open(out, "wb") as fh:
+            fh.write(base64.b64decode(data))
 
 
 # ---------------------------------------------------------------- states
@@ -176,6 +302,31 @@ def post_page(srv, path: str, fields: dict, out_file: str) -> str:
     return resp.status
 
 
+UPLOAD_STATUS = ("Готово: загружено 1 из 3 · уже были: 1 · пропущено 2 "
+                 "(HEIC, не JPEG, PNG или WebP)")
+
+
+def photo_problems(state: str, photos) -> list:
+    """The EXIF-6 original (stored landscape) must come out of author.js as portrait copies:
+    thumb 360 x 480 and view 1200 x 1600, both JPEG; the upload state ends with its status."""
+    if not photos:
+        return ["no photo probe result"]
+    if photos.get("error"):
+        return [f"probe error: {photos['error']}"]
+    out = []
+    if photos.get("decoded") != [1440, 1920]:
+        out.append(f"decoded {photos.get('decoded')}, expected [1440, 1920] (EXIF 6 applied)")
+    for name, size in (("thumb", [360, 480]), ("view", [1200, 1600])):
+        got = photos.get(name) or []
+        if got[:2] != size or got[2:3] != ["image/jpeg"]:
+            out.append(f"{name} {got}, expected portrait {size} JPEG")
+    if state == "files-photos-upload":
+        status = (photos.get("upload") or {}).get("status", "")
+        if not status.startswith(UPLOAD_STATUS):
+            out.append(f"upload status «{status}», expected «{UPLOAD_STATUS} обновить»")
+    return out
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--out", required=True)
@@ -199,9 +350,11 @@ def main(argv=None) -> int:
         fh.write('{"schema": 1, "rules": [{"id": "Bad Id", "folder": "city"}]}\n')
     no_env = panel_fixture.build_empty(os.path.join(fixtures_root, "no-env"))
     os.remove(no_env.paths.env_file)
+    with_photos = panel_fixture.build_photos(os.path.join(fixtures_root, "photos"))
 
     servers = {name: start(fx) for name, fx in
-               (("data", data), ("empty", empty), ("bad-rules", bad_rules), ("no-env", no_env))}
+               (("data", data), ("empty", empty), ("bad-rules", bad_rules), ("no-env", no_env),
+                ("photos", with_photos))}
     t0 = time.perf_counter()
     snap = servers["data"].panel.holder.get()
     snapshot_ms = snap.build_ms
@@ -234,6 +387,11 @@ def main(argv=None) -> int:
         ("error-rules", url("bad-rules", "/rules")),
         ("error-rules-connection", url("bad-rules", "/connection")),
         ("error-env", url("no-env", "/files")),
+        ("files-photos", url("photos", "/files")),
+        ("files-photos-folder", url("photos", "/files?folder=city")),
+        ("files-photos-more", url("photos", "/files?folder=city&photos=70#photo-61")),
+        # the upload loop's end state (photo states run in real time, see Chrome.live)
+        ("files-photos-upload", url("photos", "/files?folder=city&probe=1&probe_upload=1")),
     ]
     # the 409 refusal: starting the draft with validation problems
     pages = os.path.join(scratch, "pages")
@@ -265,7 +423,13 @@ def main(argv=None) -> int:
 
     def one(state, address, w):
         h = WIDTHS.get(w, 900)
-        result = chrome.probe(probe_urls.get(state, with_probe(address)), w, h)
+        if state.startswith("files-photos"):
+            result = chrome.live(address if "probe=1" in address else with_probe(address), w, h,
+                                 os.path.join(out, f"{state}-{w}.png"),
+                                 os.path.join(out, f"{state}-{w}-full.png"))
+            return state, w, result, min(max(h, int(result.get("height", h))), FULL_MAX)
+        probe_url = probe_urls.get(state, address if "probe=1" in address else with_probe(address))
+        result = chrome.probe(probe_url, w, h)
         chrome.screenshot(address, os.path.join(out, f"{state}-{w}.png"), w, h)
         full_h = min(max(h, int(result.get("height", h))), FULL_MAX)
         if full_h > h:
@@ -278,6 +442,12 @@ def main(argv=None) -> int:
             heights[(state, w)] = full_h
             if result["findings"]:
                 findings[f"{state}-{w}"] = result["findings"]
+            if state.startswith("files-photos-") and state != "files-photos-more":
+                for problem in photo_problems(state, result.get("photos")):
+                    findings.setdefault(f"{state}-{w}", []).append(
+                        {"kind": "photo-copies", "el": "", "text": "", "detail": problem})
+                if w == widths[0]:
+                    print(f"photos: {state}: {json.dumps(result.get('photos'), ensure_ascii=False)}")
             # the long fixture title is either whole or cut with a rendered "…", never cut bare
             if state in ELLIPSIS_STATES:
                 if LONG_TITLE in result.get("ellipsis", []):

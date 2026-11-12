@@ -429,6 +429,96 @@ DOMAIN = {"facebook": "fb", "instagram": "ig", "x": "x", "linkedin": "li"}
 
 # ---------------------------------------------------------------- test base
 
+
+# ---------------------------------------------------------------- photos (authoring.md §15.1)
+
+EXIF6 = (b"Exif\x00\x00MM\x00\x2a\x00\x00\x00\x08\x00\x01"
+         b"\x01\x12\x00\x03\x00\x00\x00\x01\x00\x06\x00\x00\x00\x00\x00\x00")
+# a 1 x 1 lossless WebP (VP8L); a trailing private chunk makes each copy's bytes distinct
+WEBP_VP8L = bytes.fromhex("5650384c0d0000002f0000001007101111888 8fe070000".replace(" ", ""))
+HEIC_HEAD = b"\x00\x00\x00\x18ftypheic\x00\x00\x00\x00mif1heic" + bytes(64)
+
+
+def make_exif6(w: int, h: int, seed: int) -> bytes:
+    """A baseline JPEG stored w x h (landscape when w > h) whose EXIF orientation 6 tells a
+    viewer to rotate it 90 degrees clockwise: shown h x w (portrait)."""
+    data = make_photo(w, h, seed)
+    app1 = struct.pack(">BBH", 0xFF, 0xE1, len(EXIF6) + 2) + EXIF6
+    return data[:2] + app1 + data[2:]
+
+
+def make_png(w: int, h: int, seed: int) -> bytes:
+    """A real RGB PNG (zlib, stdlib only): a diagonal gradient whose colours depend on seed."""
+    import zlib
+    rnd = random.Random(seed)
+    base = [rnd.randint(0, 255) for _ in range(3)]
+    rows = bytearray()
+    for y in range(h):
+        rows.append(0)
+        for x in range(w):
+            t = (x + y) * 255 // max(1, w + h - 2)
+            rows.extend(((base[0] + t) % 256, (base[1] + t // 2) % 256, (base[2] + 255 - t) % 256))
+
+    def chunk(kind, payload):
+        crc = zlib.crc32(kind + payload) & 0xFFFFFFFF
+        return struct.pack(">I", len(payload)) + kind + payload + struct.pack(">I", crc)
+    ihdr = struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0)
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", ihdr) + chunk(b"IDAT", zlib.compress(bytes(rows)))
+            + chunk(b"IEND", b""))
+
+
+def make_webp(seed: int) -> bytes:
+    """The 1 x 1 VP8L template plus a private 4-byte chunk carrying `seed`."""
+    extra = b"MFIX" + struct.pack("<I", 4) + struct.pack("<I", seed)
+    body = b"WEBP" + WEBP_VP8L + extra
+    return b"RIFF" + struct.pack("<I", len(body)) + body
+
+
+def store_photo(fx: Fixture, folder: str, orig: bytes, thumb: bytes, view: bytes,
+                name: str) -> str:
+    """Store one photo through the panel's own writer (the three bodies of an upload)."""
+    from factory.authoring import photos
+    stock = fx.paths.stock
+    pid = photos.store(stock, folder, "orig", "", "", io.BytesIO(orig), len(orig), fx.now)["id"]
+    photos.store(stock, folder, "thumb", pid, "", io.BytesIO(thumb), len(thumb), fx.now)
+    photos.store(stock, folder, "view", pid, name, io.BytesIO(view), len(view), fx.now)
+    return pid
+
+
+PHOTO_NAMES = ("набережная", "двор", "мост", "крыши", "рынок", "площадь", "парк", "вокзал")
+
+
+def build_photos(root: str, n: int = 70) -> Fixture:
+    """`build_data` plus uploaded photos: `n` in the city folder (the first an EXIF-6
+    original stored 1920 x 1440, shown portrait) and 2 in the nature folder. One city package
+    names photo 2 and has a published row (chip "опубликовано"), another names photo 3 and
+    has none (chip "в очереди")."""
+    fx = build_data(root)
+    ids = [store_photo(fx, "city", make_exif6(1920, 1440, 500), make_photo(360, 480, 500),
+                       make_photo(1200, 1600, 500), "walk-0001-portrait.jpg")]
+    for k in range(1, n):
+        w, h = (640, 480) if k % 3 else (480, 640)
+        orig = make_photo(w, h, 500 + k)
+        small = make_photo(w * 3 // 4, h * 3 // 4, 500 + k)
+        ids.append(store_photo(fx, "city", orig, small, orig,
+                               f"walk-{k + 1:04d}-{PHOTO_NAMES[k % len(PHOTO_NAMES)]}.jpg"))
+    for k in range(2):
+        orig = make_photo(480, 640, 900 + k)
+        store_photo(fx, "nature", orig, make_photo(360, 480, 900 + k), orig, f"forest-{k + 1}.jpg")
+    records = poster_state.read_jsonl(os.path.join(fx.paths.poster_state, poster_state.RECORD_FILE))
+    published = {r["package"] for r in records if r.get("status") == "published"}
+    city = os.path.join(fx.paths.stock, "city")
+    files = sorted(f for f in os.listdir(city) if f.endswith(".json") and f != fstock.FOLDER_FILE)
+    done = next(f for f in files if f[4:-5] in published)
+    waiting = next(f for f in reversed(files) if f[4:-5] not in published)
+    for file, pid in ((done, ids[1]), (waiting, ids[2])):
+        with open(os.path.join(city, file), encoding="utf-8") as fh:
+            data = json.load(fh)
+        data["meta"]["photo"] = pid
+        _write_json(os.path.join(city, file), data)
+    return fx
+
+
 import hashlib  # noqa: E402
 import http.client  # noqa: E402
 import io  # noqa: E402

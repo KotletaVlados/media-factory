@@ -223,14 +223,55 @@
     }
     measureLayout(add, W, modal);
     expanders(add, startY, function () {
-      var pre = document.createElement("pre");
-      pre.id = "probe";
-      pre.textContent = JSON.stringify({width: W, height: document.documentElement.scrollHeight,
-                                        controls: controls.length, findings: findings, scrollY: window.scrollY,
-                                        hash: location.hash, expanders: measured,
-                                        ellipsis: ellipsized.map(clampText),
-                                        whole: whole.map(clampText)});
-      document.body.appendChild(pre);
+      photoChecks(function (photos) {
+        var pre = document.createElement("pre");
+        pre.id = "probe";
+        pre.textContent = JSON.stringify({width: W, height: document.documentElement.scrollHeight,
+                                          controls: controls.length, findings: findings, scrollY: window.scrollY,
+                                          hash: location.hash, expanders: measured,
+                                          ellipsis: ellipsized.map(clampText),
+                                          whole: whole.map(clampText), photos: photos});
+        document.body.appendChild(pre);
+      });
+    });
+  }
+
+  // Photo folder view (authoring.md §15.1 acceptance 2): the first listed original, fetched
+  // from /photo, goes through the same author.js function the upload loop uses; the probe
+  // reports the decoded size and the thumb and view copy sizes. With probe_upload=1 it also
+  // runs the real upload loop on that original (already stored: a duplicate), a HEIC file and
+  // a text file, and reports the status line.
+  function photoChecks(done) {
+    var tile = document.querySelector(".pgrid .ptile");
+    var section = document.querySelector("section[data-photos]");
+    if (!tile || !section || !window.MFAuthor) {
+      done(null);
+      return;
+    }
+    var url = "/photo?folder=" + encodeURIComponent(section.getAttribute("data-photos")) +
+      "&id=" + encodeURIComponent(tile.getAttribute("data-id")) + "&v=orig";
+    var out = {id: tile.getAttribute("data-id")};
+    fetch(url).then(function (r) { return r.blob(); }).then(function (blob) {
+      out.origBytes = blob.size;
+      return window.MFAuthor.makeCopies(blob).then(function (c) {
+        out.decoded = [c.width, c.height];
+        out.thumb = [c.thumb.width, c.thumb.height, c.thumb.blob.type, c.thumb.blob.size];
+        out.view = [c.view.width, c.view.height, c.view.blob.type, c.view.blob.size];
+        if (location.search.indexOf("probe_upload=1") < 0) {
+          return null;
+        }
+        var files = [new File([blob], "IMG_0001.jpg", {type: "image/jpeg"}),
+                     new File([new Uint8Array(32)], "IMG_0002.HEIC", {type: ""}),
+                     new File(["notes"], "notes.txt", {type: "text/plain"})];
+        return window.MFAuthor.upload(files).then(function (state) {
+          out.upload = {done: state.done, dup: state.dup, skipped: state.skipped.length,
+                        status: document.querySelector(".upload-status").textContent};
+        });
+      });
+    }).catch(function (err) {
+      out.error = String(err);
+    }).then(function () {
+      done(out);
     });
   }
 

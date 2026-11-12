@@ -232,7 +232,8 @@ label.check input { min-height: 0; width: 16px; height: 16px; }
              hyphens: auto; }
 .tile-more { display: flex; align-items: center; justify-content: center; color: var(--muted);
              font-size: 12px; }
-.fcount { display: flex; align-items: baseline; gap: 6px; }
+.fcount { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 6px; }
+.fcount .pair { display: inline-flex; align-items: baseline; gap: 6px; white-space: nowrap; }
 .fcount .num { font-size: 22px; font-weight: 600; }
 .runway { font: 11px var(--mono); color: var(--muted); }
 .ftargets { display: flex; gap: 4px; margin-top: auto; min-height: 22px; }
@@ -250,6 +251,24 @@ label.check input { min-height: 0; width: 16px; height: 16px; }
 .fview-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin-bottom: 16px; }
 .fview-head h2 { font-size: 16px; }
 .pkgs > .muted { margin-bottom: 12px; }
+/* photos of a photo-lane folder (authoring.md §6.1, §6.7) */
+.photos { margin-bottom: 24px; }
+.photos-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px;
+               margin-bottom: 12px; }
+.photos-head h2 { font-size: 14px; margin-right: auto; white-space: nowrap; }
+.upload-status:empty, .upload-skipped:empty, #probe { display: none; }
+.photos-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.upload-status { margin-bottom: 8px; overflow-wrap: anywhere; }
+.upload-status .nw { white-space: nowrap; }
+.upload-status .btn { margin-left: 4px; }
+.upload-skipped { margin-bottom: 12px; overflow-wrap: anywhere; }
+.upload-skipped li { margin: 2px 0; }
+.pgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 8px; }
+.ptile { display: flex; flex-direction: column; gap: 4px; min-width: 0; scroll-margin-top: 120px; }
+.ptile img { display: block; width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 4px;
+             background: var(--surface-2); }
+.ptile .st { white-space: nowrap; }
+.pmore { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 12px; }
 .pkg { display: grid; grid-template-columns: 48px minmax(0, 1fr) minmax(0, 1.4fr) minmax(0, 1.2fr);
        gap: 12px; padding: 12px; background: var(--surface); border-radius: 8px; margin-bottom: 8px; }
 .pkg h3 { font-size: 13px; }
