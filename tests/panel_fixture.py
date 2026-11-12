@@ -435,7 +435,8 @@ DOMAIN = {"facebook": "fb", "instagram": "ig", "x": "x", "linkedin": "li"}
 EXIF6 = (b"Exif\x00\x00MM\x00\x2a\x00\x00\x00\x08\x00\x01"
          b"\x01\x12\x00\x03\x00\x00\x00\x01\x00\x06\x00\x00\x00\x00\x00\x00")
 # a 1 x 1 lossless WebP (VP8L); a trailing private chunk makes each copy's bytes distinct
-WEBP_VP8L = bytes.fromhex("5650384c0d0000002f0000001007101111888 8fe070000".replace(" ", ""))
+# chunk: "VP8L", size 13, 13 data bytes, one pad byte (RIFF chunks are word-aligned)
+WEBP_VP8L = bytes.fromhex("5650384c0d0000002f00000010071011118888fe0700")
 HEIC_HEAD = b"\x00\x00\x00\x18ftypheic\x00\x00\x00\x00mif1heic" + bytes(64)
 
 

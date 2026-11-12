@@ -18,8 +18,13 @@ state at each width:
 
 The photo states (authoring.md §15.1) run on a fourth fixture with 70 uploaded photos: the
 probe feeds the stored EXIF-6 original, fetched from /photo, to author.js's `makeCopies` and
-reports the copy sizes, which must be portrait; `files-photos-upload` also runs the real
-upload loop (a duplicate, a HEIC file and a text file) and checks its status line.
+reports the copy sizes, which must be portrait. `files-photos-upload` runs on a fifth, small
+fixture that the upload loop may change: it decodes a stored 1 x 1 WebP, then runs the real
+loop three times. Run 1 sends a duplicate, a HEIC file, a text file, an undecodable .jpg, a
+file the server refuses and one new decodable file; the check compares the counts, every
+skip reason and the status line, and afterwards the fixture's index, thumb and view files
+(one new row per width, named after the file). Runs 2 and 3 stub fetch (no connection, then
+a stale-token 403) and must stop after one request.
 
 It also computes the WCAG contrast of every text colour pair from panel.css. It prints the
 snapshot build time (`snapshot_ms`, budget 1000 ms) and exits 1 on any finding.
@@ -53,7 +58,9 @@ import urllib.parse
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO)
 
+from factory.authoring import photos as fphotos  # noqa: E402
 from factory.panel import server  # noqa: E402
+from factory.panel import strings as S  # noqa: E402
 from tests import panel_fixture  # noqa: E402
 
 WIDTHS = {390: 844, 900: 900, 1000: 700, 1280: 800, 1440: 900, 1600: 900, 1920: 1080}
@@ -302,13 +309,21 @@ def post_page(srv, path: str, fields: dict, out_file: str) -> str:
     return resp.status
 
 
-UPLOAD_STATUS = ("Готово: загружено 1 из 3 · уже были: 1 · пропущено 2 "
-                 "(HEIC, не JPEG, PNG или WebP)")
+UPLOAD_RUN1 = (f"Готово: загружено 2 из 6 · уже были: 1 · пропущено 4 (HEIC, "
+               f"{S.UPLOAD_JS['type']}, {S.UPLOAD_JS['decode']}, {S.UP_BAD_TYPE})")
+UPLOAD_SKIPS = sorted([
+    ["IMG_0002.HEIC", S.UPLOAD_JS["heic"]],
+    ["notes.txt", S.UPLOAD_JS["type"]],
+    ["broken.jpg", S.UPLOAD_JS["decode"]],
+    ["refused.jpg", S.UP_BAD_TYPE]])
+UPLOAD_STOPS = (("offline", S.UPLOAD_JS["network"], "a.jpg", 1),
+                ("forbidden", "stale", "b.jpg", 1))   # "stale": the stub's own error text
 
 
-def photo_problems(state: str, photos) -> list:
+def photo_problems(state: str, photos, w: int = 0) -> list:
     """The EXIF-6 original (stored landscape) must come out of author.js as portrait copies:
-    thumb 360 x 480 and view 1200 x 1600, both JPEG; the upload state ends with its status."""
+    thumb 360 x 480 and view 1200 x 1600, both JPEG. The upload state also decodes the
+    stored WebP and checks the three loop runs (counts, reasons, status lines, requests)."""
     if not photos:
         return ["no photo probe result"]
     if photos.get("error"):
@@ -321,9 +336,58 @@ def photo_problems(state: str, photos) -> list:
         if got[:2] != size or got[2:3] != ["image/jpeg"]:
             out.append(f"{name} {got}, expected portrait {size} JPEG")
     if state == "files-photos-upload":
-        status = (photos.get("upload") or {}).get("status", "")
-        if not status.startswith(UPLOAD_STATUS):
-            out.append(f"upload status «{status}», expected «{UPLOAD_STATUS} обновить»")
+        if photos.get("webp") != [1, 1]:
+            out.append(f"stored WebP decoded as {photos.get('webp')}, expected [1, 1]")
+        run = photos.get("upload") or {}
+        if (run.get("done"), run.get("dup"), run.get("stopped")) != (2, 1, False):
+            out.append(f"run 1 done/dup/stopped {run.get('done')}/{run.get('dup')}/"
+                       f"{run.get('stopped')}, expected 2/1/False")
+        if sorted(run.get("skipped") or []) != UPLOAD_SKIPS:
+            out.append(f"run 1 skipped {run.get('skipped')}, expected {UPLOAD_SKIPS}")
+        if not run.get("status", "").startswith(UPLOAD_RUN1) or \
+                not run.get("status", "").endswith(S.UPLOAD_JS["reload"]):
+            out.append(f"run 1 status «{run.get('status')}», expected «{UPLOAD_RUN1} "
+                       f"{S.UPLOAD_JS['reload']}»")
+        if photos.get("newName") != f"new-{w}.jpg":
+            out.append(f"new file named {photos.get('newName')}, expected new-{w}.jpg")
+        for key, reason, name, calls in UPLOAD_STOPS:
+            stop = photos.get(key) or {}
+            want = f"{S.UPLOAD_JS['stopped'].format(reason=reason)} {S.UPLOAD_JS['reload']}"
+            if stop.get("status") != want:
+                out.append(f"{key} status «{stop.get('status')}», expected «{want}»")
+            if (stop.get("done"), stop.get("stopped"), stop.get("calls")) != (0, True, calls):
+                out.append(f"{key} done/stopped/requests {stop.get('done')}/"
+                           f"{stop.get('stopped')}/{stop.get('calls')}, expected 0/True/{calls}")
+    return out
+
+
+def upload_index_problems(fx, widths) -> list:
+    """After the upload runs: the fixture's city folder lists the 5 stored photos and one new
+    row per width, named after its file with the size of the browser's copy, with its thumb
+    and view files; the refused, undecodable and stubbed files left nothing."""
+    folder = os.path.join(fx.paths.stock, "city", fphotos.PHOTOS)
+    rows = fphotos.read_index(folder)
+    names = [r["name"] for r in rows]
+    out = []
+    for w in widths:
+        want = f"new-{w}.jpg"
+        got = [r for r in rows if r["name"] == want]
+        if len(got) != 1:
+            out.append(f"index lists {len(got)} rows named {want}, expected 1")
+            continue
+        row = got[0]
+        if [row["w"], row["h"]] != [40 + (w % 97), 30 + (w % 53)]:
+            out.append(f"{want}: row size {row['w']} x {row['h']}, expected the copy's size")
+        for kind in ("thumb", "view"):
+            if not os.path.isfile(os.path.join(folder, kind, row["id"] + ".jpg")):
+                out.append(f"{want}: no {kind} file")
+        if not os.path.isfile(os.path.join(folder, f"{row['id']}.jpg")):
+            out.append(f"{want}: no original")
+    if len(rows) != 5 + len(widths):
+        out.append(f"index lists {len(rows)} photos {names}, expected {5 + len(widths)}")
+    stray = [n for n in names if n in ("broken.jpg", "refused.jpg", "a.jpg", "b.jpg", "c.jpg")]
+    if stray:
+        out.append(f"index lists files that must not load: {stray}")
     return out
 
 
@@ -351,10 +415,15 @@ def main(argv=None) -> int:
     no_env = panel_fixture.build_empty(os.path.join(fixtures_root, "no-env"))
     os.remove(no_env.paths.env_file)
     with_photos = panel_fixture.build_photos(os.path.join(fixtures_root, "photos"))
+    # the upload state changes its folder, so it has its own fixture, with one stored WebP
+    uploading = panel_fixture.build_photos(os.path.join(fixtures_root, "upload"), n=4)
+    webp_id = panel_fixture.store_photo(
+        uploading, "city", panel_fixture.make_webp(1), panel_fixture.make_photo(360, 480, 1),
+        panel_fixture.make_photo(1200, 1600, 1), "tiny.webp")
 
     servers = {name: start(fx) for name, fx in
                (("data", data), ("empty", empty), ("bad-rules", bad_rules), ("no-env", no_env),
-                ("photos", with_photos))}
+                ("photos", with_photos), ("upload", uploading))}
     t0 = time.perf_counter()
     snap = servers["data"].panel.holder.get()
     snapshot_ms = snap.build_ms
@@ -391,7 +460,7 @@ def main(argv=None) -> int:
         ("files-photos-folder", url("photos", "/files?folder=city")),
         ("files-photos-more", url("photos", "/files?folder=city&photos=70#photo-61")),
         # the upload loop's end state (photo states run in real time, see Chrome.live)
-        ("files-photos-upload", url("photos", "/files?folder=city&probe=1&probe_upload=1")),
+        ("files-photos-upload", url("upload", f"/files?folder=city&probe=1&probe_upload=1&probe_webp={webp_id}")),
     ]
     # the 409 refusal: starting the draft with validation problems
     pages = os.path.join(scratch, "pages")
@@ -443,7 +512,7 @@ def main(argv=None) -> int:
             if result["findings"]:
                 findings[f"{state}-{w}"] = result["findings"]
             if state.startswith("files-photos-") and state != "files-photos-more":
-                for problem in photo_problems(state, result.get("photos")):
+                for problem in photo_problems(state, result.get("photos"), w):
                     findings.setdefault(f"{state}-{w}", []).append(
                         {"kind": "photo-copies", "el": "", "text": "", "detail": problem})
                 if w == widths[0]:
@@ -488,6 +557,10 @@ def main(argv=None) -> int:
         failed = True
         print(f"snapshot_ms {snapshot_ms:.0f} over the {BUDGET_MS} ms budget")
     print(f"{len(jobs)} state x width pages probed, {len(findings)} with findings; PNGs in {out}")
+    if any(s[0] == "files-photos-upload" for s in states):
+        for problem in upload_index_problems(uploading, widths):
+            failed = True
+            print(f"UPLOAD INDEX: {problem}")
     for srv in servers.values():
         srv.shutdown()
         srv.server_close()

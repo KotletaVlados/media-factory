@@ -236,11 +236,86 @@
     });
   }
 
+  function canvasJpeg(w, h, shade) {
+    var canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    var g = canvas.getContext("2d");
+    g.fillStyle = "rgb(" + shade + ", 90, " + (255 - shade) + ")";
+    g.fillRect(0, 0, w, h);
+    g.fillStyle = "#ffffff";
+    g.fillRect(w >> 2, h >> 2, w >> 1, h >> 1);
+    return new Promise(function (resolve) { canvas.toBlob(resolve, "image/jpeg", 0.9); });
+  }
+
+  function runInfo(state, calls) {
+    return {done: state.done, dup: state.dup, stopped: state.stopped, calls: calls,
+            skipped: state.skipped.map(function (s) { return [s.name, s.reason]; }),
+            status: document.querySelector(".upload-status").textContent};
+  }
+
+  // The real upload loop, three runs on one page (probe_upload=1). Run 1: the first listed
+  // original (already stored: a duplicate), a HEIC file, a text file, an undecodable .jpg,
+  // a decodable file sent as image/gif (the server refuses it) and one new decodable file
+  // whose size and colour depend on the window width, so parallel widths never collide as
+  // duplicates; it goes through the orig, thumb and view posts for real. Runs 2 and 3 stub
+  // fetch (a refused request, then a stale-token 403): the loop must stop after one request.
+  function uploadRuns(origBlob, out) {
+    var W = window.innerWidth;
+    var realFetch = window.fetch;
+    var calls = 0;
+    function stub(make) {
+      window.fetch = function () {
+        calls += 1;
+        return make();
+      };
+    }
+    function run(files) {
+      calls = 0;
+      return window.MFAuthor.upload(files);
+    }
+    var tiny;
+    return canvasJpeg(20, 20, 7).then(function (blob) {
+      tiny = blob;
+      return canvasJpeg(40 + (W % 97), 30 + (W % 53), W % 200);
+    }).then(function (fresh) {
+      out.newName = "new-" + W + ".jpg";
+      out.newSize = [40 + (W % 97), 30 + (W % 53)];
+      var gif = new File([fresh], "refused.jpg", {type: "image/gif"});
+      return run([new File([origBlob], "IMG_0001.jpg", {type: "image/jpeg"}),
+                  new File([new Uint8Array(32)], "IMG_0002.HEIC", {type: ""}),
+                  new File(["notes"], "notes.txt", {type: "text/plain"}),
+                  new File(["not an image"], "broken.jpg", {type: "image/jpeg"}),
+                  gif,
+                  new File([fresh], out.newName, {type: "image/jpeg"})]);
+    }).then(function (state) {
+      out.upload = runInfo(state, null);
+      stub(function () { return Promise.reject(new TypeError("offline")); });
+      return run([new File([tiny], "a.jpg", {type: "image/jpeg"})]).then(function (s2) {
+        out.offline = runInfo(s2, calls);
+      });
+    }).then(function () {
+      stub(function () {
+        return Promise.resolve(new Response(JSON.stringify({error: "stale"}), {
+          status: 403, headers: {"Content-Type": "application/json"}}));
+      });
+      return run([new File([tiny], "b.jpg", {type: "image/jpeg"}),
+                  new File([tiny], "c.jpg", {type: "image/jpeg"})]).then(function (s3) {
+        out.forbidden = runInfo(s3, calls);
+      });
+    }).then(function () {
+      window.fetch = realFetch;
+    }, function (err) {
+      window.fetch = realFetch;
+      throw err;
+    });
+  }
+
   // Photo folder view (authoring.md §15.1 acceptance 2): the first listed original, fetched
   // from /photo, goes through the same author.js function the upload loop uses; the probe
   // reports the decoded size and the thumb and view copy sizes. With probe_upload=1 it also
-  // runs the real upload loop on that original (already stored: a duplicate), a HEIC file and
-  // a text file, and reports the status line.
+  // runs the real upload loop (uploadRuns) and reports each run's counts and status line.
+  // With probe_webp=<id> it also decodes that stored WebP original (the fixture's 1 x 1 image).
   function photoChecks(done) {
     var tile = document.querySelector(".pgrid .ptile");
     var section = document.querySelector("section[data-photos]");
@@ -257,15 +332,17 @@
         out.decoded = [c.width, c.height];
         out.thumb = [c.thumb.width, c.thumb.height, c.thumb.blob.type, c.thumb.blob.size];
         out.view = [c.view.width, c.view.height, c.view.blob.type, c.view.blob.size];
-        if (location.search.indexOf("probe_upload=1") < 0) {
-          return null;
-        }
-        var files = [new File([blob], "IMG_0001.jpg", {type: "image/jpeg"}),
-                     new File([new Uint8Array(32)], "IMG_0002.HEIC", {type: ""}),
-                     new File(["notes"], "notes.txt", {type: "text/plain"})];
-        return window.MFAuthor.upload(files).then(function (state) {
-          out.upload = {done: state.done, dup: state.dup, skipped: state.skipped.length,
-                        status: document.querySelector(".upload-status").textContent};
+        var webp = /[?&]probe_webp=([\w-]+)/.exec(location.search);
+        var seen = webp ? fetch("/photo?folder=" + encodeURIComponent(
+          section.getAttribute("data-photos")) + "&id=" + webp[1] + "&v=orig")
+          .then(function (r) { return r.blob(); })
+          .then(function (b) { return createImageBitmap(b); })
+          .then(function (bmp) { out.webp = [bmp.width, bmp.height]; }) : Promise.resolve();
+        return seen.then(function () {
+          if (location.search.indexOf("probe_upload=1") < 0) {
+            return null;
+          }
+          return uploadRuns(blob, out);
         });
       });
     }).catch(function (err) {
