@@ -595,5 +595,30 @@ class ProcessTokenTest(PhotoCase):
         self.assertEqual(proc2.wait(20), 0)
 
 
+class FixtureImageTest(unittest.TestCase):
+    """The generated WebP originals are well-formed RIFF files, not only RIFF/WEBP magic."""
+
+    @staticmethod
+    def walk(data: bytes) -> list:
+        """(fourcc, size) of each chunk after the 12-byte RIFF header; fails on a chunk that
+        runs past the file or is not word-aligned padded."""
+        out, pos = [], 12
+        while pos < len(data):
+            kind, size = data[pos:pos + 4], int.from_bytes(data[pos + 4:pos + 8], "little")
+            out.append((kind, size))
+            pos += 8 + size + (size & 1)
+        return out, pos
+
+    def test_webp_fixture_chunks_end_exactly_at_the_file(self):
+        for seed in (0, 3, 99):
+            data = pf.make_webp(seed)
+            chunks, end = self.walk(data)
+            self.assertEqual(end, len(data), seed)
+            self.assertEqual(chunks, [(b"VP8L", 13), (b"MFIX", 4)], seed)
+            self.assertEqual(int.from_bytes(data[4:8], "little"), len(data) - 8)
+            self.assertEqual(data[:4] + data[8:12], b"RIFFWEBP")
+            self.assertEqual(data[20], 0x2F)   # the VP8L signature byte
+
+
 if __name__ == "__main__":
     unittest.main()
