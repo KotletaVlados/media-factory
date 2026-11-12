@@ -522,6 +522,7 @@
     var state = new URLSearchParams(location.search).get("probe_create");
     if (!state) { return; }
     var root = document.querySelector("[data-create]");
+    var anchored = ["create-texts", "create-over-limit"];
     var out = {state: state, problems: [], busy: [], defining: []};
     window.MFProbeAuthor = out;
     async function until(predicate, label, timeout) {
@@ -556,14 +557,12 @@
     try {
       if (state === "create-topics-loading") {
         await until(function () { return document.querySelector(".ai-status").textContent.indexOf("Gemini") >= 0; }, "topics loading");
-        scroll(".create-topic");
         see(".ai-status", "Gemini подбирает темы…");
         see('[data-op="topics"]', "Ещё темы · до $0.02");
         looks('[data-op="topics"], [data-op="expand"]');
       } else if (state === "create-expand-loading") {
         document.querySelector('[data-op="expand"]').click();
         await until(function () { return root.getAttribute("aria-busy") === "true"; }, "expand loading");
-        scroll(".create-topic");
         see(".ai-status", "Gemini пишет тексты…");
         see('[data-op="expand"]', "Развернуть · до $0.05");
         looks('[data-op="topics"], [data-op="expand"]');
@@ -580,7 +579,6 @@
         };
         document.querySelector('[data-op="voice"]').click();
         await until(function () { return document.querySelector('[data-op="voice"]').textContent.indexOf("0:01") >= 0; }, "voice timer");
-        scroll(".create-actions");
         see('[data-op="voice"]', "Стоп · 0:01"); see(".voice-status", "0:01");
         window.MFProbeVoiceFinish = async function () {
           window.MFCreate.stopVoice();
@@ -590,6 +588,142 @@
           source.stop(); await audioContext.close(); window.fetch = realFetch;
           return {calls: voiceCalls, energy: energy, transcript: document.querySelector("#topic").value};
         };
+      } else if (state === "create-behaviour") {
+        // Browser behaviour of acceptance items 6, 7 and 9, driven in the page: every Gemini reply
+        // comes from FakeGemini; the clock is faked only where the check says so.
+        var Cb = JSON.parse(root.dataset.create), Tb = Cb.strings;
+        var B = out.behaviour = {}, posts = [], realFetch2 = window.fetch;
+        window.fetch = function (url, options) {
+          posts.push({url: String(url), body: options && options.body, type: options && options.headers && options.headers["Content-Type"]});
+          return realFetch2(url, options);
+        };
+        var topicBox = document.querySelector("#topic"), expandBtn = document.querySelector('[data-op="expand"]');
+        var voiceBtn = document.querySelector('[data-op="voice"]'), voiceLine = document.querySelector(".voice-status");
+        var sleep = function (ms) { return new Promise(function (ok) { setTimeout(ok, ms); }); };
+        function expect(ok, message) { if (!ok) { out.problems.push(message); } }
+        async function serverPage() {
+          return new DOMParser().parseFromString(await (await realFetch2(location.pathname)).text(), "text/html");
+        }
+        // typing arms exactly one 800 ms timer; the autosave runs when that timer fires, not before
+        async function typeAndSave(el, value, statusEl) {
+          var realSet = window.setTimeout, armed = [];
+          statusEl.textContent = "";
+          window.setTimeout = function (fn, delay) { armed.push({fn: fn, delay: delay}); return 9000000 + armed.length; };
+          try { el.value = value; el.dispatchEvent(new Event("input", {bubbles: true})); }
+          finally { window.setTimeout = realSet; }
+          var delays = armed.map(function (a) { return a.delay; }).join(",");
+          expect(delays === "800", "autosave timer delays " + delays + ", expected 800");
+          expect(statusEl.textContent !== Tb.saved, "saved shown before the timer fired");
+          var before = posts.length;
+          armed.forEach(function (a) { a.fn(); });
+          await until(function () { return statusEl.textContent === Tb.saved; }, "saved status");
+          expect(posts.length === before + 1, "autosave sent " + (posts.length - before) + " requests");
+        }
+        // 1. tapping a card saves "<title> — <angle>"
+        var cards = Array.from(document.querySelectorAll(".topic-card"));
+        var tapped = cards[0], tappedText = tapped.dataset.topic;
+        expect(cards.length === 5 && cards[1].getAttribute("aria-pressed") === "true", "start state: card 2 chosen");
+        document.querySelector(".topic-save").textContent = "";
+        tapped.click();
+        expect(tapped.getAttribute("aria-pressed") === "true" && tapped.querySelector(".chosen").textContent === Tb.chosen &&
+               cards[1].getAttribute("aria-pressed") === "false" && cards[1].querySelector(".chosen").textContent === "",
+               "tapped card is not the only chosen one");
+        expect(topicBox.value === tappedText && /^.+ — .+$/.test(tappedText), "tapped card did not fill the topic box");
+        see('.topic-card[aria-pressed="true"] .chosen', "выбрано");
+        // the tap saves by itself: no input event, no flush from here
+        await until(function () { return document.querySelector(".topic-save").textContent === Tb.saved; }, "tapped topic saved");
+        var page = await serverPage();
+        expect(page.querySelector("#topic").value === tappedText, "draft.json lacks the tapped topic");
+        expect(page.querySelector('.topic-card[aria-pressed="true"]') && page.querySelector('.topic-card[aria-pressed="true"]').dataset.topic === tappedText,
+               "reloaded page does not mark the tapped card");
+        // 2. typing into the topic box autosaves after 800 ms and unmarks the cards
+        await typeAndSave(topicBox, "Своя тема про утро", document.querySelector(".topic-save"));
+        expect(!document.querySelector('.topic-card[aria-pressed="true"]'), "typed topic left a card chosen");
+        page = await serverPage();
+        expect(page.querySelector("#topic").value === "Своя тема про утро", "typed topic not in draft.json");
+        // 3. an edited text card autosaves after 800 ms and switches the button to "Развернуть заново"
+        var card = document.querySelector('.create-text[data-network="linkedin"]'), editor = card.querySelector("textarea");
+        await typeAndSave(editor, "Edited by hand. One line.", card.querySelector(".save-status"));
+        page = await serverPage();
+        expect(page.querySelector('.create-text[data-network="linkedin"] textarea').value === "Edited by hand. One line.", "edited text not in draft.json");
+        expect(expandBtn.textContent.indexOf(Tb.expand_again) === 0, "expand button lacks the redo label after an edit");
+        // 4. an empty box disables «Развернуть» and shows the hint; typing enables it again
+        var hint = document.querySelector(".topic-hint");
+        topicBox.value = ""; topicBox.dispatchEvent(new Event("input", {bubbles: true}));
+        expect(expandBtn.disabled && !hint.hidden && hint.textContent === Tb.empty_topic, "empty box: expand enabled or hint hidden");
+        see(".topic-hint", "выберите тему или впишите свою");
+        topicBox.value = "Тема для голоса"; topicBox.dispatchEvent(new Event("input", {bubbles: true}));
+        expect(!expandBtn.disabled && hint.hidden, "typed box: expand disabled or hint shown");
+        await window.MFCreate.flush();
+        // 5. microphone refusals each give their own reason, send nothing and leave the button usable
+        async function refuses(label, expected, setup, undo) {
+          voiceLine.textContent = ""; var before = posts.length;
+          setup();
+          try {
+            voiceBtn.click();
+            await until(function () { return voiceLine.textContent !== "" && root.getAttribute("aria-busy") === "false"; }, label);
+          } finally { undo(); }
+          expect(voiceLine.textContent === expected, label + ": " + voiceLine.textContent);
+          expect(posts.length === before && !voiceBtn.disabled && voiceBtn.getAttribute("aria-pressed") === "false", label + ": sent a request or left the button stuck");
+          return voiceLine.textContent;
+        }
+        var denyWith = function (name) {
+          return function () { navigator.mediaDevices.getUserMedia = async function () { throw new DOMException("stub", name); }; };
+        };
+        var undoMedia = function () { delete navigator.mediaDevices.getUserMedia; };
+        var reasons = [
+          await refuses("NotAllowedError", Tb.voice_denied, denyWith("NotAllowedError"), undoMedia),
+          await refuses("NotFoundError", Tb.voice_missing, denyWith("NotFoundError"), undoMedia),
+          await refuses("no mediaDevices", Tb.voice_context, function () {
+            Object.defineProperty(navigator, "mediaDevices", {value: undefined, configurable: true});
+          }, function () { delete navigator.mediaDevices; }),
+          await refuses("unsupported type", Tb.voice_unsupported, function () {
+            window.MFRealTypeSupported = MediaRecorder.isTypeSupported;
+            MediaRecorder.isTypeSupported = function () { return false; };
+          }, function () { MediaRecorder.isTypeSupported = window.MFRealTypeSupported; })
+        ];
+        await refuses("other error", Tb.voice_unsupported, denyWith("NotReadableError"), undoMedia);
+        expect(new Set(reasons).size === 4 && /запрещ/.test(reasons[0]) && /не найден/.test(reasons[1]) &&
+               /localhost/.test(reasons[2]) && /не записывает/.test(reasons[3]), "microphone reasons are not four distinct texts: " + reasons.join(" | "));
+        B.reasons = reasons;
+        // 6. a recording stops by itself at 2:00 (fake clock), the first transcription answers 503,
+        //    and «Повторить расшифровку» sends the same bytes
+        var ac = new AudioContext(), osc = ac.createOscillator();
+        osc.frequency.value = 250;
+        var sink = ac.createMediaStreamDestination(); osc.connect(sink); osc.start(); await ac.resume();
+        navigator.mediaDevices.getUserMedia = async function () { return sink.stream; };
+        var heard = [], watcher = new MutationObserver(function () { heard.push(voiceLine.textContent); });
+        watcher.observe(voiceLine, {childList: true, characterData: true, subtree: true});
+        var realNow = Date.now.bind(Date), voiceCalls2 = function () { return posts.filter(function (x) { return x.url.endsWith("/voice"); }); };
+        var t0 = realNow();
+        voiceBtn.click();
+        await until(function () { return voiceBtn.textContent.indexOf("0:01") >= 0; }, "recording running");
+        // the fake clock reads t0 + the chosen elapsed time and runs on from there
+        function clockAt(ms) { var set = realNow(); Date.now = function () { return t0 + ms + (realNow() - set); }; }
+        clockAt(119000);
+        await until(function () { return voiceBtn.textContent.indexOf("1:59") >= 0; }, "fake 1:59");
+        await sleep(500);
+        expect(voiceBtn.getAttribute("aria-pressed") === "true" && voiceCalls2().length === 0, "recording stopped before 2:00");
+        clockAt(120100);
+        await until(function () { return heard.indexOf("2:00") >= 0; }, "fake 2:00");
+        Date.now = realNow;
+        await until(function () { return voiceLine.querySelector("button"); }, "retry button after 503");
+        var again = voiceLine.querySelector("button");
+        expect(again.textContent === Tb.voice_retry && voiceCalls2().length === 1 && voiceBtn.getAttribute("aria-pressed") === "false",
+               "auto-stop at 2:00 did not send exactly one recording");
+        expect(/503/.test(document.querySelector(".create-error").textContent) && !document.querySelector(".create-error").hidden, "503 not shown");
+        see(".voice-status button", "Повторить расшифровку");
+        again.click();
+        await until(function () { return voiceCalls2().length === 2; }, "retry sent");
+        await until(function () { return root.getAttribute("aria-busy") === "false" && topicBox.value.indexOf("Утренняя пробежка у моря") >= 0; }, "retried transcript");
+        var sent = voiceCalls2();
+        var bytes = await Promise.all(sent.map(function (x) { return x.body.arrayBuffer(); }));
+        expect(sent[0].body.size > 0 && bytes[0].byteLength === bytes[1].byteLength &&
+               new Uint8Array(bytes[0]).every(function (b, i) { return b === new Uint8Array(bytes[1])[i]; }) &&
+               sent[0].type === sent[1].type, "retry sent other bytes than the first recording");
+        expect(voiceLine.textContent === Tb.saved && document.querySelector(".create-error").hidden, "retry left an error or no saved mark");
+        B.voiceBytes = bytes[0].byteLength;
+        watcher.disconnect(); osc.stop(); await ac.close(); window.fetch = realFetch2;
       } else if (state === "create-drop") {
         var calls = [], actualFetch = window.fetch, navigation;
         window.fetch = function (url, options) { calls.push(String(url)); return actualFetch(url, options); };
@@ -609,12 +743,11 @@
         var response = await actualFetch("/create/new", {method: "POST", headers: {"Content-Type": "application/json", "X-CSRF-Token": C.csrf + "mutated"}, body: "{}"});
         out.hostile = {status: response.status}; window.fetch = actualFetch;
       } else if (state === "create-topics") {
-        scroll(".create-topic");
         document.querySelectorAll(".topic-card").forEach(function (el, i) { see("strong", null, el); });
         see('.topic-card[aria-pressed="true"] .chosen', "выбрано");
         see('[data-op="expand"]', "Развернуть · до $0.05");
       } else if (state === "create-own-topic") {
-        scroll(".create-topic"); see("#topic", "Прогулянка і робочі звички");
+        see("#topic", "Прогулянка і робочі звички");
         see('[data-op="topics"]', "Предложить темы · до $0.02");
         see('[data-op="expand"]', "Развернуть · до $0.05");
         if (document.querySelector('[data-op="expand"]').disabled) { out.problems.push("own topic expand disabled"); }
@@ -627,6 +760,16 @@
           if (el.scrollHeight > el.clientHeight + 2) { out.problems.push("text editor clips " + card.dataset.network); }
         });
         scroll("#texts");
+        // the sub row (draft header and the month figure the expand reply just updated) must
+        // be fully visible or fully under the sticky bar, never cut by its bottom edge
+        document.querySelectorAll(".sub-left, .sub-right").forEach(function (el) {
+          var range = document.createRange(); range.selectNodeContents(el);
+          var r = range.getBoundingClientRect(), bar = stickyBottom();
+          out.defining.push({selector: ".sub " + el.className, text: el.textContent, top: Math.round(r.top), bottom: Math.round(r.bottom)});
+          if (r.top < bar - 1 && r.bottom > bar + 1) {
+            out.problems.push("sub row cut by the sticky bar: " + el.className + " " + Math.round(r.top) + ".." + Math.round(r.bottom) + " bar " + bar);
+          }
+        });
       } else if (state === "create-empty" || state === "create-start" || state === "create-nokey-start") {
         see(".create-drop strong", "Бросьте фото сюда"); see(".create-drop .btn", "Выбрать фото");
         if (state === "create-empty") { see(".profile-line", "Профиль автора не заполнен"); see("#ai-month", "ИИ · ноябрь $0.00 из $10.00"); }
@@ -660,6 +803,10 @@
       } else if (state === "files-mine") {
         see("#photos-h", "Фото · 12");
         if (!document.querySelector(".pgrid").textContent.includes("черновик")) { out.problems.push("missing draft chip"); }
+      }
+      // §16.2: states that are not anchor states are judged on the first screen, unscrolled
+      if (anchored.indexOf(state) < 0 && scrollY !== 0) {
+        out.problems.push("first screen measured after a scroll: scrollY " + Math.round(scrollY));
       }
     } catch (err) { out.problems.push(err.message); }
   }

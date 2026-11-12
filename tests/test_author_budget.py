@@ -1,11 +1,48 @@
 """Reserve/settle, restart, month and concurrent cap accounting, without a transport."""
 import datetime as dt
+import json
+import os
+import subprocess
+import sys
 import threading
 from decimal import Decimal as D
 
 from factory.authoring import budget, prices, prompts, profile
 from factory.authoring.common import Refusal
 from tests.base import PosterTestCase
+
+
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+# One panel process. Its read-and-sum step is slowed after it has read the ledger, so that
+# without the cross-process file lock both processes would read 0 and both would append.
+RESERVER = """
+import datetime as dt, os, sys, time
+from decimal import Decimal as D
+sys.path.insert(0, sys.argv[1])
+from factory.authoring import budget
+from factory.authoring.common import Refusal
+state_dir, ready, go = sys.argv[2:5]
+now = dt.datetime(2026, 11, 12, 12, 0, tzinfo=dt.timezone.utc)
+ledger = budget.Ledger(state_dir, lambda: now)
+read_ledger = ledger._sum
+def slow_sum():
+    total = read_ledger()
+    time.sleep(0.4)
+    return total
+ledger._sum = slow_sum
+open(ready, "w").close()
+deadline = time.time() + 20
+while not os.path.exists(go):
+    if time.time() > deadline:
+        sys.exit(3)
+    time.sleep(0.001)
+try:
+    ledger.reserve("expand", D(".06"), D(".10"), "draft")
+    print("ok")
+except Refusal:
+    print("refused")
+"""
 
 
 class BudgetTest(PosterTestCase):
@@ -47,6 +84,34 @@ class BudgetTest(PosterTestCase):
         for thread in threads: thread.start()
         for thread in threads: thread.join(5)
         self.assertEqual(sorted(outcomes), ["ok", "refused"])
+        self.assertEqual(self.ledger.month_total(), D(".06"))
+
+    def test_two_processes_sharing_the_state_folder_cannot_both_reserve(self):
+        """A second panel on another port, or a restart overlapping a running panel, shares only
+        the state folder: the file lock must hold across processes, not just threads."""
+        os.makedirs(self.state_dir, exist_ok=True)
+        go = os.path.join(self.state_dir, "go")
+        ready = [os.path.join(self.state_dir, f"ready-{n}") for n in (1, 2)]
+        procs = [subprocess.Popen([sys.executable, "-I", "-B", "-c", RESERVER, REPO, self.state_dir, r, go],
+                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True) for r in ready]
+        try:
+            deadline = 20
+            while deadline > 0 and not all(os.path.exists(r) for r in ready):
+                self.assertTrue(all(p.poll() is None for p in procs), "a reserving process died early")
+                threading.Event().wait(0.01)
+                deadline -= 0.01
+            open(go, "w").close()     # both processes leave the barrier together
+            results = [p.communicate(timeout=30) for p in procs]
+        finally:
+            for p in procs:
+                if p.poll() is None:
+                    p.kill()
+                    p.communicate()
+        self.assertEqual([p.returncode for p in procs], [0, 0], results)
+        self.assertEqual(sorted(out.strip() for out, _ in results), ["ok", "refused"], results)
+        with open(self.ledger.path, encoding="utf-8") as fh:
+            rows = [json.loads(line) for line in fh if line.strip()]
+        self.assertEqual([r["status"] for r in rows], ["reserved"])
         self.assertEqual(self.ledger.month_total(), D(".06"))
 
     def test_bad_caps_refuse_and_valid_caps_are_finite(self):

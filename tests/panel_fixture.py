@@ -664,6 +664,7 @@ class FakeGemini:
         self.entered = threading.Event()
         self.hold = set()
         self.fail = set()
+        self.fail_voice_once = set()   # drafts whose next voice call answers 503, then recovers
 
     def send(self, req):
         from tests.base import resp
@@ -677,6 +678,9 @@ class FakeGemini:
             return resp(503, {"error": {"message": "temporarily unavailable"}})
         body = json.loads(req.body)
         schema = body.get("response_format", {}).get("schema", {}).get("properties", {})
+        if did in self.fail_voice_once and not schema:
+            self.fail_voice_once.discard(did)
+            return resp(503, {"error": {"message": "temporarily unavailable"}})
         if "topics" in schema:
             return gemini_reply({"topics": TOPICS})
         if "x" in schema:
@@ -702,7 +706,7 @@ def build_create(root: str, key=True, ledger_usd=None, live_widths=()) -> Fixtur
     profile.save(fx.paths.content, AUTHOR_PROFILE, fx.now)
     store = drafts.Store(fx.paths.content, fx.clock, fx.machine_tz)
     fx.create_ids = {}
-    states = [f"{state}-{w}" for w in live_widths for state in ("topics-loading", "expand-loading", "voice")] if live_widths else ["topics", "own-topic", "texts", "over-limit", "error"]
+    states = [f"{state}-{w}" for w in live_widths for state in ("topics-loading", "expand-loading", "voice", "behaviour")] if live_widths else ["topics", "own-topic", "texts", "over-limit", "error"]
     for i, name in enumerate(states):
         with mock.patch("factory.authoring.drafts.secrets.token_hex", return_value=f"{i + 1:04x}"):
             d = store.create(fx.paths.stock, "my-photos", ids[i % len(ids)], key)
@@ -710,7 +714,7 @@ def build_create(root: str, key=True, ledger_usd=None, live_widths=()) -> Fixtur
             d["topics_auto"] = "pending" if name.startswith("topics-loading") else "done" if key else "manual"
             d["topics"] = [] if name.startswith(("own-topic", "voice")) else TOPICS
             d["topic"] = "Прогулянка і робочі звички" if not d["topics"] else TOPICS[1]["title"] + " — " + TOPICS[1]["angle"]
-            if name in ("texts", "over-limit"):
+            if name in ("texts", "over-limit") or name.startswith("behaviour"):
                 d["variants"] = {n: {"text": t, "lang": drafts.LANGS[n], "source": "gemini"} for n, t in TEXTS.items()}
                 if name == "over-limit":
                     d["variants"]["x"]["text"] = "x" * 312
