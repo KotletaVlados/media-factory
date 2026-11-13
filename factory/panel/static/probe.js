@@ -824,6 +824,14 @@
           card.scrollIntoView(); see("h3", null, card); see(".text-check", null, card);
           var el = card.querySelector("textarea");
           if (el.scrollHeight > el.clientHeight + 2) { out.problems.push("text editor clips " + card.dataset.network); }
+          // the whole «пожелание…» hint fits its field: measured with the field's own font, since a
+          // placeholder is cut mid-word without an ellipsis
+          var wish = card.querySelector(".wish"), wishStyle = getComputedStyle(wish), wishCanvas = document.createElement("canvas").getContext("2d");
+          wishCanvas.font = wishStyle.font;
+          var need = wishCanvas.measureText(wish.placeholder).width;
+          var room = wish.clientWidth - parseFloat(wishStyle.paddingLeft) - parseFloat(wishStyle.paddingRight);
+          out.defining.push({selector: ".wish placeholder " + card.dataset.network, text: wish.placeholder, need: Math.round(need), room: Math.round(room)});
+          if (need > room) { out.problems.push("the hint «" + wish.placeholder + "» is cut in the " + card.dataset.network + " field: needs " + Math.round(need) + " px, has " + Math.round(room)); }
         });
         scroll("#texts");
         // the sub row (draft header and the month figure the expand reply just updated) must

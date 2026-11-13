@@ -545,9 +545,12 @@ dialog.day::backdrop { background: rgb(0 0 0 / .7); }
   .create-texts { grid-area: texts; scroll-margin-top: 200px; }   /* already on the first screen: no scroll */
   .topic-cards { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
 }
-/* 1000-1279: an even split, so two columns of cards fit and «Развернуть» stays on a 700 px screen */
+/* 1000-1279: an even split, so two columns of cards fit and «Развернуть» stays on a 700 px screen;
+   the narrower «Тексты» column puts the wish field on its own row above «Перегенерировать», as on a phone,
+   so its whole hint stays readable */
 @media (min-width: 1000px) and (max-width: 1279px) {
   .create-columns { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .regenerate-row input { flex-basis: 100%; }
 }
 .profile-fields { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px 16px; align-items: start; }
 @media (min-width: 600px) { .profile-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
