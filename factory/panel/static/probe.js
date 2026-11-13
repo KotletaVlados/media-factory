@@ -1268,6 +1268,40 @@
           Math.abs(a.height - 160) > 1 || Math.abs(b.height - 160) > 1) {
         out.problems.push("the photo tiles are not two equal 160 px boxes side by side: " + JSON.stringify(out.tiles));
       }
+      // every button under a tile: one text line, the same 28 px height
+      Array.prototype.forEach.call(document.querySelectorAll(".photo-under .btn"), function (btn) {
+        var range = document.createRange();
+        range.selectNodeContents(btn);
+        var lines = {};
+        Array.prototype.forEach.call(range.getClientRects(), function (r) { lines[Math.round(r.top)] = 1; });
+        var h = Math.round(btn.getBoundingClientRect().height);
+        if (Object.keys(lines).length > 1 || h !== 28) {
+          out.problems.push("button under a tile «" + words(btn) + "» has " + Object.keys(lines).length +
+                            " line(s) and is " + h + " px high, expected 1 and 28");
+        }
+      });
+      cardControlsAlign();
+    }
+    function cardControlsAlign() {   // the pairs and the text below them start at one height on every card
+      var tops = {};
+      Array.prototype.forEach.call(document.querySelectorAll(".look"), function (look) {
+        var base = look.getBoundingClientRect().top;
+        var card = look.closest(".send-card");
+        var text = card && card.querySelector(".send-text");
+        var seen = {};
+        Array.prototype.forEach.call(look.querySelectorAll("select[data-k]"), function (sel) {
+          var r = sel.getBoundingClientRect();
+          seen[sel.getAttribute("data-k")] = Math.round(r.top - base);
+          if (r.right > innerWidth + 1 || sel.scrollWidth > sel.clientWidth + 1) { out.problems.push("card select cut or off screen"); }
+        });
+        if (text) { seen.text = Math.round(text.getBoundingClientRect().top - card.getBoundingClientRect().top); }
+        Object.keys(seen).forEach(function (k) { (tops[k] = tops[k] || []).push(seen[k]); });
+      });
+      Object.keys(tops).forEach(function (k) {
+        if (tops[k].some(function (v) { return Math.abs(v - tops[k][0]) > 1; })) {
+          out.problems.push("card controls «" + k + "» start at different heights across the cards: " + tops[k].join("/"));
+        }
+      });
     }
     function underTile(label) {   // the «основа» / «Взять за основу» row under the tile named `label`
       var tile = Array.prototype.find.call(document.querySelectorAll(".photo-tile"), function (t) {
@@ -1363,7 +1397,7 @@
       tiles();
     } else if (sendState === "review-styles") {
       await images();
-      ["Оригинал", "основа", "Размыть фон", "Взять за основу", "Создать заново · до $0.09",
+      ["Оригинал", "основа", "Размыть фон", "Взять за основу", "Заново · до $0.09",
        "Свечение — создать · до $0.09", "Контур — создать · до $0.09"].forEach(function (t) {
         see("#photo figcaption, #photo .photo-under span, #photo .photo-under button, #photo .chip", t);
       });
@@ -1546,7 +1580,7 @@
       }
     } else if (sendState === "review-highlight-after") {
       await images();
-      ["Оригинал", "Размыть фон", "Взять за основу", "Создать заново · до $0.09"].forEach(function (t) {
+      ["Оригинал", "Размыть фон", "Взять за основу", "Заново · до $0.09"].forEach(function (t) {
         see("#photo figcaption, #photo .photo-under button", t);
       });
       var right = document.querySelector('.photo-tile:nth-child(2) img'), left = document.querySelector('.photo-tile:nth-child(1) img');

@@ -2176,7 +2176,7 @@ Order: D′'s action block (unchanged, first), then **«Фото»**, then the c
      выберите стиль ниже».
 
    Under the base tile stands the word «основа»; under the other, when it holds an image,
-   «Взять за основу». Under the right tile with a result is «Создать заново · до $0.09».
+   «Взять за основу». Under the right tile with a result is «Заново · до $0.09».
    The focus ring and tap sit on the base tile only (D35).
 3. **Style chips**: one chip for each of «Размыть фон», «Свечение» and «Контур» except
    the style the right tile shows, which its label already names.
@@ -2392,7 +2392,7 @@ specification's items map as follows:
    - «Взять за основу» under «Оригинал» goes back the same way.
    - A crop posted from the old base answers 409. While the four crops are being made, the
      strip and the card controls are disabled.
-   - A new result for the base style («Создать заново») also deletes all four crops.
+   - A new result for the base style («Заново») also deletes all four crops.
 9. **Gemini errors in Russian, never raw JSON** (spec item 6).
    - `vendor_message(Response(402, {}, b'[{"error": {"code": 402, "message": "x"}}]'))`
      returns «x; code 402». An empty array or an array of non-objects falls back as today.
@@ -2503,7 +2503,7 @@ stay as they are. FakeGemini runs in process:
 | State | Setup | Defining text on the first screen |
 |---|---|---|
 | `review-styles-empty` | «images», `plain`, `#photo` | «Фото», «Оригинал», «основа», «Здесь появится фото со стилем — выберите стиль ниже», «Размыть фон — создать · до $0.09», «Свечение — создать · до $0.09», «Контур — создать · до $0.09», «Кто главный на фото (необязательно)» |
-| `review-styles` | «images», `styled`, `?style=blur#photo` | «Оригинал» with «основа», «Размыть фон» with «Взять за основу» and «Создать заново · до $0.09», the chips «Свечение — создать · до $0.09» and «Контур — создать · до $0.09» (no chip repeats the shown style) |
+| `review-styles` | «images», `styled`, `?style=blur#photo` | «Оригинал» with «основа», «Размыть фон» with «Взять за основу» and «Заново · до $0.09», the chips «Свечение — создать · до $0.09» and «Контур — создать · до $0.09» (no chip repeats the shown style) |
 | `review-based` | «images», `based`, `#photo` | «основа» under «Размыть фон», «Взять за основу» under «Оригинал», «Нажмите на фото-основу, чтобы сдвинуть центр кадра (Instagram и X)» |
 | `review-template` | «images-live», `tpl-<w>`. Four quotes stored. Looks: Instagram 1:1, white frame, quote at the bottom; X 1:1, black frame, quote at the top; LinkedIn 1.91:1, gold frame; Facebook 16:9, quote at the bottom. No crops stored, so the page makes them. `#send-cards-h` after the reload | The selected options («1:1», «белая», «внизу», «1.91:1», «золотая», «16:9»), the quote inputs, and the size lines «1 080 × 1 080», «1 600 × 1 600», «1 910 × 1 000», «2 048 × 1 152». Probe JSON: item 3 |
 | `review-ratio` (functional) | «images-live», `ratio-<w>`: the probe changes each select through the UI in turn and waits for each redraw | Probe JSON: every choice's size equals item 1's first column, and every `/image` answered 200 |
