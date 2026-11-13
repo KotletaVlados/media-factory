@@ -485,7 +485,35 @@ class PublishTest(SendCase):
         tile = re.search(rf'data-id="{self.pid}".*?</li>', files).group(0)
         self.assertIn("опубликовано", tile)
 
+    POSTER_WORDS = ("401", "403", "initializeUpload", "python3", "Forbidden", "revoked", "poster login")
+    # a CSRF token that holds both status codes: the worst case of the random token, forced
+    TOKEN_WITH_CODES = "a401b403" * 8
+
+    def assertNoPosterWords(self, body):
+        """The send block shows no raw poster word. The panel's random CSRF token sits in the same
+        block (the data-send JSON and the dialogs' hidden inputs) and is not operator-visible text:
+        it is removed before the words are looked for."""
+        shown = body[body.index('<div class="send"'):].replace(self.srv.panel.csrf, "")
+        for raw in self.POSTER_WORDS:
+            self.assertNotIn(raw, shown)
+
+    def test_poster_words_check_ignores_the_token_and_still_sees_the_words(self):
+        self.srv.panel.csrf = self.TOKEN_WITH_CODES
+        self.poster.script = [pf.fb_ok() + pf.ig_ok() + pf.li_401(CANARIES["LINKEDIN_ACCESS_TOKEN"]) + pf.x_403()]
+        self.publish()
+        self.wait()
+        body, _ = self.review()
+        send = body[body.index('<div class="send"'):]
+        self.assertGreaterEqual(send.count(self.TOKEN_WITH_CODES), 2)   # data-send and the dialogs
+        for code in ("401", "403"):
+            self.assertIn(code, send)                  # the raw page does hold them, through the token
+        self.assertNoPosterWords(body)                 # and the check does not count them
+        for raw in self.POSTER_WORDS:                  # a real word in the visible text is still caught
+            with self.assertRaises(AssertionError, msg=raw):
+                self.assertNoPosterWords(body + f"<p>{raw}</p>")
+
     def test_partial_then_retry_only_the_failed_targets(self):
+        self.srv.panel.csrf = self.TOKEN_WITH_CODES   # fixed worst case, not a roll of the dice
         self.poster.script = [pf.fb_ok() + pf.ig_ok() + pf.li_401(CANARIES["LINKEDIN_ACCESS_TOKEN"]) + pf.x_403(),
                               pf.li_ok() + pf.x_ok()]
         self.publish()
@@ -505,9 +533,7 @@ class PublishTest(SendCase):
                                r"<span class=\"st k-bad\" data-status>ошибка: вход истёк или отозван")
         self.assertRegex(body, r"X —</span> <span class=\"st k-bad\" data-status>ошибка: доступ запрещён")
         # the poster's English text and its command stay out of the screen
-        shown = body[body.index('<div class="send"'):]
-        for raw in ("401", "403", "initializeUpload", "python3", "Forbidden", "revoked", "poster login"):
-            self.assertNotIn(raw, shown)
+        self.assertNoPosterWords(body)
         # a failed sign-in fails again: the connection page comes first, the retry is not the primary
         self.assertIn('<a class="btn green" href="/connection?net=linkedin#net-detail">Переподключить: LinkedIn</a>',
                       body)
