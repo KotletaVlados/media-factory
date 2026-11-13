@@ -35,7 +35,9 @@ and 9 against FakeGemini (card tap, 800 ms autosave of the topic box and a text 
 the four microphone refusals, the 2:00 auto-stop on a faked clock, a 503 on the first transcription and
 a retry that must send the same bytes, which the run also compares on the Gemini side); `create-autoretry`
 fails the automatic topics request with a 503, clicks «Повторить» and needs a second topics request at
-Gemini, 3–5 cards and an empty draft error.
+Gemini, 3–5 cards and an empty draft error; `create-expand-texts` taps the last card, waits for «сохранено»,
+clicks «Развернуть» and fails if the box or the button is off screen (or against the window edge) after the
+tap, or «Тексты» or the first card's editor is off screen once the texts arrive.
 
 It also computes the WCAG contrast of every text colour pair from panel.css. It prints the
 snapshot build time (`snapshot_ms`, budget 1000 ms) and exits 1 on any finding.
@@ -576,7 +578,7 @@ def main(argv=None) -> int:
     # not occupy another state's panel (voice has to be able to transcribe).
     # The shared fixture still has a different draft for each mutation.
     for w in widths:
-        for kind in ("topics-loading", "expand-loading", "voice", "drop", "behaviour", "autoretry"):
+        for kind in ("topics-loading", "expand-loading", "expand-texts", "voice", "drop", "behaviour", "autoretry"):
             servers[f"create-live-{kind}-{w}"] = start(create_live, fake)
     t0 = time.perf_counter()
     snap = servers["data"].panel.holder.get()
@@ -630,7 +632,7 @@ def main(argv=None) -> int:
         "files-mediateka": ("create", "/files"), "files-mine": ("create", "/files?folder=my-photos"),
     }
     states += [(name, url(fixture, path)) for name, (fixture, path) in author_paths.items()]
-    states += [("create-" + name, "") for name in ("topics-loading", "expand-loading", "voice", "drop", "behaviour", "autoretry")]
+    states += [("create-" + name, "") for name in ("topics-loading", "expand-loading", "expand-texts", "voice", "drop", "behaviour", "autoretry")]
     # the 409 refusal: starting the draft with validation problems
     pages = os.path.join(scratch, "pages")
     os.makedirs(pages)
@@ -661,8 +663,8 @@ def main(argv=None) -> int:
 
     def one(state, address, w):
         h = WIDTHS.get(w, 900)
-        if state in author_paths or state in ("create-topics-loading", "create-expand-loading", "create-voice", "create-drop",
-                                              "create-behaviour", "create-autoretry"):
+        if state in author_paths or state in ("create-topics-loading", "create-expand-loading", "create-expand-texts",
+                                              "create-voice", "create-drop", "create-behaviour", "create-autoretry"):
             if not address:
                 name = state[len("create-"):]
                 path = "/create" if name == "drop" else "/create/" + create_live.create_ids[f"{name}-{w}"]
