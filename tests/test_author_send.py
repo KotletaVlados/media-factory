@@ -6,6 +6,7 @@ No test opens a non-loopback socket (tests/base.py guard). The poster always run
 `--dry-run` (DryRunTransport); nothing is published and nothing is paid for.
 """
 import datetime as dt
+import errno
 import hashlib
 import html
 import io
@@ -76,6 +77,17 @@ class CropMathTest(PosterTestCase):
 
 
 # ---------------------------------------------------------------- the panel
+
+def full_disk_on_json():
+    """`send._write_new` fails with ENOSPC for the package's temporary .json only."""
+    real = send._write_new
+
+    def write(path, data):
+        if ".json" in os.path.basename(path):
+            raise OSError(errno.ENOSPC, "No space left on device")
+        return real(path, data)
+    return mock.patch.object(send, "_write_new", write)
+
 
 class SendCase(pf.PanelCase):
     """The data fixture plus one 320 x 240 photo in «Мои фото» and a draft with four texts
@@ -381,6 +393,25 @@ class ReviewTest(SendCase):
 
 
 class PublishTest(SendCase):
+    def test_full_disk_at_the_package_write_leaves_nothing_and_a_retry_completes(self):
+        p = self.fx.paths
+        packages_before = self.tree(p.packages)
+        draft_before = self.draft()
+        with full_disk_on_json():
+            status, _, _ = self.publish()
+        self.assertEqual(status, 500)
+        self.assertFalse(os.path.lexists(os.path.join(p.packages, "media", self.did)))
+        self.assertEqual(self.tree(p.packages), packages_before)
+        self.assertEqual(self.draft(), draft_before)
+        self.assertEqual(self.draft()["state"], "draft")
+        self.assertEqual(self.poster.calls, [])
+        status, headers, _ = self.publish()
+        self.assertEqual((status, headers["location"]), (303, f"{self.base}/review"))
+        self.wait()
+        self.assertEqual(len(self.poster.calls), 1)
+        self.assertTrue(os.path.isfile(os.path.join(p.packages, f"{self.did}.json")))
+        self.assertEqual(self.draft()["state"], "published")
+
     def test_publish_now_writes_the_package_and_publishes_once(self):
         status, headers, _ = self.publish()
         self.assertEqual((status, headers["location"]), (303, f"{self.base}/review"))
@@ -705,6 +736,22 @@ class ServeTest(pf.PanelCase):
 
 
 class QueueTest(SendCase):
+    def test_full_disk_at_the_package_write_leaves_nothing_and_a_retry_completes(self):
+        folder = os.path.join(self.fx.paths.stock, "my-photos")
+        before = self.tree(self.fx.paths.stock)
+        draft_before = self.draft()
+        with full_disk_on_json():
+            status, _, _ = self.queue()
+        self.assertEqual(status, 500)
+        self.assertEqual(self.tree(self.fx.paths.stock), before)
+        self.assertFalse(os.path.lexists(os.path.join(folder, "media", self.did)))
+        self.assertEqual(self.draft(), draft_before)
+        status, headers, _ = self.queue()
+        self.assertEqual((status, headers["location"]), (303, f"/files?folder=my-photos#pkg-{self.did}"))
+        self.assertTrue(os.path.isfile(os.path.join(folder, f"001-{self.did}.json")))
+        self.assertTrue(os.path.isdir(os.path.join(folder, "media", self.did)))
+        self.assertEqual(self.poster.calls, [])
+
     def check_lines(self):
         out = io.StringIO()
         fcli.main(["check"], environ=self.fx.environ, clock=self.fx.clock, stdout=out, stderr=out,
