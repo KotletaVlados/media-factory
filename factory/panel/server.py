@@ -47,7 +47,7 @@ STATIC = {"panel.css": "text/css; charset=utf-8",
 SECURITY_HEADERS = {
     "Content-Security-Policy": "default-src 'self'; img-src 'self'; style-src 'self'; "
                                "script-src 'self'; frame-ancestors 'none'",
-    "Referrer-Policy": "no-referrer",
+    "Referrer-Policy": "same-origin",   # no-referrer makes Chrome send `Origin: null` on form POSTs
     "X-Content-Type-Options": "nosniff",
 }
 PAGES = {"/connection": ("connection", views.connection), "/files": ("files", views.files),
@@ -549,7 +549,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 panel.sender.delete(did)
                 return self._redirect("/create")
             location, refused_rule = panel.sender.queue(did, f("folder"), f("rule") == "1",
-                                                        f("seen"), panel.write_lock)
+                                                        f("seen"), panel.write_lock,
+                                                        f("rule_hour"))
             if refused_rule:
                 return self._page("/rules", query, "rules", views.rules, status=409,
                                   refusal=refused_rule)

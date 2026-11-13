@@ -1206,11 +1206,11 @@ def create_draft(ctx: Ctx) -> str:
             f'<span class="topic-count small mono" hidden></span><span class="topic-save small" role="status"></span></div>'
             f'<textarea id="topic" rows="2">{esc(draft["topic"])}</textarea>'
             f'<div class="expand-row">'
-            f'{_spend_button("expand", expand + " · " + bounds["expand"], why["expand"] or (S.CREATE_JS["empty_topic"] if not draft["topic"].strip() else ""), cls="btn green")}'
+            f'{_spend_button("expand", expand + " · " + bounds["expand"], why["expand"] or (S.CREATE_JS["empty_topic"] if not draft["topic"].strip() else ""), cls="btn" if ready else "btn green")}'
             f'<p class="topic-hint muted small"{" hidden" if draft["topic"].strip() else ""}>{esc(S.CREATE_JS["empty_topic"])}</p></div>'
             f'</section><section id="texts" class="create-texts"><div class="texts-heading"><h2>Тексты</h2>'
             f'<p class="text-ai-status small" role="status"></p></div>'
-            f'<p class="send-go-row"{"" if ready else " hidden"}><a class="btn send-go" '
+            f'<p class="send-go-row"{"" if ready else " hidden"}><a class="btn green send-go" '
             f'href="/create/{esc(draft["id"])}/review">{esc(S.SEND_GO)}</a></p>'
             f'<div class="text-cards">{texts}</div></section></div>'
             f'<p class="draft-links"><a href="/create">Новый пост</a> · <a href="/create/profile">Профиль автора</a> · '
@@ -1245,20 +1245,21 @@ def create_profile(ctx: Ctx, refusal=None) -> str:
 
 # ---------------------------------------------------------------- Отправка (authoring.md §17)
 
-def _dialog(ident: str, title: str, text: str, action: str, fields: str, yes: str) -> str:
+def _dialog(ident: str, title: str, text: str, action: str, fields: str, yes: str,
+            yes_class: str = "btn green") -> str:
     """A native modal confirmation (§17.4): its own POST form with the csrf field."""
     para = f'<p>{esc(text)}</p>' if text else ""
     return (f'<dialog id="{ident}" class="dlg" aria-labelledby="{ident}-h">'
             f'<form method="post" action="{esc(action)}">{fields}'
             f'<h2 id="{ident}-h">{esc(title)}</h2>{para}'
-            f'<div class="dlg-buttons"><button class="btn green" type="submit" data-confirm>{esc(yes)}</button>'
+            f'<div class="dlg-buttons"><button class="{yes_class}" type="submit" data-confirm>{esc(yes)}</button>'
             f'<button class="btn" type="button" data-close autofocus>{esc(S.DLG_CANCEL)}</button></div>'
             f'</form></dialog>')
 
 
 def _delete_dialog(ctx: Ctx, did: str) -> str:
     return _dialog("dlg-delete", S.DLG_DELETE, S.DLG_DELETE_TEXT, f"/create/{did}/delete",
-                   hidden(ctx), S.DLG_DELETE_YES)
+                   hidden(ctx), S.DLG_DELETE_YES, "btn danger")
 
 
 ROW_KIND = {"published": "ok", "failed": "bad", "unknown": "bad", "interrupted": "bad",
@@ -1271,8 +1272,9 @@ def _send_rows(view: dict) -> str:
         name = S.NET_NAME[item["network"]]
         link = (f'<a class="send-open" href="{esc(item["url"])}" target="_blank" rel="noopener">'
                 f'{esc(S.SEND_OPEN.format(name=name))}</a>' if item.get("url") else "")
-        out.append(f'<li data-target="{esc(item["target"])}"><span class="send-row-name">{esc(name)} · '
-                   f'<span class="mono">{esc(item["target"])}</span> —</span> '
+        account = config.parse_target(item["target"]).name   # only Facebook and Instagram have one
+        who = f' · <span class="mono">{esc(account)}</span>' if account else ""
+        out.append(f'<li data-target="{esc(item["target"])}"><span class="send-row-name">{esc(name)}{who} —</span> '
                    f'<span class="st k-{ROW_KIND[item["status"]]}" data-status>{esc(item["text"])}</span>'
                    f'<span class="send-link">{" · " + link if link else ""}</span></li>')
     return f'<ul class="send-rows">{"".join(out)}</ul>'
@@ -1310,6 +1312,9 @@ def create_review(ctx: Ctx, refusal=None) -> str:
     names = [S.NET_NAME[t.network] for t in targets]
     n = len(targets)
     live = state == "publishing" and not view["interrupted"]
+    title = (S.SEND_TITLE if state == "draft" else S.SEND_TITLE_SENT if state in ("partial", "published")
+             else S.SEND_TITLE_LIVE)
+    cards_title = S.SEND_CARDS if state == "draft" else S.SEND_CARDS_SENT
     seen_value = send.seen(draft, targets, crops) if not rv.missing else ""
     problems = rv.problems
 
@@ -1335,6 +1340,8 @@ def create_review(ctx: Ctx, refusal=None) -> str:
             items = "".join(f'<li class="core">{esc(p)}</li>' for p in problems)
             check = (f'<div class="send-problems k-bad" role="alert"><p>{esc(S.SEND_PROBLEMS)}</p>'
                      f'<ul>{items}</ul></div>')
+        elif rv.missing:
+            check = ""   # «Проблем нет» waits until the crops are ready: the checks need them
         else:
             check = f'<p class="send-ok k-ok">{esc(S.SEND_OK.format(n=n, word=S.plural(n, S.NET_WORDS)))}</p>'
         folders = sender.queue_folders(ctx.snap)
@@ -1360,8 +1367,15 @@ def create_review(ctx: Ctx, refusal=None) -> str:
         elif rules:
             rule_html = f'<p class="send-rule small">{esc(_rule_line(ctx, rules[0], chosen))}</p>'
         else:
-            rule_html = (f'<label class="check send-offer small"><input type="checkbox" name="rule" '
-                         f'value="1" checked>{esc(S.SEND_OFFER.format(title=titles.get(chosen, chosen)))}</label>')
+            hour = sender.offer_hour(ctx.snap.inputs.ruleset, chosen, ctx.snap.now) \
+                if ctx.snap.inputs is not None else None
+            if hour:
+                rule_html = (f'<label class="check send-offer small"><input type="checkbox" name="rule" '
+                             f'value="1" checked><input type="hidden" name="rule_hour" value="{esc(hour)}">'
+                             f'{esc(S.SEND_OFFER.format(title=titles.get(chosen, chosen), hour=hour))}</label>')
+            else:
+                rule_html = f'<p class="send-rule small muted">{esc(S.SEND_OFFER_NONE)}</p>'
+
         queue = (f'<form id="send-queue" class="send-queue" method="post" action="/create/{esc(did)}/queue">'
                  f'{hidden(ctx, seen=seen_value)}<label class="send-folder">{esc(S.SEND_FOLDER)} '
                  f'<select name="folder" data-folder>{options}</select></label>{rule_html}</form>')
@@ -1390,7 +1404,8 @@ def create_review(ctx: Ctx, refusal=None) -> str:
     for card in rv.cards:
         net = card.target.network
         name = S.NET_NAME[net]
-        head = f"{name} · {card.target.id} · {S.SEND_LANG[fdrafts.LANGS[net]]}"
+        account = f" · {card.target.name}" if card.target.name else ""
+        head = f"{name}{account} · {S.SEND_LANG[fdrafts.LANGS[net]]}"
         if card.crop is not None:
             img = (f'<img src="/create/{esc(did)}/file?name={esc(net)}" alt="{esc("Картинка для " + name)}" '
                    f'decoding="async">')
@@ -1425,9 +1440,9 @@ def create_review(ctx: Ctx, refusal=None) -> str:
             "names": {t.network: S.NET_NAME[t.network] for t in targets}, "strings": S.SEND_JS}
     body = (f'<div class="send" data-send="{esc(json.dumps(data, ensure_ascii=False))}">{top}'
             f'<section class="send-action" aria-labelledby="send-h"><div class="send-head">'
-            f'<h2 id="send-h">{esc(S.SEND_TITLE)}</h2>{edit}</div>{action}</section>{source}'
+            f'<h2 id="send-h">{esc(title)}</h2>{edit}</div>{action}</section>{source}'
             f'<section class="send-cards" aria-labelledby="send-cards-h"><h2 id="send-cards-h">'
-            f'{esc(S.SEND_CARDS)}</h2><div class="send-grid">{"".join(cards)}</div></section>'
+            f'{esc(cards_title)}</h2><div class="send-grid">{"".join(cards)}</div></section>'
             f'{bottom}{dialogs}<noscript><p>{esc(S.CREATE_NEED_JS)}</p></noscript></div>')
     return page(ctx, "create", body, sub=esc(S.SEND_SUB.format(date=_stamp(draft["created"]))),
                 sub_right=month, scripts=("author.js", "send.js"))

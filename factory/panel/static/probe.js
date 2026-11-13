@@ -895,7 +895,12 @@
         // one layout for every draft state (design §8.3): card → box → «Развернуть», texts on the right
         var box = document.querySelector("#topic").getBoundingClientRect();
         var go = document.querySelector('[data-op="expand"]'), goBox = go.getBoundingClientRect();
-        if (!go.classList.contains("green")) { out.problems.push("«Развернуть» is not the primary button"); }
+        // the one green button is the next step: «Проверить и отправить» once every network has a text
+        var next = document.querySelector(".send-go-row:not([hidden]) .send-go");
+        if (go.classList.contains("green") === !!next) {
+          out.problems.push(next ? "«Развернуть» stays primary next to «Проверить и отправить»" : "«Развернуть» is not the primary button");
+        }
+        if (next && !next.classList.contains("green")) { out.problems.push("«Проверить и отправить» is not the primary button"); }
         if (goBox.top < box.bottom - 1 || Math.abs(goBox.left - box.left) > 1) { out.problems.push("«Развернуть» is not directly under the topic box"); }
         var head = document.querySelector(".topic-heading").getBoundingClientRect(), first = document.querySelector(".topic-cards").getBoundingClientRect();
         if (first.top - head.bottom > 16) { out.problems.push("a blank band under the «Тема» heading: " + Math.round(first.top - head.bottom) + " px"); }
@@ -1052,7 +1057,7 @@
         scrollTo(0, y);
       } else if (sendState === "review") {
         ["Проверка перед отправкой", "Проблем нет · 4 сети", "Опубликовать сейчас", "В очередь", "Папка",
-         "Публиковать из «Мои фото» по правилу: пн, ср, пт в 10:00"].forEach(function (t) {
+         "Публиковать из «Мои фото» по правилу: пн, ср, пт в 16:00"].forEach(function (t) {
           see(".send-action h2, .send-action p, .send-action button, .send-action label", t);
         });
       } else if (sendState === "review-rule") {
@@ -1068,6 +1073,7 @@
       } else if (sendState === "review-crops") {
         await until(function () { return sendHold.held; }, "the first crop post", 60000);
         see(".send-crops", "Готовлю картинки: Facebook, Instagram, LinkedIn, X…");
+        if (document.querySelector(".send-ok")) { out.problems.push("«Проблем нет» shows while the crops are being made"); }
         looks('[data-open="dlg-publish"], [form="send-queue"]');
         sendHold.release();
         await until(function () { return window.MFSend.reloads >= 1; }, "four crops posted", 60000);
@@ -1107,17 +1113,19 @@
         await dialogCheck('.send-status [data-open="dlg-delete"]', "dlg-delete",
                           ["Удалить черновик?", "Да, удалить", "Отмена"]);
       } else if (sendState === "review-publishing") {
-        ["Публикуется… 1 из 4 · не закрывайте панель", "Facebook · fb:kotleta — опубликовано",
-         "Instagram · ig:kotleta — ждём…"].forEach(function (t) { see(".send-status p, .send-rows li", t); });
+        ["Публикация", "Публикуется… 1 из 4 · не закрывайте панель", "Facebook · kotleta — опубликовано",
+         "Instagram · kotleta — ждём…"].forEach(function (t) { see(".send-action h2, .send-status p, .send-rows li", t); });
       } else if (sendState === "review-partial") {
-        ["Опубликовано в 2 из 4 сетей", "LinkedIn · linkedin — ошибка: HTTP 401", "Повторить упавшие: LinkedIn, X"]
-          .forEach(function (t) { see(".send-status p, .send-rows li, .send-status button", t); });
+        ["Отправлено", "Опубликовано в 2 из 4 сетей", "LinkedIn — ошибка: HTTP 401", "Повторить упавшие: LinkedIn, X"]
+          .forEach(function (t) { see(".send-action h2, .send-status p, .send-rows li, .send-status button", t); });
       } else if (sendState === "review-published") {
         see(".send-status-line", "Опубликовано во всех 4 сетях");
+        see(".send-action h2", "Отправлено");
         ["Facebook", "Instagram", "LinkedIn", "X"].forEach(function (n) { see(".send-open", "открыть в " + n); });
       } else if (sendState === "review-interrupted") {
         see(".send-status-line", "Публикация прервана — проверьте аккаунт");
-        see(".send-rows li", "Instagram · ig:kotleta — прервано — проверьте аккаунт");
+        see(".send-rows li", "Instagram · kotleta — прервано");
+        see(".send-action h2", "Публикация");
       } else if (sendState === "queued") {
         var pkg = params.get("probe_pkg"), row = document.getElementById("pkg-" + pkg);
         see("#pkg-" + pkg + " h3", "-" + pkg + ".json");
@@ -1132,7 +1140,7 @@
         if (!chip) { out.problems.push("no «в очереди» chip on the queued photo"); }
       } else if (sendState === "rule-refused") {
         see(".main > .error", "Пост в очереди «Мои фото». Правило сохранено черновиком, но не запущено:");
-        see(".main > .error li", "minimum gap");
+        see(".main > .error li", "между постами");
       } else if (sendState === "send-start") {
         // measured where the page opens: no scrolling, so a word below the window fails
         if (scrollY !== 0) { out.problems.push("send-start did not open at the top (scrollY " + scrollY + ")"); }

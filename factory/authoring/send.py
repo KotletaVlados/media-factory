@@ -42,7 +42,8 @@ MAX_SIZE = {"instagram": (1080, 1350), "x": (1600, 900)}
 LONG_SIDE = 2048                                       # Facebook and LinkedIn
 BYTES = {"facebook": rules.FB_MAX_BYTES, "instagram": rules.IG_MAX_BYTES,
          "x": rules.X_MAX_BYTES}
-OFFER_DAYS, OFFER_HOURS = ("mon", "wed", "fri"), ("10:00",)
+OFFER_DAYS = ("mon", "wed", "fri")
+OFFER_TIMES = ("10:00", "13:00", "16:00", "19:00", "07:00")   # tried in this order (D25)
 TAIL_LIMIT = 4 * MB                     # record bytes read after an attempt's offset
 
 BUSY = "публикация уже идёт — дождитесь конца"
@@ -314,6 +315,41 @@ def combined(publish: dict) -> dict:
     for attempt in publish["attempts"]:
         out.update(attempt.get("outcome") or {})
     return out
+
+
+_GAP = re.compile(r"^(\w+): (.+) \((.+)\) and (.+) \((.+)\) are ([\d.]+) h apart; the minimum gap is ([\d.]+) h$")
+_DAY = re.compile(r"^(\w+): (\d+) posts on (\S+) at (.+); the maximum is (\d+) a day$")
+_BUDGET = re.compile(r"^X (\w+): \$([\d.]+) spent \+ \$([\d.]+) planned = \$([\d.]+) of \$([\d.]+)$")
+_NO_READY = re.compile(r"^folder '(.+)' has no ready package for (.+)$")
+_MISSING = re.compile(r"^target (\S+): missing (.+) in the env file$")
+_UNKNOWN = re.compile(r"^target (\S+) is unknown \(known: .+\)$")
+
+
+def rule_words(problem: str) -> str:
+    """One refusal line of `checks.activation_problems` in Russian (the checks' own words stay
+    English for the CLI; the panel words what it shows). A line in no known shape stays as is."""
+    def net(name):
+        return S.NET_NAME.get(name, name)
+    if m := _GAP.match(problem):
+        n, a, ra, b, rb, hours, gap = m.groups()
+        return (f"{net(n)}: {a} ({ra}) и {b} ({rb}) — всего {hours} ч между постами, "
+                f"а нужно не меньше {gap} ч")
+    if m := _DAY.match(problem):
+        n, count, day, hours, top = m.groups()
+        word = S.plural(int(count), ("пост", "поста", "постов"))
+        return f"{net(n)}: {count} {word} {day} в {hours} — в день можно не больше {top}"
+    if m := _BUDGET.match(problem):
+        month, spent, planned, total, cap = m.groups()
+        names = dict(zip(checks.MONTHS, S.MONTHS_NOM))
+        return (f"X, {names.get(month, month).lower()}: потрачено ${spent} + запланировано "
+                f"${planned} = ${total} при лимите ${cap}")
+    if m := _NO_READY.match(problem):
+        return f"в папке «{m.group(1)}» нет готового поста для {m.group(2)}"
+    if m := _MISSING.match(problem):
+        return f"{m.group(1)}: в .env не хватает {m.group(2)}"
+    if m := _UNKNOWN.match(problem):
+        return f"{m.group(1)}: такой страницы нет в настройках"
+    return problem
 
 
 def refusal_lines(output: str, redact) -> list:
@@ -925,8 +961,10 @@ class Sender:
     def conflict_text(conflicts: list) -> str:
         return S.SEND_RULE_ELSEWHERE.format(id=conflicts[0][0], targets=", ".join(conflicts[0][1]))
 
-    def queue(self, did: str, folder: str, rule_on: bool, seen_value: str, write_lock):
-        """Returns (location, rules refusal or None)."""
+    def queue(self, did: str, folder: str, rule_on: bool, seen_value: str, write_lock,
+              hour: str = ""):
+        """Returns (location, rules refusal or None). `hour` is the offered time the review
+        showed; a value outside OFFER_TIMES means the first one."""
         with write_lock:
             snap = self.holder.get()
             titles = dict(self.queue_folders(snap))
@@ -948,38 +986,63 @@ class Sender:
                     raise Refusal("в папке уже 999 пакетов — создайте новую папку")
                 self._write_package(real, f"{nnn:03d}-{did}.json", draft, targets, crops)
                 self.store.remove(did)
-            refusal = self.offer_rule(folder, titles[folder]) if rule_on else None
+            refusal = self.offer_rule(folder, titles[folder], hour) if rule_on else None
         return f"/files?folder={folder}#pkg-{did}", refusal
 
     def active_rules(self, snap, folder: str) -> list:
         return [r for r in snap.inputs.ruleset.rules if r.active and r.folder == folder] \
             if snap.inputs is not None else []
 
-    def offer_rule(self, folder: str, title: str):
-        """D25: «пн, ср, пт в 10:00» for the folder, through `checks.activation_problems`
+    def _offer_data(self, rs, folder: str, hour: str, now) -> dict | None:
+        """The offered rule's record, or None when the folder has no free rule id."""
+        taken = {r.id for r in rs.rules}
+        rid = next((c for c in [folder] + [f"{folder}-{k}" for k in range(2, 10)]
+                    if c not in taken and fruleset.ID_RE.match(c)), None)
+        if rid is None:
+            return None
+        return {"id": rid, "folder": folder, "targets": list(self.target_ids),
+                "days": list(OFFER_DAYS), "hours": [hour],
+                "timezone": self.machine_tz, "status": "active",
+                "active_since": config.iso_utc(now)}
+
+    def offer_hour(self, ruleset, folder: str, now) -> str | None:
+        """The first of OFFER_TIMES at which the offered rule passes the slot limits (§7.3
+        item 4) next to the rules already active; None when none does or the folder has no
+        free rule id. The review shows this time, and the queue checks it again."""
+        if any(r.active and r.folder == folder for r in ruleset.rules):
+            return None
+        active = [r for r in ruleset.rules if r.active]
+        for hour in OFFER_TIMES:
+            data = self._offer_data(ruleset, folder, hour, now)
+            rule = fruleset.parse_rule(data, []) if data else None
+            if rule is None:
+                return None
+            if not checks.limit_problems(ruleset, active + [rule], now):
+                return hour
+        return None
+
+    def offer_rule(self, folder: str, title: str, hour: str = ""):
+        """D25: «пн, ср, пт в <hour>» for the folder, through `checks.activation_problems`
         on inputs loaded after the package was written; written against the loaded
-        revision. A refusal saves the rule as a draft and returns the Rules refusal."""
+        revision. A refusal saves the rule as a draft and returns the Rules refusal, its
+        lines in Russian."""
         now = self.clock()
         inputs = finputs.load(self.paths, lambda: now, self.redactor())
         rs = inputs.ruleset
         if any(r.active and r.folder == folder for r in rs.rules):
             return None
-        taken = {r.id for r in rs.rules}
-        rid = next((c for c in [folder] + [f"{folder}-{k}" for k in range(2, 10)]
-                    if c not in taken and fruleset.ID_RE.match(c)), None)
+        hour = hour if hour in OFFER_TIMES else OFFER_TIMES[0]
         base = {"status": 409, "stale": False, "form": {}, "queued": title}
-        if rid is None:
+        data = self._offer_data(rs, folder, hour, now)
+        if data is None:
             return dict(base, rule="new", problems=["нет свободного имени правила для этой папки"])
-        data = {"id": rid, "folder": folder, "targets": list(self.target_ids),
-                "days": list(OFFER_DAYS), "hours": list(OFFER_HOURS),
-                "timezone": self.machine_tz, "status": "active",
-                "active_since": config.iso_utc(now)}
         problems: list = []
         rule = fruleset.parse_rule(data, problems)
         if rule is None:
             return dict(base, rule="new", problems=problems)
+        rid = data["id"]
         rs.rules.append(rule)
-        found = checks.activation_problems(inputs, rule, now)
+        found = [rule_words(p) for p in checks.activation_problems(inputs, rule, now)]
         if found:
             data.update(status="draft")
             data.pop("active_since")

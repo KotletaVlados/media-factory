@@ -40,6 +40,21 @@ def wait_until(predicate, timeout=10.0):
 
 # ---------------------------------------------------------------- pure functions
 
+class RuleWordsTest(PosterTestCase):
+    def test_the_checks_lines_are_worded_in_russian(self):
+        gap = ("facebook: 2026-11-13 10:00 CET (city-main) and 2026-11-13 10:00 CET (my-photos) "
+               "are 0 h apart; the minimum gap is 3 h")
+        self.assertEqual(send.rule_words(gap), "Facebook: 2026-11-13 10:00 CET (city-main) и "
+                         "2026-11-13 10:00 CET (my-photos) — всего 0 ч между постами, а нужно не меньше 3 ч")
+        self.assertEqual(send.rule_words("x: 3 posts on 2026-11-13 at 10:00 (a), 11:00 (b); the maximum is 2 a day"),
+                         "X: 3 поста 2026-11-13 в 10:00 (a), 11:00 (b) — в день можно не больше 2")
+        self.assertEqual(send.rule_words("X November: $4.500 spent + $1.000 planned = $5.500 of $5.00"),
+                         "X, ноябрь: потрачено $4.500 + запланировано $1.000 = $5.500 при лимите $5.00")
+        self.assertEqual(send.rule_words("folder 'a' has no ready package for x, linkedin"),
+                         "в папке «a» нет готового поста для x, linkedin")
+        self.assertEqual(send.rule_words("something unknown"), "something unknown")
+
+
 class CropMathTest(PosterTestCase):
     def test_d19_sizes_and_no_upscale(self):
         want = {"instagram": (1080, 1350), "facebook": (1536, 2048), "linkedin": (1536, 2048),
@@ -303,6 +318,7 @@ class FocusTest(SendCase):
         body, seen = self.review()
         self.assertEqual(seen, "")
         self.assertIn("Готовлю картинки: Instagram, X…", body)
+        self.assertNotIn("Проблем нет", body)   # a mixed signal while the buttons are off
         self.assertRegex(body, r'data-open="dlg-publish" disabled')
         for bad in ({"fx": 2, "fy": 0}, {"fx": True, "fy": 0}, {"fx": "0.5", "fy": 0.5}, {}):
             status, _ = self.json_post(f"{self.base}/focus", bad)
@@ -316,13 +332,16 @@ class ReviewTest(SendCase):
     def test_draft_page_link_and_review_cards(self):
         _, _, body = self.page(self.base)
         m = re.search(r'<div class="texts-heading">.*?</div><p class="send-go-row">'
-                      r'<a class="btn send-go" href="([^"]+)">Проверить и отправить →</a></p>', body)
+                      r'<a class="btn green send-go" href="([^"]+)">Проверить и отправить →</a></p>', body)
         self.assertIsNotNone(m)
         self.assertEqual(m.group(1), f"{self.base}/review")
         self.assertIn('data-open="dlg-delete">Удалить черновик</button>', body)
+        # texts exist: the next step is the green primary, «Развернуть» is secondary
+        self.assertRegex(body, r'<button class="btn" type="button" data-op="expand"')
         self.store.update(self.did, lambda d: d["variants"].pop("x"))
         _, _, body = self.page(self.base)
         self.assertIn('<p class="send-go-row" hidden>', body)
+        self.assertRegex(body, r'<button class="btn green" type="button" data-op="expand"')
 
         self.store.update(self.did, lambda d: d["variants"].update(
             x={"text": pf.TEXTS["x"], "lang": "en", "source": "gemini"}))
@@ -332,9 +351,9 @@ class ReviewTest(SendCase):
         self.assertIn("Проблем нет · 4 сети", body)
         self.assertNotIn("Отправить нельзя", body)
         heads = re.findall(r'<article class="send-card" data-network="(\w+)"><h3>([^<]+)</h3>', body)
-        self.assertEqual(heads, [("facebook", "Facebook · fb:kotleta · укр."),
-                                 ("instagram", "Instagram · ig:kotleta · укр."),
-                                 ("linkedin", "LinkedIn · linkedin · англ."), ("x", "X · x · англ.")])
+        self.assertEqual(heads, [("facebook", "Facebook · kotleta · укр."),
+                                 ("instagram", "Instagram · kotleta · укр."),
+                                 ("linkedin", "LinkedIn · англ."), ("x", "X · англ.")])
         for n, text in pf.TEXTS.items():
             self.assertIn(f'<p class="send-text">{text}</p>', body)
             self.assertIn(f'src="{self.base}/file?name={n}"', body)
@@ -473,9 +492,15 @@ class PublishTest(SendCase):
         self.assertEqual(self.draft()["state"], "partial")
         body, _ = self.review()
         self.assertIn("Опубликовано в 2 из 4 сетей", body)
+        self.assertIn('<h2 id="send-h">Отправлено</h2>', body)   # a sent post is not «Проверка»
+        self.assertIn('<h2 id="send-cards-h">Что ушло в сети</h2>', body)
+        self.assertNotIn("Проверка перед отправкой", body)
+        self.assertNotIn("Что уйдёт в сети", body)
+        _, _, start = self.page("/create")
+        self.assertIn('draft-stage k-bad">частично</span>', start)
         self.assertIn("Повторить упавшие: LinkedIn, X", body)
         self.assertIn("Повторить публикацию в LinkedIn и X?", body)
-        self.assertRegex(body, r"LinkedIn · <span class=\"mono\">linkedin</span> —</span> "
+        self.assertRegex(body, r"LinkedIn —</span> "
                                r"<span class=\"st k-bad\" data-status>ошибка: 401")
         self.assertIn("[redacted:LINKEDIN_ACCESS_TOKEN]", body)
         status, headers, _ = self.form(self.did, "retry")
@@ -611,7 +636,8 @@ class PublishTest(SendCase):
                           ("linkedin", "waiting"), ("x", "waiting")])
         body, _ = self.review()
         self.assertIn('"live": true', body)
-        self.assertIn("Instagram · <span class=\"mono\">ig:kotleta</span> —</span> "
+        self.assertIn('<h2 id="send-h">Публикация</h2>', body)
+        self.assertIn("Instagram · <span class=\"mono\">kotleta</span> —</span> "
                       "<span class=\"st k-muted\" data-status>ждём…</span>", body)
         self.assertNotIn("data-open=\"dlg-delete\"", body.split("send-cards")[0])
         _, _, start = self.page("/create")
@@ -644,8 +670,8 @@ class PublishTest(SendCase):
         self.assertEqual([t["status"] for t in s["targets"]],
                          ["published", "interrupted", "interrupted", "interrupted"])
         body, _ = self.review()
-        self.assertIn("Instagram · <span class=\"mono\">ig:kotleta</span> —</span> "
-                      "<span class=\"st k-bad\" data-status>прервано — проверьте аккаунт</span>", body)
+        self.assertIn("Instagram · <span class=\"mono\">kotleta</span> —</span> "
+                      "<span class=\"st k-bad\" data-status>прервано</span>", body)
         self.assertNotIn("Повторить упавшие", body)
         lines = [l for l in self.log.getvalue().splitlines() if "publish" in l]
         self.assertEqual(len(lines), 1, self.log.getvalue())
@@ -676,8 +702,8 @@ class CrashedPanelTest(pf.PanelCase):
         body = html.unescape(body)
         self.assertEqual(status, 200)
         self.assertIn("Публикация прервана — проверьте аккаунт", body)
-        self.assertIn("Instagram · <span class=\"mono\">ig:kotleta</span> —</span> "
-                      "<span class=\"st k-bad\" data-status>прервано — проверьте аккаунт</span>", body)
+        self.assertIn("Instagram · <span class=\"mono\">kotleta</span> —</span> "
+                      "<span class=\"st k-bad\" data-status>прервано</span>", body)
         self.assertIn("опубликовано", body)
         status, _, data = self.request("GET", f"/create/{self.did}/status")
         s = json.loads(data)
@@ -758,20 +784,25 @@ class QueueTest(SendCase):
                   machine_tz=self.fx.machine_tz)
         return [l for l in out.getvalue().splitlines() if l.startswith("  - ")]
 
-    def queue(self, folder="my-photos", rule=False, did=None):
+    def queue(self, folder="my-photos", rule=False, did=None, hour=None):
         did = did or self.did
         _, seen = self.review(did, f"?folder={folder}")
         fields = {"seen": seen, "folder": folder}
         if rule:
             fields["rule"] = "1"
+        if hour:
+            fields["rule_hour"] = hour
         return self.form(did, "queue", fields)
 
     def test_queue_without_the_rule(self):
         rules_before = self.file_hash(self.fx.paths.rules)
         problems_before = self.check_lines()
         body, _ = self.review()
-        self.assertIn("Публиковать из «Мои фото» по правилу: пн, ср, пт в 10:00", body)
+        # city-main already publishes mon/wed/fri at 10:00: the offer is the first free hour
+        self.assertIn("Публиковать из «Мои фото» по правилу: пн, ср, пт в 16:00", body)
+        self.assertNotIn("пт в 10:00", body)
         self.assertIn('name="rule" value="1" checked', body)
+        self.assertIn('name="rule_hour" value="16:00"', body)
         status, headers, _ = self.queue()
         self.assertEqual((status, headers["location"]), (303, f"/files?folder=my-photos#pkg-{self.did}"))
         folder = os.path.join(self.fx.paths.stock, "my-photos")
@@ -821,10 +852,11 @@ class QueueTest(SendCase):
         self.assertEqual(status, 409)
         self.assertIn("999", page)
 
-    def add_rule(self, rid, targets, status="active", folder="my-photos"):
+    def add_rule(self, rid, targets, status="active", folder="my-photos", hour="10:00",
+                 days=("mon",)):
         doc = self.rules_doc()
-        rule = {"id": rid, "folder": folder, "targets": targets, "days": ["mon"],
-                "hours": ["10:00"], "timezone": "Europe/Berlin", "status": status}
+        rule = {"id": rid, "folder": folder, "targets": targets, "days": list(days),
+                "hours": [hour], "timezone": "Europe/Berlin", "status": status}
         if status == "active":
             rule["active_since"] = "2026-09-07T00:00:00Z"
         doc["rules"].append(rule)
@@ -895,12 +927,37 @@ class QueueTest(SendCase):
                       f"пт, 13 нояб., 10:00 · перед этим постом в очереди {n}", body)
         self.assertNotIn('name="rule"', body)
 
+    def test_the_review_offers_the_free_hour_and_the_queue_writes_it(self):
+        body, _ = self.review()
+        self.assertIn('name="rule_hour" value="16:00"', body)
+        status, _, _ = self.queue(rule=True, hour="16:00")
+        self.assertEqual(status, 303)
+        rule = fruleset.load(self.fx.paths.rules).get("my-photos")
+        self.assertEqual((rule.hours, rule.status), (("16:00",), "active"))
+
+    def test_no_free_hour_offers_nothing(self):
+        for k, hour in enumerate(send.OFFER_TIMES):
+            if hour != "10:00":
+                self.add_rule(f"busy{k}", TARGETS, folder="city", hour=hour,
+                              days=("mon", "wed", "fri"))
+        body, _ = self.review()
+        self.assertNotIn('name="rule"', body)
+        self.assertIn("Правило для этой папки не предложено", body)
+
+    def test_a_crafted_hour_falls_back_to_the_first_and_is_checked(self):
+        status, _, page = self.queue(rule=True, hour="03:33")
+        self.assertEqual(status, 409)
+        self.assertIn("10:00", html.unescape(page))
+
     def test_offered_rule_refused_by_the_gap(self):
-        status, _, page = self.queue(rule=True)
+        # a stale form that still carries 10:00 (the review itself offers 16:00)
+        status, _, page = self.queue(rule=True, hour="10:00")
         page = html.unescape(page)
         self.assertEqual(status, 409)
         self.assertIn("Пост в очереди «Мои фото». Правило сохранено черновиком, но не запущено:", page)
-        self.assertRegex(page, r"(instagram|facebook|linkedin|x): .*city-main.*my-photos.*minimum gap")
+        self.assertRegex(page, r"(Instagram|Facebook|LinkedIn|X): .*city-main.*my-photos.*между постами")
+        self.assertNotIn("minimum gap", page)
+        self.assertNotIn("are 0 h apart", page)
         rule = fruleset.load(self.fx.paths.rules).get("my-photos")
         self.assertEqual((rule.status, rule.active_since), ("draft", None))
         self.assertTrue(os.path.isfile(os.path.join(self.fx.paths.stock, "my-photos", f"001-{self.did}.json")))
@@ -908,7 +965,7 @@ class QueueTest(SendCase):
         other = pf.send_draft(self.fx, self.store, self.pid, "o", 2)
         pf.write_crops(self.fx, other, SMALL)
         self.assertIn('name="rule" value="1" checked', self.review(other)[0])
-        status, _, _ = self.queue(rule=True, did=other)
+        status, _, _ = self.queue(rule=True, did=other, hour="10:00")
         self.assertEqual(status, 409)
         self.assertEqual(fruleset.load(self.fx.paths.rules).get("my-photos-2").status, "draft")
 
@@ -933,6 +990,7 @@ class DeleteTest(SendCase):
     def test_delete_keeps_the_photo_packages_stock_and_record(self):
         body, _ = self.review()
         self.assertIn("Удалить черновик?", body)
+        self.assertIn('class="btn danger" type="submit" data-confirm>Да, удалить', body)  # not the green «Да»
         self.assertIn("Фото останется в «Медиатеке», опубликованные посты — в сетях.", body)
         before = self.tree(self.fx.paths.packages, self.fx.paths.stock, self.fx.paths.poster_state)
         status, _, _ = self.form(self.did, "delete", csrf=False)

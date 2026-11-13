@@ -114,6 +114,7 @@ button, input, select { font: inherit; color: inherit; }
 .btn:disabled { opacity: .45; cursor: default; }
 .btn:disabled:hover { background: var(--surface); }
 .btn.green { background: var(--green); color: var(--on-green); border-color: var(--green); }
+.btn.danger { background: var(--red); color: var(--on-green); border-color: var(--red); }
 .linkbtn { background: none; border: 0; padding: 0 2px; min-height: 24px; min-width: 24px;
            color: var(--text); text-decoration: underline; cursor: pointer; font-size: 12px; }
 .chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 16px; }
