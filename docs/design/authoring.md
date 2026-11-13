@@ -437,8 +437,10 @@ the loading line of «Тексты» («Gemini пишет тексты…», for
 sits in the «Тексты» heading row, so no blank band separates a heading from its content.
 Before «Развернуть», the right column shows «Тексты появятся после «Развернуть»»; while the
 texts are written it gives way to the loading line. Below 1 000 px a click on «Развернуть»
-scrolls «Тексты» to the top, where its loading line is; a failed request scrolls the error
-banner into view.
+scrolls «Тексты» to the top, where its loading line is, and when the texts arrive the page
+scrolls to «Тексты» again unless the heading and the first card's editor are already on the
+screen (the placeholder was hidden, so the page was short at the click); from 1 000 px nothing
+scrolls. A failed request scrolls the error banner into view.
 
 - **Photo**: the view copy from `/photo?…&v=view`, `object-fit: contain`, at most 280 px
   tall below 1 000 px and 12vh (80–180 px) from 1 000 px, so that «Тема» starts on the first
@@ -454,7 +456,8 @@ banner into view.
     that card with the visible word «выбрано» and `aria-pressed="true"`, and scrolls the
     box and «Развернуть» into view when they are not (`scrollIntoView({block: "nearest"})`
     on the row of «Развернуть», with a 16 px margin; no scroll when they already are on the
-    screen). At 390 × 844 the tap therefore brings both onto the screen; from 1 000 px they
+    screen; «сохранено» keeps its reserved place on the label row, so it does not push the box
+    and «Развернуть» toward the window edge after the scroll). At 390 × 844 the tap therefore brings both onto the screen; from 1 000 px they
     are on the first screen before any tap.
   - **Heading row**: «Тема», «Ещё темы · до $0.02» and «Голос · до $0.02» stand in one row
     (wrapping on a narrow page); the loading line and the voice line follow in the same row.
@@ -1243,6 +1246,7 @@ Two fixtures carry the states. FakeGemini runs in process in both.
 | `create-topics` | «create»: a draft with 5 topics, the second chosen | the five card titles, «выбрано»; «Развернуть · до $0.05» stands directly under the topic box: on the first screen from 1 000 px (probe: 1 000 × 700 and 1 280 × 800), and after a card tap on a narrow page, which scrolls it into view (probe in `create-behaviour`, every width) |
 | `create-own-topic` | «create»: a draft with a typed topic, no topics, `topics_auto: "done"` | the typed topic in the box, «Предложить темы · до $0.02», «Развернуть · до $0.05» enabled |
 | `create-voice` | «create-live»: the width's own-topic draft; probe: oscillator stream, «Голос» clicked, 1.2 s live | «Стоп · 0:01» (the timer shows once, in the button) |
+| `create-expand-texts` | «create-live»: the width's topics draft with no texts; probe taps the last card, waits for «сохранено», clicks «Развернуть» and waits for the four texts | after the tap the box and «Развернуть» are on the screen with their margin kept after «сохранено»; after the texts arrive «Тексты» and the first card's editor are on the screen; from 1 000 px the page has not scrolled |
 | `create-expand-loading` | «create-live»: the width's topics draft; probe clicks «Развернуть»; FakeGemini holds | «Gemini пишет тексты…» in the «Тексты» heading row (none in «Тема»), a dimmed, disabled «Развернуть · до $0.05» |
 | `create-drop` (functional, not framed) | «create-live» at `/create`; probe passes a generated JPEG named `drop-<width>.jpg` to the drop handler | probe JSON: three upload posts, one `/create/new`, the navigation URL, and one new index row with that name |
 | `create-texts` (*anchor*) | A draft with four texts within limits | «X · англ.», «LinkedIn · англ.», «Instagram · укр.», «Facebook · укр.», each count line (the 390 frame is scrolled until each card is whole) |

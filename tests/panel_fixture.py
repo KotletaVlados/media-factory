@@ -710,7 +710,7 @@ def build_create(root: str, key=True, ledger_usd=None, live_widths=()) -> Fixtur
     profile.save(fx.paths.content, AUTHOR_PROFILE, fx.now)
     store = drafts.Store(fx.paths.content, fx.clock, fx.machine_tz)
     fx.create_ids = {}
-    states = [f"{state}-{w}" for w in live_widths for state in ("topics-loading", "expand-loading", "voice", "behaviour", "autoretry")] if live_widths else ["topics", "own-topic", "texts", "over-limit", "error"]
+    states = [f"{state}-{w}" for w in live_widths for state in ("topics-loading", "expand-loading", "expand-texts", "voice", "behaviour", "autoretry")] if live_widths else ["topics", "own-topic", "texts", "over-limit", "error"]
     for i, name in enumerate(states):
         with mock.patch("factory.authoring.drafts.secrets.token_hex", return_value=f"{i + 1:04x}"):
             d = store.create(fx.paths.stock, "my-photos", ids[i % len(ids)], key)

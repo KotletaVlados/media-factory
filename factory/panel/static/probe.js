@@ -602,6 +602,28 @@
         if (before && !before.hidden) { out.problems.push("«Тексты» still says " + before.textContent + " while writing"); }
         if (document.querySelector('[data-op="expand"]').textContent !== "Развернуть · до $0.05") { out.problems.push("expand label"); }
         looks('[data-op="topics"], [data-op="expand"]');
+      } else if (state === "create-expand-texts") {
+        // The whole main flow on the draft's own page, real clicks, FakeGemini replies: tap the LAST card,
+        // then «Развернуть»; the box and the button stay clear of the window edge after «сохранено»
+        // appears, and when the texts arrive «Тексты» and the first card's editor are on the screen.
+        var frame = function () { return new Promise(function (ok) { requestAnimationFrame(function () { requestAnimationFrame(ok); }); }); };
+        var lastCard = Array.from(document.querySelectorAll(".topic-card")).pop();
+        document.querySelector(".topic-save").textContent = "";
+        lastCard.click();
+        await frame();
+        onScreen("after the last card was tapped", "#topic"); onScreen("after the last card was tapped", '[data-op="expand"]');
+        await until(function () { return document.querySelector(".topic-save").textContent === "сохранено"; }, "tapped topic saved");
+        await frame();
+        onScreen("after «сохранено» appeared", '[data-op="expand"]');
+        var goEdge = document.querySelector('[data-op="expand"]').getBoundingClientRect().bottom;
+        if (goEdge > innerHeight - 8) { out.problems.push("«Развернуть» sits against the window edge after «сохранено»: bottom " + goEdge.toFixed(1) + " of " + innerHeight); }
+        if (document.querySelectorAll(".create-text").length) { out.problems.push("the fixture draft already has texts"); }
+        document.querySelector('[data-op="expand"]').click();
+        await until(function () { return document.querySelectorAll(".create-text").length === 4 && root.getAttribute("aria-busy") === "false"; }, "four texts");
+        await frame();
+        onScreen("after the texts arrived", ".texts-heading h2");
+        onScreen("after the texts arrived", ".create-text textarea");
+        onScreen("after the texts arrived", ".create-text h3");
       } else if (state === "create-voice") {
         var audioContext = new AudioContext(), source = audioContext.createOscillator();
         source.frequency.value = 250;
@@ -881,7 +903,7 @@
       }
       // §16.2: states that are not anchor states are judged on the first screen, unscrolled
       // (the expand click scrolls a one-column page to «Тексты», where its loading line is)
-      if (anchored.indexOf(state) < 0 && scrollY !== 0 && !(state === "create-expand-loading" && innerWidth < 1000)) {
+      if (anchored.indexOf(state) < 0 && scrollY !== 0 && !((state === "create-expand-loading" || state === "create-expand-texts") && innerWidth < 1000)) {
         out.problems.push("first screen measured after a scroll: scrollY " + Math.round(scrollY));
       }
     } catch (err) { out.problems.push(err.message); }

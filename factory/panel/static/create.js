@@ -142,6 +142,16 @@
   // After a tap the box and «Развернуть» are the next thing to read: bring them into view
   // (no scroll when they already are; the sticky bar and the margins keep them clear of the edges).
   function revealExpand() { $(".expand-row").scrollIntoView({block: "nearest"}); }
+  // The result of «Развернуть» is the next thing to read: once the texts are drawn, «Тексты» and the
+  // first card's editor come onto the screen (the click scrolled before the page had them). No scroll
+  // where they already are (two columns from 1 000 px).
+  function revealTexts() {
+    const head = $(".texts-heading"), first = $(".text-cards .text-editor");
+    const top = parseFloat(getComputedStyle(document.documentElement).scrollPaddingTop) || 0;
+    const h = head.getBoundingClientRect(), e = first && first.getBoundingClientRect();
+    if (h.top >= top && (!e || e.bottom <= innerHeight)) { return; }
+    document.getElementById("texts").scrollIntoView({block: "start"});
+  }
   function bindTopic(b) {
     b.addEventListener("click", async () => {
       topic.value = b.dataset.topic; resize(topic); markChosen(); setBusy(busy); revealExpand();
@@ -241,6 +251,7 @@
       if (op === "topics") { $("[data-op=topics]").hidden = false; }
       if (op === "topics") { renderTopics(result.topics); }
       if (result.variants) { renderTexts(result.variants, op === "regenerate" ? data.network : ""); }
+      if (op === "expand") { revealTexts(); }
       if (op === "voice") {
         if (topic.value !== topic.dataset.saved) {
           topic.value = (topic.value + " " + result.transcript).trim();
