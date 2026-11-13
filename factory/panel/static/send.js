@@ -352,10 +352,17 @@
     }
     window.addEventListener("resize", place);
     var tap = function (fx, fy) {
+      if (busyCount > 0) {
+        return Promise.resolve();   // a crop line, a settings POST or a highlight call is running
+      }
       var focus = {fx: Math.round(fx * 1000) / 1000, fy: Math.round(fy * 1000) / 1000};
+      busy(true);
       return post("/create/" + D.did + "/focus", JSON.stringify(focus), "application/json")
         .then(function (stored) { api.focus = stored.focus; api.reload(); },
-              function (err) { failed("instagram", err.message, function () { tap(fx, fy); }); });
+              function (err) {
+                busy(false);
+                failed("instagram", err.message, function () { tap(fx, fy); });
+              });
     };
     api.tap = tap;
     photo.addEventListener("click", function (event) {

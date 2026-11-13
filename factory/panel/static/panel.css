@@ -645,6 +645,7 @@ dialog.day::backdrop { background: rgb(0 0 0 / .7); }
   background: var(--surface); border: 1px solid var(--head); border-radius: 8px; overflow: hidden; }
 .photo-box img { display: block; width: 100%; height: 100%; object-fit: contain; }
 .send-photo { cursor: crosshair; }
+.send-photo:disabled { opacity: .45; cursor: default; }
 .photo-empty { display: flex; align-items: center; justify-content: center; padding: 8px 12px;
   text-align: center; border-style: dashed; }
 .photo-under { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; min-height: 28px; }

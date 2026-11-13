@@ -740,6 +740,23 @@ class FocusLookTest(ImagesCase):
         self.assertEqual(self.json_post(f"{self.base}/focus", {"fx": 0.5, "fy": 0.2})[0], 200)
         self.assertEqual(self.mtimes(), {"linkedin": before["linkedin"]})
 
+    def test_the_photo_button_is_a_c_control_and_the_tap_takes_the_busy_guard(self):
+        # §18.4: while a crop line, a settings POST, a highlight call or the focus POST itself
+        # runs, the photo is blocked like the style and base buttons (the browser probes
+        # review-focus, review-template and review-highlight-loading press it for real)
+        pf.write_crops(self.fx, self.did, self.sizes)
+        body, _ = self.review()
+        self.assertRegex(body, r'<button class="photo-box send-photo" type="button" data-focus data-c ')
+        self.assertEqual(len(re.findall(r"data-focus", body)), 1)
+        with open(os.path.join(os.path.dirname(pf.__file__), "..", "factory", "panel", "static", "send.js"),
+                  encoding="utf-8") as fh:
+            js = fh.read()
+        tap = js[js.index("var tap = function"):js.index("api.tap = tap")]
+        self.assertIn("if (busyCount > 0)", tap)
+        self.assertLess(tap.index("if (busyCount > 0)"), tap.index("post("))
+        self.assertLess(tap.index("busy(true)"), tap.index("post("))
+        self.assertLess(tap.index("busy(false)"), tap.index("failed("))   # a failure frees the controls first
+
     def test_no_cropped_target_no_hint_no_button(self):
         self.sender.target_ids = ("fb:kotleta",)
         body, _ = self.review()

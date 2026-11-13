@@ -932,6 +932,19 @@
   if (sendState && window.MFSend) {
     window.MFSend.reloads = 0;
     window.MFSend.reload = function () { window.MFSend.reloads += 1; };
+    if (sendState === "review-focus") {
+      // the focus POST waits for the probe, which meanwhile tries every competing control
+      var focusFetch = window.fetch, focusGate = new Promise(function (ok) { sendHold.release = ok; });
+      sendHold.seen = [];
+      window.fetch = function (url, options) {
+        sendHold.seen.push(String(url).split("?")[0]);
+        if (!sendHold.held && String(url).indexOf("/focus") >= 0) {
+          sendHold.held = true;
+          return focusGate.then(function () { return focusFetch(url, options); });
+        }
+        return focusFetch(url, options);
+      };
+    }
     if (sendState === "review-crops") {
       var realFetch = window.fetch, gate = new Promise(function (ok) { sendHold.release = ok; });
       window.fetch = function (url, options) {
@@ -1110,9 +1123,39 @@
         await until(function () { return img.complete && img.naturalWidth; }, "source photo");
         var r = img.getBoundingClientRect(), k = Math.min(r.width / img.naturalWidth, r.height / img.naturalHeight);
         var w = img.naturalWidth * k, h = img.naturalHeight * k;
-        document.querySelector("[data-focus]").dispatchEvent(new MouseEvent("click", {bubbles: true,
-          clientX: r.left + (r.width - w) / 2 + 0.5 * w, clientY: r.top + (r.height - h) / 2 + 0.2 * h}));
+        var tapAt = function () {
+          document.querySelector("[data-focus]").dispatchEvent(new MouseEvent("click", {bubbles: true,
+            clientX: r.left + (r.width - w) / 2 + 0.5 * w, clientY: r.top + (r.height - h) / 2 + 0.2 * h}));
+        };
+        var focusWidths = Array.prototype.map.call(document.querySelectorAll("#photo [data-c]"), function (el) {
+          return Math.round(el.getBoundingClientRect().width);
+        });
+        tapAt();
+        await until(function () { return sendHold.held && window.MFSend.busy(); }, "focus POST held");
+        // while /focus is in flight every C control is blocked and keeps its width; a click on
+        // a style, the base, the photo again, or a key on the photo starts nothing
+        looks("#photo [data-c]");
+        out.busy.forEach(function (l, i) {
+          if (Math.abs(l.width - focusWidths[i]) > 1) { out.problems.push("a blocked control changed its width: " + l.text); }
+        });
+        if (!document.querySelector("#photo [data-style]")) { out.problems.push("no style button to block"); }
+        document.querySelectorAll("#photo [data-style], #photo [data-base]").forEach(function (el) { el.click(); });
+        tapAt();
+        document.querySelector("[data-focus]").dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", bubbles: true}));
+        window.MFSend.tap(0.1, 0.1);
+        await sleep(300);
+        var competing = sendHold.seen.filter(function (u) { return /\/(highlight|settings|image)$/.test(u) || u.indexOf("/focus") >= 0; });
+        out.competing = competing;
+        if (competing.length !== 1 || window.MFSend.reloads !== 0) {
+          out.problems.push("requests while /focus is in flight: " + JSON.stringify(competing) + ", reloads " + window.MFSend.reloads);
+        }
+        sendHold.release();
         await until(function () { return window.MFSend.reloads >= 1; }, "focus stored");
+        window.MFSend.idle();
+        if (document.querySelector("[data-focus]").disabled || document.querySelector("#photo [data-style]:disabled")
+            && !document.querySelector("#photo [data-style][title]")) {
+          out.problems.push("the controls did not come back after the focus POST");
+        }
         var stored = window.MFSend.focus || [];
         // a click lands on whole pixels: the stored point is (0.5, 0.2) within a pixel of the box
         if (Math.abs(stored[0] - 0.5) > 0.01 || Math.abs(stored[1] - 0.2) > 0.01) {
@@ -1340,6 +1383,19 @@
       if (!document.querySelector('.photo-tile:nth-child(2) [data-focus]')) { out.problems.push("the base tile is not the focus tile"); }
       tiles();
     } else if (sendState === "review-template") {
+      // the crop line is running: the photo takes no tap (a focus POST here would reload
+      // the page under the crops) and says so like the other C controls
+      var tplFocus = document.querySelector("[data-focus]");
+      if (!tplFocus) { out.problems.push("the base photo is not a focus button"); }
+      else if (api.busy()) {
+        disabledLook("[data-focus]");
+        tplFocus.dispatchEvent(new MouseEvent("click", {bubbles: true, clientX: 10, clientY: 10}));
+        tplFocus.dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", bubbles: true}));
+        tplFocus.click();
+        if (cFetch.some(function (x) { return x.url.indexOf("/focus") >= 0; })) {
+          out.problems.push("a focus POST was sent while the crops run");
+        }
+      }
       await until(function () { return api.reloads >= 1 || document.querySelector('.send-crops[role="alert"]'); },
                   "the template crops", 90000);
       if (api.reloads < 1) { out.problems.push("template crops: " + words(document.querySelector(".send-crops"))); }
@@ -1467,6 +1523,16 @@
         }
       });
       if (!cFetch.some(function (x) { return x.url.indexOf("/highlight") >= 0; })) { out.problems.push("no highlight POST"); }
+      // the photo is a C control too: no tap while the call runs
+      var holdFocus = document.querySelector("[data-focus]");
+      if (holdFocus) {
+        holdFocus.dispatchEvent(new MouseEvent("click", {bubbles: true, clientX: 10, clientY: 10}));
+        holdFocus.click();
+        await sleep(200);
+        if (cFetch.some(function (x) { return x.url.indexOf("/focus") >= 0; })) {
+          out.problems.push("a focus POST was sent while the highlight call runs");
+        }
+      }
     } else if (sendState === "review-highlight" || sendState === "review-highlight-text" || sendState === "review-highlight-402") {
       keep({month: words(document.getElementById("ai-month"))});
       document.querySelector('[data-style="blur"]').click();

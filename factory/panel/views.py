@@ -1362,7 +1362,7 @@ def _photo_section(ctx: Ctx, draft: dict) -> str:
     def picture(src: str, name: str, is_base: bool) -> str:
         img = f'<img src="{esc(src)}" alt="{esc(name)}">'
         if is_base and cropped:
-            return (f'<button class="photo-box send-photo" type="button" data-focus '
+            return (f'<button class="photo-box send-photo" type="button" data-focus data-c '
                     f'aria-label="{esc(S.PHOTO_TILE_LABEL.format(name=name))}">{img}'
                     f'<span class="send-ring" aria-hidden="true" hidden></span></button>')
         return f'<div class="photo-box">{img}</div>'
