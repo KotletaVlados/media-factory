@@ -119,7 +119,7 @@ folder must exist and be of lane `photo` (`folder_path`, `photos.py:74`). `pre_c
   (`:103`) answers scripted responses.
 - `tests/panel_fixture.py` builds the data, empty and photo fixtures (`build_photos`,
   `:492`). `PanelCase` (`:532`) runs a panel on port 0.
-- `tools/visual_check.py` renders every state at 390, 900, 1000, 1280, 1440, 1600 and 1920
+- `tools/visual_check.py` renders every state at 390, 900, 1000, 1100, 1200, 1279, 1280, 1440, 1600 and 1920
   with the cached Chromium and runs `probe.js`.
 
 **Machine** (O, 2026-11-12): Python 3.12.3, standard library only. The env file of the
@@ -432,7 +432,9 @@ the right, starting at the top of the page (the heading is on the first screen).
 `minmax(0, 5fr) minmax(0, 7fr)`; the cards stand in two or more columns
 (`repeat(auto-fill, minmax(220px, 1fr))`), so the left column holds the topic box and
 «Развернуть» on a 700 px screen (measured at 1 000 × 700, 1 280 × 800, 1 440 × 900 and
-1 920 × 1 080). The loading line of «Тема» (topics, voice) sits in its heading row, and
+1 920 × 1 080). In the 1 000–1 279 range the wish field of a text card stands on its own row above
+«Перегенерировать», so its whole hint fits (the probe measures the placeholder at 1 000, 1 100,
+1 200 and 1 279). The loading line of «Тема» (topics, voice) sits in its heading row, and
 the loading line of «Тексты» («Gemini пишет тексты…», for «Развернуть» and «Перегенерировать»)
 sits in the «Тексты» heading row, so no blank band separates a heading from its content.
 Before «Развернуть», the right column shows «Тексты появятся после «Развернуть»»; while the
@@ -1221,7 +1223,7 @@ carry spec item 1, 4–7 item 2, 8–12 item 3, 13 item 4, 14 item 5, 15–16 it
 
 ### 16.2 UI states and widths for the visual critic
 
-Every state below runs in `tools/visual_check.py` at 390, 900, 1000, 1280, 1440, 1600 and
+Every state below runs in `tools/visual_check.py` at 390, 900, 1000, 1100, 1200, 1279, 1280, 1440, 1600 and
 1920, with the probe's existing checks: cut text, sideways scroll, overlaps, targets under
 24 × 24, an alert below the first screen, and contrast. The visual critic frames each
 state at **390, 900, 1440 and 1920** (the named widths, the width between them, and the

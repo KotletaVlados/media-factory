@@ -1,6 +1,6 @@
 """Visual check of the panel (design factory.md §13.3 items 4 and 5; panel brief §5).
 
-    python3 tools/visual_check.py --out DIR [--widths 390,900,1280,1440,1600,1920] [--only TEXT]
+    python3 tools/visual_check.py --out DIR [--widths 390,900,1000,1100,1200,1279,1280,1440,1600,1920] [--only TEXT]
 
 It builds the data, empty and error fixtures under DIR/fixture, starts one panel per fixture
 on 127.0.0.1 port 0 (in this process, frozen clock, nothing publishes), and for each tab and
@@ -38,6 +38,8 @@ fails the automatic topics request with a 503, clicks «Повторить» and
 Gemini, 3–5 cards and an empty draft error; `create-expand-texts` taps the last card, waits for «сохранено»,
 clicks «Развернуть» and fails if the box or the button is off screen (or against the window edge) after the
 tap, or «Тексты» or the first card's editor is off screen once the texts arrive.
+`create-texts` also fails when the whole «пожелание…» hint of a text card does not fit its field
+(widths 1000, 1100, 1200 and 1279 are in the default set for this).
 
 It also computes the WCAG contrast of every text colour pair from panel.css. It prints the
 snapshot build time (`snapshot_ms`, budget 1000 ms) and exits 1 on any finding.
@@ -78,7 +80,7 @@ from factory.panel import server  # noqa: E402
 from factory.panel import strings as S  # noqa: E402
 from tests import panel_fixture  # noqa: E402
 
-WIDTHS = {390: 844, 900: 900, 1000: 700, 1280: 800, 1440: 900, 1600: 900, 1920: 1080}
+WIDTHS = {390: 844, 900: 900, 1000: 700, 1100: 700, 1200: 800, 1279: 800, 1280: 800, 1440: 900, 1600: 900, 1920: 1080}
 LONG_TITLE = "Фотографии с городских прогулок"
 ELLIPSIS_STATES = ("files", "rules")   # the Files card and the Rules source card clamp it
 BUDGET_MS = 1000
