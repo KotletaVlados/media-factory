@@ -528,6 +528,27 @@ def photo_uses(snap: Snapshot, name: str, drafts=()) -> dict:
     return out
 
 
+def rule_post_slots(snap: Snapshot, rule, networks) -> tuple:
+    """(next, new): when the folder's next queued package goes out under the calendar plan
+    (the first planned slot of the rule), and when one more post for `networks` queued now
+    would (the first slot of the rule, after the planned ones, that breaks no slot limit).
+    Either is None when the plan has no such slot in its window."""
+    plan = snap.plan
+    if plan is None:
+        return None, None
+    mine = [ps for ps in plan.slots if ps.slot.rule == rule.id and ps.when > snap.now]
+    planned = [ps for ps in mine if ps.state in ("planned", "over-budget")]
+    nxt = planned[0].when if planned else None
+    tracker = planner.LimitTracker(snap.inputs.ruleset, planner.record_publications(snap.inputs.records))
+    for ps in plan.slots:
+        if ps.state in ("planned", "over-budget") and ps.when > snap.now:
+            tracker.add({config.parse_target(t).network for t in ps.targets}, ps.when)
+    nets = {config.parse_target(t).network for t in rule.targets} & set(networks)
+    new = next((ps.when for ps in mine if ps.state == "no-content"
+                and not tracker.violation(nets, ps.when, rule.zone)), None)
+    return nxt, new
+
+
 def folder_rows(snap: Snapshot, name: str) -> list | None:
     """Packages of one folder in publish order, with per-target states (§11.5)."""
     i, plan = snap.inputs, snap.plan
@@ -563,7 +584,7 @@ def folder_rows(snap: Snapshot, name: str) -> list | None:
                     row.get("url")))
             elif (e.id, t) in planned:
                 per_target.append((t, "plan", S.PKG_PLANNED.format(
-                    date=S.day_short(planned[(e.id, t)].astimezone(snap.zone).date())), None))
+                    date=S.when_words(planned[(e.id, t)].astimezone(snap.zone))), None))
             elif st.state in ("ready", "used"):
                 per_target.append((t, "muted", S.PKG_STATE["ready"], None))
             else:
@@ -574,7 +595,9 @@ def folder_rows(snap: Snapshot, name: str) -> list | None:
                 variants.append((net, snap.red(first_line(e.package.variants[net].text))))
         rows.append({"entry": e, "file": e.file, "theme": snap.red(e.package.theme if e.package else ""),
                      "state": st.state, "reason": snap.red(st.reason), "variants": variants,
-                     "image": image_ref(e), "targets": per_target})
+                     "image": image_ref(e), "targets": per_target,
+                     "planned": min((planned[(e.id, t)].astimezone(snap.zone) for t, kind, *_ in per_target
+                                     if kind == "plan"), default=None)})
     return rows
 
 

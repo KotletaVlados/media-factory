@@ -124,7 +124,10 @@ PKG_STATE = {"ready": "ждёт", "used": "использован", "invalid": "
              "not-approved": "не одобрено", "held": "задержан",
              "check-account": "неизвестно — проверьте аккаунт"}
 PKG_PUBLISHED = "опубликован · {date}"
-PKG_PLANNED = "запланирован · {date}"
+QUEUED_LINE = "В очереди «{title}»"
+QUEUED_WHEN = "выйдет {when}"
+QUEUED_WAITS = "выйдет, когда правило начнёт читать папку"
+PKG_PLANNED = "запланирован · {date}"   # date: «пт, 13 нояб., 16:00»
 NO_IMAGE = "без картинки"
 
 # ---------------------------------------------------------------- photos (authoring.md §6)
@@ -341,6 +344,11 @@ def day_short(d: _dt.date) -> str:
     return f"{d.day} {MONTHS_SHORT[d.month - 1]}"
 
 
+def when_words(local: _dt.datetime) -> str:
+    """пт, 13 нояб., 16:00 (a local time)."""
+    return f"{DAYS_LOWER[local.weekday()]}, {day_short(local.date())}, {local:%H:%M}"
+
+
 def month_title(year: int, month: int) -> str:
     return f"{MONTHS_NOM[month - 1]} {year}"
 
@@ -437,8 +445,9 @@ SEND_REFUSED = "Постер отказал до отправки — ничег
 SEND_PUBLISH = "Опубликовать сейчас"
 SEND_QUEUE = "В очередь"
 SEND_FOLDER = "Папка:"
-SEND_RULE = "Правило «{id}»: {days} в {hours} · ближайшая публикация из папки: {next} · перед этим постом в очереди {n}"
-SEND_RULE_NO_SLOT = "Правило «{id}»: {days} в {hours} · перед этим постом в очереди {n}"
+SEND_RULE = "Правило «{id}»: {days} в {hours} · перед этим постом в очереди {n}"
+SEND_RULE_NEXT = " · ближайшая публикация из папки: {when}"
+SEND_RULE_NEW = " · этот пост выйдет: {when}"
 SEND_RULE_ELSEWHERE = ("Правило «{id}» читает эту папку и публикует ещё в: {targets} — этого не было "
                        "на проверке. Выберите другую папку или поправьте правило.")
 SEND_RULES_UNREADABLE = "Правила не читаются — исправьте их на странице «Правила» и повторите."
@@ -465,6 +474,8 @@ SEND_INTERRUPTED = "Публикация прервана — проверьте
 SEND_ROW = {"published": "опубликовано", "failed": "ошибка: {error}", "unknown": "неизвестно — проверьте аккаунт",
             "waiting": "ждём…", "interrupted": "прервано"}
 SEND_OPEN = "открыть в {name}"
+SEND_RECONNECT = "Подключение"
+SEND_RECONNECT_ALL = "Переподключить: {names}"
 SEND_RETRY = "Повторить упавшие: {names}"
 DLG_PUBLISH = "Опубликовать в {n} {word} сейчас?"
 DLG_PUBLISH_TEXT = "{names}. Это нельзя отменить."

@@ -145,6 +145,36 @@ def image_words(network: str, info, error: str) -> str:
     return f"картинка {dims}не подходит: {reason}"
 
 
+_CODE = re.compile(r"^(?:HTTP )?([1-5]\d\d)\b")
+_AUTH = ("invalid access token", "token expired", "expired or revoked", "code 190", "code 102")
+
+
+def failure_words(error: str) -> tuple:
+    """(Russian reason, needs the connection page) for one failed row: the poster's own
+    English error stays in the draft record; the page words what the operator can do. The
+    network is named by the row, so the reason does not repeat it."""
+    low = (error or "").lower()
+    found = _CODE.match(error or "")
+    code = int(found.group(1)) if found else None
+    if code == 401 or any(m in low for m in _AUTH):
+        words, auth = "вход истёк или отозван", True
+    elif code == 403 or "forbidden" in low or "not permitted" in low:
+        words, auth = "доступ запрещён — проверьте права приложения", False
+    elif code == 429 or "rate limit" in low or "too many" in low:
+        words, auth = "сеть просит подождать — повторите позже", False
+    elif "network error" in low:
+        words, auth = "нет связи с сетью — повторите", False
+    elif code is not None and code >= 500:
+        words, auth = "сеть ответила ошибкой — повторите позже", False
+    elif "needs an image" in low:
+        words, auth = "для этой сети нужна картинка", False
+    else:
+        words, auth = "сеть отклонила пост", False
+    if "may exist" in low:
+        words += " · пост мог выйти — проверьте аккаунт до повтора"
+    return words, auth
+
+
 def token_words(error: str) -> str:
     if "ISO-8601" in error:
         return f"LINKEDIN_TOKEN_EXPIRES_AT не читается — {RELOGIN}"
@@ -902,8 +932,11 @@ class Sender:
             network = config.parse_target(t).network
             row = outcome.get(t) or {"status": "waiting"}
             status = row["status"]
-            words = S.SEND_ROW[status].format(error=row.get("error") or "")
+            reason, auth = failure_words(row.get("error") or "") if status == "failed" else ("", False)
+            words = S.SEND_ROW[status].format(error=reason)
             item = {"target": t, "network": network, "status": status, "text": words}
+            if auth:
+                item["reconnect"] = True
             if row.get("url"):
                 item["url"] = row["url"]
             out["targets"].append(item)
@@ -987,7 +1020,7 @@ class Sender:
                 self._write_package(real, f"{nnn:03d}-{did}.json", draft, targets, crops)
                 self.store.remove(did)
             refusal = self.offer_rule(folder, titles[folder], hour) if rule_on else None
-        return f"/files?folder={folder}#pkg-{did}", refusal
+        return f"/files?folder={folder}&queued={did}#pkg-{did}", refusal
 
     def active_rules(self, snap, folder: str) -> list:
         return [r for r in snap.inputs.ruleset.rules if r.active and r.folder == folder] \

@@ -843,7 +843,10 @@ failure removes what was written.
 Under the panel's `write_lock`, the server takes the next `NNN` and writes
 `stock/<folder>/<NNN>-<id>.json` exclusively, together with `media/<id>/`. It then loads the
 package with `poster.package.load`, and no problems are allowed. The draft is removed, and
-the page redirects to `/files?folder=<folder>#pkg-<id>`. The offered rule is created in the
+the page redirects to `/files?folder=<folder>&queued=<id>#pkg-<id>`: the package row opens with
+one line, «В очереди «<папка>» · выйдет пт, 13 нояб., 16:00» (the first planned slot of the
+plan; «выйдет, когда правило начнёт читать папку» when no rule reads the folder), and its title
+is the post's theme. The offered rule is created in the
 same request when its checkbox is on (D25, §17.5 item 15).
 
 ### 10.5 The rest of the panel
@@ -1764,7 +1767,7 @@ specification's items map as follows:
       - `stock/<folder>/<NNN>-<id>.json`, by the same link method. `NNN` is 1 + the
         largest three-digit prefix in the folder, and the server refuses at 999.
     - It loads the file with `poster.package.load`, removes the draft, and answers 303 to
-      `/files?folder=<folder>#pkg-<id>`.
+      `/files?folder=<folder>&queued=<id>#pkg-<id>`.
     - That page shows the package row (`id="pkg-<id>"`) with the chip «в очереди» on its
       photo. For each variant, `GET
       /img?folder=<folder>&file=<NNN>-<id>.json&ref=media/<id>/<network>.jpg` answers 200
@@ -1775,9 +1778,12 @@ specification's items map as follows:
       written.
 14. **Existing rule.** With `?folder=city` on the data fixture (`city-main`, active, Mon,
     Wed, Fri 10:00 Europe/Berlin, `NOW` Wed 2026-11-11 10:40), the queue line reads
-    «Правило «city-main»: пн, ср, пт в 10:00 · ближайшая публикация из папки: пт, 13 нояб.,
-    10:00 · перед этим постом в очереди N». N is the folder's `ready` count from the
-    snapshot plan. No checkbox is shown.
+    «Правило «city-main»: пн, ср, пт в 10:00 · перед этим постом в очереди N · ближайшая
+    публикация из папки: пт, 13 нояб., 10:00 · этот пост выйдет: <date>». N is the folder's
+    `ready` count from the snapshot plan; the two dates come from that plan, not from the rule's
+    raw slots (the planner skips a slot that breaks a limit): «ближайшая» is the first planned
+    slot (shown when N > 0), «этот пост» the first slot after the planned ones that breaks no
+    limit. No checkbox is shown.
 15. **The offered rule.** With no active rule reading the folder, the checkbox of D25 is
     shown and checked. Queuing with it creates a rule:
     - its id is the folder name, or `<folder>-2` … `<folder>-9` if taken;
@@ -1873,7 +1879,7 @@ as they are. All use the data fixture's env and record:
 | `review-published` | «send», `published` | «Отправлено» (the heading), «Опубликовано во всех 4 сетях», four «открыть в …» |
 | `review-interrupted` | «send-crash» | «Публикация прервана — проверьте аккаунт», «Публикация» (the heading), «Instagram · kotleta — прервано» (the instruction stands once, in the line) |
 | `review-delete` | «send», `published`; probe clicks «Удалить черновик» | «Удалить черновик?», «Да, удалить», «Отмена»; nothing posted |
-| `queued` | «send» after setup queued `queue-me` to `my-photos` | `/files?folder=my-photos#pkg-<id>`: the row `<NNN>-<id>.json` with «в очереди» and its image from `/img` |
+| `queued` | «send» after setup queued `queue-me` to `my-photos` | `/files?folder=my-photos&queued=<id>#pkg-<id>`: the row `<NNN>-<id>.json` with «в очереди» and its image from `/img` |
 | `rule-refused` | «send»: setup posts `/queue` for `rule-me` with the rule (helper `post_page`) | Rules page, 409: «Пост в очереди «Мои фото». Правило сохранено черновиком, но не запущено:» and the gap line |
 | `send-start` | «send», `/create` | «Черновики · N» with «публикуется», «частично», «опубликован» |
 
