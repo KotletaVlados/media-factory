@@ -445,6 +445,15 @@ class HighlightTest(ImagesCase):
         for words in ("Gemini не вернул картинку", f"Ответ Gemini: «{pf.MODEL_TEXT}»", "Повторить · до $0.09"):
             self.assertIn(words, body)
         self.assertIn('data-style="glow" data-c>Повторить · до $0.09', body)
+        # the alert names the style once, and no other visible button starts that call
+        self.assertEqual(self.visible(body).count("«Свечение»: Gemini не вернул картинку"), 1)
+        self.assertEqual(len(re.findall(r'data-style="glow"', body)), 1)
+        self.assertNotIn("Свечение — создать", body)
+        pf.write_style(self.fx, self.did, "glow")
+        body, _ = self.review(query="?style=glow")
+        self.assertEqual(len(re.findall(r'data-style="glow"', body)), 1)   # «Заново» steps aside for «Повторить»
+        self.assertNotIn("Заново", self.visible(body))
+        os.remove(os.path.join(self.img, "glow.jpg"))
         # incomplete and failed answer as §8.4; a success clears the stored error
         for state, message in (("incomplete", gemini.INCOMPLETE), ("failed", gemini.INVALID)):
             self.ai_transport.add(pf.image_reply(pf.style_jpeg(), status=state))
@@ -783,6 +792,30 @@ class StorageTest(ImagesCase):
         for name in ("../../.env", "blur.jpg", "BLUR", "../img/blur"):
             import urllib.parse
             self.assertEqual(self.request("GET", f"{self.base}/file?name={urllib.parse.quote(name)}")[0], 404, name)
+
+    def test_the_base_stays_on_screen_when_another_result_is_shown(self):
+        pf.write_style(self.fx, self.did, "blur")
+        pf.write_style(self.fx, self.did, "glow")
+        self.assertEqual(self.settings({"base": "blur"})[0], 200)
+        body, _ = self.review(query="?style=glow")
+        vis = self.visible(body)
+        # the base is the left tile, named and carrying the focus tap; the other result takes its place
+        self.assertRegex(body, r'<figcaption class="photo-label">Размыть фон</figcaption><button class="photo-box send-photo"[^>]*data-focus')
+        self.assertIn('<div class="photo-under"><span class="photo-mark">основа</span></div>', body)
+        self.assertEqual(vis.count("основа"), 1)
+        self.assertEqual(vis.count("Взять за основу"), 1)
+        self.assertIn('data-base="glow" data-c>Взять за основу', body)
+        self.assertNotIn('data-base="orig"', body)
+        self.assertEqual(body.count("data-focus"), 1)
+        # the original is one chip away; the base is no chip, and no «Заново» for the base beside the other's
+        self.assertIn('<a class="chip" href="?style=blur#photo" data-c>Оригинал</a>', body)
+        self.assertNotIn(">Размыть фон</a>", body)
+        self.assertEqual(vis.count("Заново"), 1)
+        # the original as the other tile: ?style=blur is the plain pair again
+        body, _ = self.review(query="?style=blur")
+        self.assertIn('data-base="orig" data-c>Взять за основу', body)
+        self.assertEqual(self.visible(body).count("основа"), 1)
+        self.assertEqual(body.count("data-focus"), 1)
 
     def test_delete_removes_img_and_gets_write_nothing(self):
         pf.write_style(self.fx, self.did)

@@ -2178,8 +2178,13 @@ Order: D′'s action block (unchanged, first), then **«Фото»**, then the c
    Under the base tile stands the word «основа»; under the other, when it holds an image,
    «Взять за основу». Under the right tile with a result is «Заново · до $0.09».
    The focus ring and tap sit on the base tile only (D35).
+
+   The base is always one of the two tiles. When the base is a style and `?style=` shows
+   another result, the base takes the left tile (name, «основа», focus ring, no «Заново»)
+   and the original is a chip «Оригинал» (a link to `?style=<base>#photo`, the plain pair
+   again); then «Взять за основу» stands under the right tile only.
 3. **Style chips**: one chip for each of «Размыть фон», «Свечение» and «Контур» except
-   the style the right tile shows, which its label already names.
+   the styles the tiles show, which their labels already name.
    - A style with a result is a link to `?style=<s>#photo`.
    - A style without a result is a button «Свечение — создать · до $0.09» that spends
      (§18.5 item 5).
@@ -2188,8 +2193,10 @@ Order: D′'s action block (unchanged, first), then **«Фото»**, then the c
 5. **Notices** (`role="alert"`, at most one line each):
    - no key: «нет GEMINI_API_KEY в .env — стили фото недоступны»;
    - the budget refusal «Бюджет ИИ на ноябрь исчерпан: «Стиль фото» стоит до $0.09. …»;
-   - the stored `highlight_error` with «Повторить · до $0.09». A text-only answer adds the
-     line «Ответ Gemini: «<model_text>»».
+   - the stored `highlight_error` as ««Свечение»: <text>» (the failed style named once)
+     with «Повторить · до $0.09». A text-only answer adds the line «Ответ Gemini:
+     «<model_text>»». While it shows, no other button starts that style's call: its chip
+     and its «Заново» step aside for «Повторить».
 
    With no key or past the cap, the spending chips are disabled and carry the reason in
    `title`. The «Создать» pages' `_author_state` is unchanged (`views.py:1080-1097`), so
@@ -2509,10 +2516,11 @@ stay as they are. FakeGemini runs in process:
 | `review-ratio` (functional) | «images-live», `ratio-<w>`: the probe changes each select through the UI in turn and waits for each redraw | Probe JSON: every choice's size equals item 1's first column, and every `/image` answered 200 |
 | `review-highlight-loading` | «images-live», `hold-<w>`, `#photo`: the probe clicks «Размыть фон — создать · до $0.09»; FakeGemini holds until teardown | «Gemini рисует «Размыть фон»… до 3 минут»; the chips, «Взять за основу» and the card controls dimmed and disabled |
 | `review-highlight` | «images-live», `hl-<w>`: the probe clicks; the fake answers the JPEG | «Размыть фон» tile with its image beside «Оригинал», «Взять за основу». Probe JSON: item 5 |
-| `review-highlight-text` | «images-live», `text-<w>`: the probe clicks; text-only answer | «Gemini не вернул картинку», «Ответ Gemini: «…»», «Повторить · до $0.09» |
-| `review-highlight-402` | «images-live», `e402-<w>`: the probe clicks; 402 array | «Не удалось получить картинку от Gemini (HTTP 402): закончились предоплаченные кредиты Gemini — пополните баланс в Google AI Studio». Probe: none of item 9's raw fragments in `document.body.innerText` |
+| `review-highlight-text` | «images-live», `text-<w>`: the probe clicks; text-only answer | ««Размыть фон»: Gemini не вернул картинку», «Ответ Gemini: «…»», «Повторить · до $0.09»; one button for `blur` |
+| `review-highlight-402` | «images-live», `e402-<w>`: the probe clicks; 402 array | ««Размыть фон»: Не удалось получить картинку от Gemini (HTTP 402): закончились предоплаченные кредиты Gemini — пополните баланс в Google AI Studio». Probe: none of item 9's raw fragments in `document.body.innerText` |
 | `create-error-402` | «images-live», `x402-<w>`: the draft page with a topic; the probe clicks «Развернуть · до $0.05»; 402 array | The same line with «тексты», and «Повторить · до $0.05» (the live test's surface) |
 | `review-base` (functional, then framed) | «images-live», `base-<w>`: the probe clicks «Взять за основу» under «Размыть фон» | Probe JSON: item 8 (one `/settings`, four `/image`, two reloads, four new hashes, X 1 536 × 864). Frame: «основа» under «Размыть фон», «Проблем нет · 4 сети» |
+| `review-based-other` | «images», `based` (also holds a «Свечение» result), `?style=glow#photo` | «основа» under «Размыть фон» (the left tile, with the focus ring), «Взять за основу» under «Свечение» only, the chip «Оригинал» |
 | `review-styles-budget` | «images» with the ledger at $9.99, `plain`, `#photo` | «Бюджет ИИ на ноябрь исчерпан: «Стиль фото» стоит до $0.09. …» once; the red «ИИ · ноябрь $9.99 из $10.00 · лимит»; the chips disabled |
 | `review-styles-nokey` | «images» without the key, `styled`, `#photo` | «нет GEMINI_API_KEY в .env — стили фото недоступны»; the chips disabled; «Взять за основу» still enabled |
 

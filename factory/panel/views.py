@@ -1376,31 +1376,46 @@ def _photo_section(ctx: Ctx, draft: dict) -> str:
         return f'<button class="btn" type="button" data-base="{esc(target)}" data-c>{esc(S.PHOTO_TAKE)}</button>'
 
     mark = f'<span class="photo-mark">{esc(S.PHOTO_BASE)}</span>'
-    left = _photo_tile(esc(S.PHOTO_ORIG),
-                       picture(photo_url(draft["folder"], draft["photo"], "view"), S.PHOTO_ORIG, base == "orig"),
-                       mark if base == "orig" else take("orig"))
+    error = draft.get("highlight_error")
+    failed = error["style"] if error else None   # its «Повторить» is the one button that starts that call
+
+    def again(style: str) -> str:
+        return "" if style == failed else spend(style, S.PHOTO_AGAIN.format(bound=bound))
+
+    # the base is always one of the two tiles: when the base is a style other than the one shown,
+    # it takes the left place and the original is a chip (§18.4)
+    held = base if (base != "orig" and shown and shown != base and base in results) else None
+    if held:
+        name = S.PHOTO_STYLES[held]
+        left = _photo_tile(esc(name), picture(f"/create/{did}/file?name={held}", name, True), mark)
+    else:
+        left = _photo_tile(esc(S.PHOTO_ORIG),
+                           picture(photo_url(draft["folder"], draft["photo"], "view"), S.PHOTO_ORIG, base == "orig"),
+                           mark if base == "orig" else take("orig"))
     if shown:
         name = S.PHOTO_STYLES[shown]
-        under = (mark if base == shown else take(shown)) + spend(shown, S.PHOTO_AGAIN.format(bound=bound))
+        under = (mark if base == shown else take(shown)) + again(shown)
         right = _photo_tile(esc(name), picture(f"/create/{did}/file?name={shown}", name, base == shown), under)
     else:
         right = _photo_tile('<span aria-hidden="true">\u00a0</span>',
                             f'<div class="photo-box photo-empty"><p class="muted small">{esc(S.PHOTO_EMPTY)}</p></div>',
                             "", " photo-none")
     chips = []
+    if held:
+        chips.append(f'<a class="chip" href="?style={esc(held)}#photo" data-c>{esc(S.PHOTO_ORIG)}</a>')
     for style in fdrafts.STYLES:
-        if style == shown:
+        if style == shown or style == held:
             continue
         if style in results:
             chips.append(f'<a class="chip" href="?style={style}#photo" data-c>{esc(S.PHOTO_STYLES[style])}</a>')
-        else:
+        elif style != failed:
             chips.append(spend(style, S.PHOTO_CREATE.format(style=S.PHOTO_STYLES[style], bound=bound), "chip"))
     notices = f'<p class="create-notice k-bad" role="alert">{esc(why)}</p>' if why else ""
-    error = draft.get("highlight_error")
     if error:
         said = (f'<p>{esc(S.PHOTO_MODEL_SAID.format(text=error["model_text"]))}</p>'
                 if error.get("model_text") else "")
-        notices += (f'<div class="create-error k-bad photo-error" role="alert"><p>{esc(error["text"])}</p>{said}'
+        line = S.PHOTO_ERROR.format(style=S.PHOTO_STYLES[error["style"]], text=error["text"])
+        notices += (f'<div class="create-error k-bad photo-error" role="alert"><p>{esc(line)}</p>{said}'
                     f'{spend(error["style"], S.PHOTO_RETRY.format(bound=bound))}</div>')
     hint = (f'<p class="muted small photo-hint">{esc(S.SEND_FOCUS_HINT.format(names=names))}</p>'
             if cropped else "")
