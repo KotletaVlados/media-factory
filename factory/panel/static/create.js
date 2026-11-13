@@ -50,6 +50,7 @@
       } else if (b.matches(".topic-card, [data-recent], #create-file")) { b.disabled = value; }
     });
     root.setAttribute("aria-busy", String(value));
+    if (C.draft) { goRow(); }   // the start page has no draft (D is not initialised there)
     const hint = $(".topic-hint");
     if (hint) { hint.hidden = !!$("#topic").value.trim(); }
     const drop = $(".create-drop");
@@ -188,6 +189,17 @@
   function expandLabel() {
     $("[data-op=expand]").textContent = (Object.values(D.variants).some(v => v.source === "edited") ?
       T.expand_again : T.expand) + " · " + C.bounds.expand;
+    goRow();
+  }
+  // «Проверить и отправить →» once every target network has a text; hidden while Gemini writes (§17.5 item 4).
+  // While busy it keeps its place (visibility only), so showing it again never moves the page under a
+  // scroll anchor after «Тексты» was revealed.
+  function goRow() {
+    const row = $(".send-go-row");
+    if (row) {
+      row.hidden = !(C.send_networks || []).every(n => D.variants[n]);
+      row.classList.toggle("send-go-wait", busy);
+    }
   }
   function bindText(card) {
     const n = card.dataset.network, el = $(".text-editor", card);

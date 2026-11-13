@@ -496,7 +496,8 @@ def _folder_view(ctx: Ctx, name: str) -> str:
             states = f'<li><span class="st k-{kind}">{esc(label)}</span></li>'
         reason = (f'<p class="small"><span class="alert-label">{esc(S.PROBLEM)}</span> '
                   f'<span class="core">{esc(r["reason"])}</span></p>' if r["reason"] else "")
-        out.append(f'<article class="pkg">{tile(r["entry"], None, "tile tall")}'
+        out.append(f'<article class="pkg" id="pkg-{esc(r["entry"].id if r["entry"] else r["file"])}">'
+                   f'{tile(r["entry"], None, "tile tall")}'
                    f'<div class="pkg-main"><h3 class="mono">{esc(r["file"])}</h3>'
                    f'<p class="muted">{esc(r["theme"])}</p>{reason}</div>'
                    f'<ul class="pkg-variants">{variants}</ul>'
@@ -603,6 +604,13 @@ def rules(ctx: Ctx, refusal=None) -> str:
     if refusal and refusal.get("stale"):
         banner = (f'<div class="error" role="alert"><p>{esc(S.STALE)} '
                   f'<a class="btn" href="/rules">{esc(S.RELOAD)}</a></p></div>')
+    elif refusal and refusal.get("queued"):
+        # the post is queued; the offered rule was saved as a draft (authoring.md §17.5 item 15)
+        rid = refusal.get("rule") or "new"
+        lines = "".join(f'<li class="core">{esc(p)}</li>' for p in refusal.get("problems", []))
+        banner = (f'<div class="error" role="alert"><p>{esc(S.QUEUED_RULE_REFUSED.format(title=refusal["queued"]))} '
+                  f'<a class="btn" href="#rule-{esc(rid)}">{esc(S.TO_RULE)}</a></p>'
+                  f'<ul>{lines}</ul></div>')
     elif refusal and refusal.get("problems"):
         rid = refusal.get("rule") or "new"
         text = (S.NEW_REFUSED if rid == "new" else S.RULE_REFUSED.format(id=rid))
@@ -1095,13 +1103,15 @@ def create(ctx: Ctx) -> str:
         recent_html = (f'<section><h2>Недавние фото</h2><p class="recent-hint muted small">{esc(S.CREATE_RECENT_HINT)}</p>'
                        f'<div class="recent-photos">{buttons}</div></section>')
     summaries = ctx.author.drafts.summaries()
+    for d in summaries[:10]:
+        d["stage"] = ctx.author.sender.stage(d)   # «прервано» needs the publish lock (§17.2)
     drafts_html = ""
     if summaries:
         rows = "".join(
-            f'<li><a class="draft-row" href="/create/{esc(d["id"])}">'
+            f'<li><a class="draft-row" href="/create/{esc(d["id"])}{"" if d["state"] == "draft" else "/review"}">'
             f'<img src="{esc(photo_url(d["folder"], d["photo"], "thumb"))}" alt="">'
             f'<span class="draft-topic" title="{esc(d["topic"] or "без темы")}">{esc(d["topic"] or "без темы")}</span>'
-            f'<span class="draft-meta small"><span class="draft-stage k-{"bad" if d["stage"] in ("error", "over") else "muted"}">'
+            f'<span class="draft-meta small"><span class="draft-stage k-{"bad" if d["stage"] in S.DRAFT_STAGE_BAD else "ok" if d["stage"] == "published" else "muted"}">'
             f'{esc(S.DRAFT_STAGE[d["stage"]])}</span><span class="muted mono">{esc(_stamp(d["updated"]))}</span></span></a></li>'
             for d in summaries[:10])
         drafts_html = f'<section><h2>Черновики · {len(summaries)}</h2><ul class="draft-list">{rows}</ul></section>'
@@ -1154,7 +1164,6 @@ def _text_card(network, value, why, bounds):
 def create_draft(ctx: Ctx) -> str:
     why, bounds, month, author = _author_state(ctx)
     draft = ctx.author.drafts.load(ctx.path[len("/create/"):])
-    data = _create_data(ctx, why, bounds, draft=draft)
     topics = []
     for item in draft["topics"]:
         topic = item["title"] + " — " + item["angle"]
@@ -1173,6 +1182,9 @@ def create_draft(ctx: Ctx) -> str:
     # A failed topics request is retried by the banner's button, not by a second one.
     topics_hidden = {"hidden": ""} if error and error["op"] == "topics" else {}
     texts = "".join(_text_card(n, draft["variants"][n], why, bounds) for n in S.CREATE_NETWORKS if n in draft["variants"])
+    send_networks = ctx.author.sender.networks()
+    ready = all(n in draft["variants"] for n in send_networks)
+    data = _create_data(ctx, why, bounds, draft=draft, send_networks=send_networks)
     if not texts:
         texts = f'<p class="empty">{esc(S.CREATE_JS["before_texts"])}</p>'
     body = (f'<div class="create-draft" data-create="{data}"><div class="create-alerts">{_create_notice(why)}{error_html}</div>'
@@ -1193,12 +1205,16 @@ def create_draft(ctx: Ctx) -> str:
             f'<p class="topic-hint muted small"{" hidden" if draft["topic"].strip() else ""}>{esc(S.CREATE_JS["empty_topic"])}</p></div>'
             f'</section><section id="texts" class="create-texts"><div class="texts-heading"><h2>Тексты</h2>'
             f'<p class="text-ai-status small" role="status"></p></div>'
+            f'<p class="send-go-row"{"" if ready else " hidden"}><a class="btn send-go" '
+            f'href="/create/{esc(draft["id"])}/review">{esc(S.SEND_GO)}</a></p>'
             f'<div class="text-cards">{texts}</div></section></div>'
-            f'<p><a href="/create">Новый пост</a> · <a href="/create/profile">Профиль автора</a></p>'
+            f'<p class="draft-links"><a href="/create">Новый пост</a> · <a href="/create/profile">Профиль автора</a> · '
+            f'<button class="linkbtn" type="button" data-open="dlg-delete">{esc(S.SEND_DELETE)}</button></p>'
+            f'{_delete_dialog(ctx, draft["id"])}'
             f'<noscript><p>{esc(S.CREATE_NEED_JS)}</p></noscript></div>')
     date = config.parse_utc(draft["updated"])
     return page(ctx, "create", body, sub=f'Черновик · {esc(S.day_short(date))}, {date:%H:%M}',
-                sub_right=month, scripts=("author.js", "create.js"))
+                sub_right=month, scripts=("author.js", "create.js", "send.js"))
 
 
 def create_profile(ctx: Ctx, refusal=None) -> str:
@@ -1220,3 +1236,185 @@ def create_profile(ctx: Ctx, refusal=None) -> str:
             f'<button class="btn" type="submit">Сохранить профиль</button> <a class="btn" href="/create">Создать пост</a>'
             f'</form></section>')
     return page(ctx, "create", body, sub="Профиль автора", sub_right=month)
+
+
+# ---------------------------------------------------------------- Отправка (authoring.md §17)
+
+def _dialog(ident: str, title: str, text: str, action: str, fields: str, yes: str) -> str:
+    """A native modal confirmation (§17.4): its own POST form with the csrf field."""
+    para = f'<p>{esc(text)}</p>' if text else ""
+    return (f'<dialog id="{ident}" class="dlg" aria-labelledby="{ident}-h">'
+            f'<form method="post" action="{esc(action)}">{fields}'
+            f'<h2 id="{ident}-h">{esc(title)}</h2>{para}'
+            f'<div class="dlg-buttons"><button class="btn green" type="submit" data-confirm>{esc(yes)}</button>'
+            f'<button class="btn" type="button" data-close autofocus>{esc(S.DLG_CANCEL)}</button></div>'
+            f'</form></dialog>')
+
+
+def _delete_dialog(ctx: Ctx, did: str) -> str:
+    return _dialog("dlg-delete", S.DLG_DELETE, S.DLG_DELETE_TEXT, f"/create/{did}/delete",
+                   hidden(ctx), S.DLG_DELETE_YES)
+
+
+ROW_KIND = {"published": "ok", "failed": "bad", "unknown": "bad", "interrupted": "bad",
+            "waiting": "muted"}
+
+
+def _send_rows(view: dict) -> str:
+    out = []
+    for item in view["targets"]:
+        name = S.NET_NAME[item["network"]]
+        link = (f'<a class="send-open" href="{esc(item["url"])}" target="_blank" rel="noopener">'
+                f'{esc(S.SEND_OPEN.format(name=name))}</a>' if item.get("url") else "")
+        out.append(f'<li data-target="{esc(item["target"])}"><span class="send-row-name">{esc(name)} · '
+                   f'<span class="mono">{esc(item["target"])}</span> —</span> '
+                   f'<span class="st k-{ROW_KIND[item["status"]]}" data-status>{esc(item["text"])}</span>'
+                   f'<span class="send-link">{" · " + link if link else ""}</span></li>')
+    return f'<ul class="send-rows">{"".join(out)}</ul>'
+
+
+def _rule_line(ctx: Ctx, rule, folder: str) -> str:
+    snap = ctx.snap
+    days = ", ".join(S.DAYS_LOWER[fruleset.DAYS.index(d)] for d in rule.days)
+    hours = ", ".join(rule.hours)
+    summary = next((f for f in snap.plan.folders if f.name == folder), None) if snap.plan else None
+    n = summary.counts.get("ready", 0) if summary else 0
+    slots = [s for s in planner.rule_slots(rule, snap.now, snap.now + _dt.timedelta(days=14))
+             if s.when > snap.now]
+    if not slots:
+        return S.SEND_RULE_NO_SLOT.format(id=rule.id, days=days, hours=hours, n=n)
+    local = slots[0].when.astimezone(rule.zone)
+    nxt = f"{S.DAYS_LOWER[local.weekday()]}, {S.day_short(local.date())}, {local:%H:%M}"
+    return S.SEND_RULE.format(id=rule.id, days=days, hours=hours, next=nxt, n=n)
+
+
+def create_review(ctx: Ctx, refusal=None) -> str:
+    """GET /create/<id>/review (authoring.md §17.4): the action block first, then the source
+    photo (state `draft`), the cards of every target, and the dialogs."""
+    from factory.authoring import drafts as fdrafts, send
+    a = ctx.author
+    sender = a.sender
+    did = ctx.path.split("/")[2]
+    draft = a.drafts.load(did)
+    state = draft["state"]
+    targets = sender.targets()
+    crops = sender.crops(did)
+    rv = send.review(draft, targets, sender.facts(ctx.snap), crops)
+    view = sender.view(draft)
+    month = _author_state(ctx)[2]
+    names = [S.NET_NAME[t.network] for t in targets]
+    n = len(targets)
+    live = state == "publishing" and not view["interrupted"]
+    seen_value = send.seen(draft, targets, crops) if not rv.missing else ""
+    problems = rv.problems
+
+    top = ""
+    # a refusal stands on top, unless it is the problem list the block below already shows
+    if refusal and not (refusal.get("lines") and refusal["lines"] == problems):
+        lines = "".join(f'<li class="core">{esc(x)}</li>' for x in refusal.get("lines", []))
+        top = (f'<div class="error send-refusal" role="alert"><p>{esc(refusal["message"])}</p>'
+               f'{f"<ul>{lines}</ul>" if lines else ""}</div>')
+    refused = ""
+    if draft.get("refused"):
+        lines = "".join(f'<li class="core">{esc(x)}</li>' for x in draft["refused"]["lines"])
+        refused = (f'<div class="send-refused k-bad" role="alert"><p>{esc(S.SEND_REFUSED)}</p>'
+                   f'<ul>{lines}</ul></div>')
+    edit = (f'<a class="btn" href="/create/{esc(did)}">{esc(S.SEND_EDIT)}</a>'
+            if state == "draft" else "")
+    if state == "draft":
+        missing = [S.NET_NAME[x] for x in rv.missing]
+        crop_line = (f'<p class="send-crops" role="status">'
+                     f'{esc(S.SEND_CROPS.format(names=", ".join(missing)))}</p>' if missing else
+                     '<p class="send-crops" role="status" hidden></p>')
+        if problems:
+            items = "".join(f'<li class="core">{esc(p)}</li>' for p in problems)
+            check = (f'<div class="send-problems k-bad" role="alert"><p>{esc(S.SEND_PROBLEMS)}</p>'
+                     f'<ul>{items}</ul></div>')
+        else:
+            check = f'<p class="send-ok k-ok">{esc(S.SEND_OK.format(n=n, word=S.plural(n, S.NET_WORDS)))}</p>'
+        off = " disabled" if problems or rv.missing else ""
+        buttons = (f'<div class="send-buttons"><button class="btn green" type="button" '
+                   f'data-open="dlg-publish"{off}>{esc(S.SEND_PUBLISH)}</button>'
+                   f'<button class="btn" type="submit" form="send-queue"{off}>{esc(S.SEND_QUEUE)}</button></div>')
+        folders = sender.queue_folders(ctx.snap)
+        titles = dict(folders)
+        chosen = ctx.q("folder") or draft["folder"]
+        if chosen not in titles:
+            chosen = draft["folder"]
+        options = "".join(f'<option value="{esc(name)}"{" selected" if name == chosen else ""}>'
+                          f'{esc(title)}</option>' for name, title in folders)
+        rules = sender.active_rules(ctx.snap, chosen)
+        if rules:
+            rule_html = f'<p class="send-rule small">{esc(_rule_line(ctx, rules[0], chosen))}</p>'
+        else:
+            rule_html = (f'<label class="check send-offer small"><input type="checkbox" name="rule" '
+                         f'value="1" checked>{esc(S.SEND_OFFER.format(title=titles.get(chosen, chosen)))}</label>')
+        queue = (f'<form id="send-queue" class="send-queue" method="post" action="/create/{esc(did)}/queue">'
+                 f'{hidden(ctx, seen=seen_value)}<label class="send-folder">{esc(S.SEND_FOLDER)} '
+                 f'<select name="folder" data-folder>{options}</select></label>{rule_html}</form>')
+        action = crop_line + check + refused + buttons + queue
+    else:
+        actions = []
+        if view["failed"] and not live:
+            failed = [S.NET_NAME[config.parse_target(t).network] for t in view["failed"]]
+            actions.append(f'<button class="btn green" type="button" data-open="dlg-retry">'
+                           f'{esc(S.SEND_RETRY.format(names=", ".join(failed)))}</button>')
+        if not live:
+            actions.append(f'<button class="btn" type="button" data-open="dlg-delete">{esc(S.SEND_DELETE)}</button>')
+        action = (f'<div class="send-status" data-state="{esc(state)}">'
+                  f'<p class="send-status-line{" k-bad" if view["interrupted"] else ""}" role="status">'
+                  f'{esc(view["line"])}</p>{_send_rows(view)}{refused}'
+                  + (f'<div class="send-buttons">{"".join(actions)}</div>' if actions else "")
+                  + '</div>')
+    source = ""
+    if state == "draft":
+        source = (f'<section class="send-source" aria-label="{esc(S.SEND_FOCUS_LABEL)}">'
+                  f'<button class="send-photo" type="button" data-focus aria-label="{esc(S.SEND_FOCUS_LABEL)}">'
+                  f'<img src="{esc(photo_url(draft["folder"], draft["photo"], "view"))}" alt="">'
+                  f'<span class="send-ring" aria-hidden="true" hidden></span></button>'
+                  f'<p class="muted small">{esc(S.SEND_FOCUS_HINT)}</p></section>')
+    cards = []
+    for card in rv.cards:
+        net = card.target.network
+        name = S.NET_NAME[net]
+        head = f"{name} · {card.target.id} · {S.SEND_LANG[fdrafts.LANGS[net]]}"
+        if card.crop is not None:
+            img = (f'<img src="/create/{esc(did)}/file?name={esc(net)}" alt="{esc("Картинка для " + name)}" '
+                   f'decoding="async">')
+            n_bytes = card.crop.size
+            size = S.SEND_SIZE.format(w=S.group(card.crop.width or 0), h=S.group(card.crop.height or 0),
+                                      size=f"{n_bytes / 1_000_000:.1f} МБ" if n_bytes >= 100_000
+                                      else f"{max(1, n_bytes // 1000)} КБ")
+        else:
+            img, size = f'<span class="send-wait muted small">{esc(S.SEND_NO_CROP)}</span>', ""
+        text = (f'<p class="send-text">{esc(card.text)}</p>' if card.text is not None else
+                f'<p class="send-text muted">{esc(send.NO_TEXT)}</p>')
+        line = card.present.get("line", "")
+        extra = "".join(f'<p class="small{cls}">{esc(x)}</p>' for x, cls in
+                        ((line, " mono"), (card.x_line, " mono"), (card.note, " k-warn")) if x)
+        cards.append(f'<article class="send-card" data-network="{esc(net)}"><h3>{esc(head)}</h3>'
+                     f'<div class="send-crop">{img}</div>'
+                     f'<p class="mono small send-size">{esc(size)}</p>{text}{extra}</article>')
+    bottom = (f'<p class="send-bottom"><button class="btn" type="button" data-open="dlg-delete">'
+              f'{esc(S.SEND_DELETE)}</button></p>' if state == "draft" else "")
+    dialogs = _delete_dialog(ctx, did)
+    if state == "draft":
+        dialogs += _dialog("dlg-publish", S.DLG_PUBLISH.format(n=n, word=S.plural(n, S.NET_WORDS)),
+                           S.DLG_PUBLISH_TEXT.format(names=S.names_and(names)),
+                           f"/create/{did}/publish", hidden(ctx, seen=seen_value), S.DLG_PUBLISH_YES)
+    if view["failed"] and not live:
+        failed = [S.NET_NAME[config.parse_target(t).network] for t in view["failed"]]
+        dialogs += _dialog("dlg-retry", S.DLG_RETRY.format(names=S.names_and(failed)), "",
+                           f"/create/{did}/retry", hidden(ctx), S.DLG_RETRY_YES)
+    data = {"csrf": ctx.csrf, "did": did, "state": state, "live": live,
+            "missing": rv.missing if state == "draft" else [],
+            "focus": sender.focus(draft), "orig": photo_url(draft["folder"], draft["photo"], "orig"),
+            "names": {t.network: S.NET_NAME[t.network] for t in targets}, "strings": S.SEND_JS}
+    body = (f'<div class="send" data-send="{esc(json.dumps(data, ensure_ascii=False))}">{top}'
+            f'<section class="send-action" aria-labelledby="send-h"><div class="send-head">'
+            f'<h2 id="send-h">{esc(S.SEND_TITLE)}</h2>{edit}</div>{action}</section>{source}'
+            f'<section class="send-cards" aria-labelledby="send-cards-h"><h2 id="send-cards-h">'
+            f'{esc(S.SEND_CARDS)}</h2><div class="send-grid">{"".join(cards)}</div></section>'
+            f'{bottom}{dialogs}<noscript><p>{esc(S.CREATE_NEED_JS)}</p></noscript></div>')
+    return page(ctx, "create", body, sub=esc(S.SEND_SUB.format(date=_stamp(draft["created"]))),
+                sub_right=month, scripts=("author.js", "send.js"))

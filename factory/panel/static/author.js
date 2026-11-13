@@ -58,6 +58,74 @@
     });
   }
 
+  // Slice D′ (authoring.md §17.1, D18–D20). The output size of one network's plain crop for
+  // an original of w x h (D19): Instagram 4k x 5k (k <= 270), X 16k x 9k (k <= 100), Facebook
+  // and LinkedIn the original ratio with the long side min(2048, the original's). Never
+  // upscaled. send.py's crop_size is the same rule.
+  var CROP = {instagram: [4, 5, 270], x: [16, 9, 100]};
+  function cropSize(network, w, h) {
+    var r = CROP[network];
+    if (r) {
+      var k = Math.min(r[2], Math.floor(w / r[0]), Math.floor(h / r[1]));
+      return [r[0] * k, r[1] * k];
+    }
+    var long = Math.max(w, h), side = Math.min(2048, long);
+    return w >= h ? [side, Math.max(1, Math.round(h * side / long))] :
+      [Math.max(1, Math.round(w * side / long)), side];
+  }
+
+  // The source window: the largest one of `ratio` ([a, b] or null for the whole photo),
+  // centred on `focus` ([fx, fy] in 0..1) and clamped inside the photo.
+  function cropWindow(w, h, ratio, focus) {
+    if (!ratio) {
+      return [0, 0, w, h];
+    }
+    var ww, wh;
+    if (w * ratio[1] > h * ratio[0]) {
+      ww = Math.round(h * ratio[0] / ratio[1]);
+      wh = h;
+    } else {
+      ww = w;
+      wh = Math.round(w * ratio[1] / ratio[0]);
+    }
+    return [Math.round(Math.min(Math.max(focus[0] * w - ww / 2, 0), w - ww)),
+            Math.round(Math.min(Math.max(focus[1] * h - wh / 2, 0), h - wh)), ww, wh];
+  }
+
+  // One plain crop of a decoded original (no effects): spec = {ratio, width, height,
+  // maxBytes}. JPEG at 0.9, then 0.8 and 0.7 while the file is over maxBytes. The canvas
+  // writes no camera metadata. Resolves {blob, width, height, window, quality}.
+  function makeCrop(bitmap, spec, focus) {
+    var win = cropWindow(bitmap.width, bitmap.height, spec.ratio, focus || [0.5, 0.5]);
+    return createImageBitmap(bitmap, win[0], win[1], win[2], win[3],
+                             {resizeWidth: spec.width, resizeHeight: spec.height, resizeQuality: "high"})
+      .then(function (small) {
+        var canvas = document.createElement("canvas");
+        canvas.width = spec.width;
+        canvas.height = spec.height;
+        var g = canvas.getContext("2d");
+        g.fillStyle = "#ffffff";
+        g.fillRect(0, 0, spec.width, spec.height);
+        g.drawImage(small, 0, 0);
+        small.close();
+        var qualities = [0.9, 0.8, 0.7];
+        function attempt(i) {
+          return new Promise(function (resolve, reject) {
+            canvas.toBlob(function (blob) {
+              if (blob) { resolve(blob); } else { reject(new Error("toBlob")); }
+            }, "image/jpeg", qualities[i]);
+          }).then(function (blob) {
+            if (blob.size > spec.maxBytes && i + 1 < qualities.length) {
+              return attempt(i + 1);
+            }
+            return {blob: blob, width: spec.width, height: spec.height, window: win,
+                    quality: qualities[i]};
+          });
+        }
+        return attempt(0);
+      });
+  }
+
   function uploadStrings() {
     var root = document.querySelector("[data-create]");
     return root ? JSON.parse(root.dataset.create).upload_strings :
@@ -91,7 +159,8 @@
     });
   }
 
-  window.MFAuthor = {makeCopies: makeCopies, uploadFile: uploadFile};
+  window.MFAuthor = {makeCopies: makeCopies, uploadFile: uploadFile, makeCrop: makeCrop,
+                     cropSize: cropSize, cropWindow: cropWindow};
 
   var section = document.querySelector("section[data-photos]");
   if (!section) {

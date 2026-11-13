@@ -732,3 +732,247 @@ def build_create(root: str, key=True, ledger_usd=None, live_widths=()) -> Fixtur
         rid = ledger.reserve("topics", Decimal(str(ledger_usd)), Decimal("10"), "fixture")
         ledger.settle(rid, "ok", actual=Decimal(str(ledger_usd)))
     return fx
+
+
+# ---------------------------------------------------------------- Отправка (authoring.md §17.6, §17.8)
+
+PAGE_ID = PLAIN["FB_PAGE_KOTLETA_ID"]
+SEND_SIZES = {"facebook": (1536, 2048), "instagram": (1080, 1350), "linkedin": (1536, 2048),
+              "x": (1600, 900)}
+
+
+def fb_ok(n: int = 1) -> list:
+    from tests.base import resp
+    return [resp(200, {"id": f"P{n}", "post_id": f"{PAGE_ID}_{n}"})]
+
+
+def ig_ok() -> list:
+    """Staging photo, its CDN URL, container, status, publish, permalink, staging delete and
+    the check that it is gone (the shapes of tests/test_cli.py `ig_success`)."""
+    from tests.base import resp
+    return [resp(200, {"id": "PH1"}),
+            resp(200, {"images": [{"width": 1080, "source": "https://cdn.invalid/a.jpg"}]}),
+            resp(200, {"id": "C1"}), resp(200, {"status_code": "FINISHED"}),
+            resp(200, {"id": "M1"}), resp(200, {"permalink": "https://www.instagram.com/p/OK/"}),
+            resp(200, {"success": True}),
+            resp(400, {"error": {"message": "gone", "code": 100, "error_subcode": 33}})]
+
+
+def li_ok() -> list:
+    from tests.base import resp
+    return [resp(200, {"value": {"uploadUrl": "https://www.linkedin.com/dms-uploads/u1",
+                                 "image": "urn:li:image:1"}}),
+            resp(201, {}), resp(201, {}, {"x-restli-id": "urn:li:share:1"})]
+
+
+def li_401(echo: str = "") -> list:
+    """initializeUpload refused with 401; the body may echo a token, as a hostile vendor might."""
+    from tests.base import resp
+    return [resp(401, {"message": "Invalid access token " + echo, "status": 401})]
+
+
+def x_ok() -> list:
+    from tests.base import resp
+    return [resp(200, {"data": {"id": "M77"}}), resp(201, {"data": {"id": "77"}})]
+
+
+def x_403() -> list:
+    from tests.base import resp
+    return [resp(403, {"title": "Forbidden", "detail": "not permitted"})]
+
+
+def four_ok() -> list:
+    return fb_ok() + ig_ok() + li_ok() + x_ok()
+
+
+class Crash(BaseException):
+    """Raised inside the fake transport; not an Exception, so neither the poster's per-target
+    isolation nor its last-resort path catches it, and the publish function itself raises."""
+
+
+class FakePoster:
+    """The panel's publish function for tests and the visual check (authoring.md §17.8): it
+    calls the real `poster.cli.main` with a scripted FakeTransport (never a socket), no sleep
+    and the panel's clock. `script` is one response list per call (default: four targets
+    published). With `hold` (an Event), the first request after `after` record rows of the
+    package waits on it; with `crash`, that request raises instead."""
+
+    def __init__(self, script=None, hold=None, crash=False, after=1, wait=120):
+        self.script = list(script) if script is not None else None
+        self.hold, self.crash, self.after, self.wait = hold, crash, after, wait
+        self.calls: list = []
+        self.transports: list = []
+        self.entered = threading.Event()     # the hold point was reached
+        self.ended = threading.Event()
+
+    def __call__(self, argv, *, environ, stdout, stderr, clock):
+        from poster import cli
+        from tests.base import FakeTransport
+        self.calls.append(list(argv))
+        self.ended.clear()
+        responses = (self.script.pop(0) if self.script else []) if self.script is not None else four_ok()
+        transport = FakeTransport(responses)
+        record = os.path.join(argv[argv.index("--state-dir") + 1], poster_state.RECORD_FILE)
+        with open(argv[argv.index("publish") + 1], encoding="utf-8") as fh:
+            package = json.load(fh)["id"]
+        start = os.path.getsize(record) if os.path.exists(record) else 0
+        fired = []
+        send = transport.send
+
+        def gated(req):
+            if not fired and (self.hold is not None or self.crash):
+                with open(record, "rb") if os.path.exists(record) else io.BytesIO() as fh:
+                    fh.seek(start)
+                    rows = [line for line in fh.read().split(b"\n") if package.encode() in line]
+                if len(rows) >= self.after:
+                    fired.append(1)
+                    self.entered.set()
+                    if self.crash:
+                        raise Crash()
+                    self.hold.wait(self.wait)
+            return send(req)
+        transport.send = gated
+        self.transports.append(transport)
+        try:
+            return cli.main(argv, environ=environ, transport=transport, sleep=lambda s: None,
+                            clock=clock, stdout=stdout, stderr=stderr)
+        except Crash:
+            raise RuntimeError("the publisher stopped") from None
+        finally:
+            self.ended.set()
+
+
+def write_crops(fx: Fixture, did: str, sizes=None, seed: int = 0) -> dict:
+    """Crops at the D19 sizes stored as the browser would (out/<network>.jpg, 0600), so static
+    states do not wait on the canvas. Returns network -> path."""
+    from factory.authoring import drafts
+    out = os.path.join(fx.paths.content, "drafts", did, "out")
+    os.makedirs(out, mode=0o700, exist_ok=True)
+    found = {}
+    for k, (n, (w, h)) in enumerate(sorted((sizes or SEND_SIZES).items())):
+        key = (w, h, seed + k)
+        if key not in _CROP_CACHE:
+            _CROP_CACHE[key] = make_photo(w, h, seed + k)
+        path = os.path.join(out, f"{n}.jpg")
+        with open(path, "wb") as fh:
+            fh.write(_CROP_CACHE[key])
+        os.chmod(path, 0o600)
+        found[n] = path
+    assert drafts.valid_id(did)
+    return found
+
+
+_CROP_CACHE: dict = {}
+_BIG: dict = {}
+
+
+def big_photo() -> bytes:
+    """One 3 024 x 4 032 JPEG (about 0.9 s to generate), made once per process."""
+    if "orig" not in _BIG:
+        _BIG["orig"] = make_photo(3024, 4032, 4242)
+        _BIG["view"] = make_photo(1200, 1600, 4242)
+        _BIG["thumb"] = make_photo(360, 480, 4242)
+    return _BIG["orig"]
+
+
+def send_draft(fx: Fixture, store, photo: str, name: str, i: int, texts=None) -> str:
+    """A draft of `my-photos` with the given texts, its id fixed by `i`."""
+    from unittest import mock
+    from factory.authoring import drafts
+    with mock.patch("factory.authoring.drafts.secrets.token_hex", return_value=f"{0xd000 + i:04x}"):
+        d = store.create(fx.paths.stock, "my-photos", photo, True)
+
+    def fill(d):
+        d["topics_auto"] = "done"
+        d["topic"] = TOPICS[1]["title"] + " — " + TOPICS[1]["angle"]
+        d["variants"] = {n: {"text": t, "lang": drafts.LANGS[n], "source": "gemini"}
+                         for n, t in (texts or TEXTS).items()}
+    store.update(d["id"], fill)
+    return d["id"]
+
+
+def set_sent(fx: Fixture, did: str, state: str, outcome: dict, package=True) -> None:
+    """Put a fixture draft in a sent state with one finished attempt (no publisher)."""
+    from factory.authoring import drafts
+    store = drafts.Store(fx.paths.content, fx.clock, fx.machine_tz)
+    targets = list(config.PROFILES[fcli.DEFAULT_PROFILE])
+    if package:
+        _write_json(os.path.join(fx.paths.packages, f"{did}.json"),
+                    {"schema": 1, "id": did, "theme": "fixture", "variants": {
+                        "facebook": {"text": "fixture"}},
+                     "meta": {"approved_by_operator": "2026-11-11", "source": "panel"}})
+
+    def mutate(d):
+        d["state"] = state
+        d["publish"] = {"package": f"packages/{did}.json", "targets": targets, "attempts": [
+            {"started": config.iso_utc(fx.now), "ended": config.iso_utc(fx.now), "targets": targets,
+             "offset": 0, "exit": 0 if state == "published" else 1, "outcome": outcome}]}
+    store.update(did, mutate, sent_ok=True)
+
+
+def build_send(root: str, *, problems=False, crash=False, live_widths=()) -> Fixture:
+    """The «send» fixtures of authoring.md §17.6, on top of `build_data` (its env, record and
+    `city-main`): `my-photos` with one 3 024 x 4 032 photo and 12 small ones.
+
+    - default: the drafts `ready`, `publishing`, `partial`, `published`, `queue-me` and
+      `rule-me`, each with crops at the D19 sizes (the visual check posts the publish of
+      `publishing` and the two queues itself);
+    - `problems`: an env without FB_PAGE_KOTLETA_TOKEN, LINKEDIN_TOKEN_EXPIRES_AT in the past,
+      and a draft `problems` whose X text is 312 weighted characters;
+    - `crash`: one draft `crash` left in `publishing` with a Facebook row in the record;
+    - `live_widths`: per width, a draft `crops-<w>` without crops and `focus-<w>` with them.
+    """
+    from factory.authoring import drafts
+    fx = build_data(root)
+    if problems:
+        with open(fx.paths.env_file, encoding="utf-8") as fh:
+            lines = [line for line in fh if not line.startswith(("FB_PAGE_KOTLETA_TOKEN=",
+                                                                 "LINKEDIN_TOKEN_EXPIRES_AT="))]
+        lines.append("LINKEDIN_TOKEN_EXPIRES_AT=2026-11-01T00:00:00Z\n")
+        with open(fx.paths.env_file, "w", encoding="utf-8") as fh:
+            fh.writelines(lines)
+    big = store_photo(fx, "my-photos", big_photo(), _BIG["thumb"], _BIG["view"], "portrait.jpg")
+    for k in range(12):
+        orig = make_photo(320, 240, 1300 + k)
+        store_photo(fx, "my-photos", orig, make_photo(160, 120, 1300 + k), orig, f"walk-{k + 1:02d}.jpg")
+    store = drafts.Store(fx.paths.content, fx.clock, fx.machine_tz)
+    fx.send_ids = {}
+    if live_widths:
+        names = [f"{state}-{w}" for w in live_widths for state in ("crops", "focus")]
+    elif problems:
+        names = ["problems"]
+    elif crash:
+        names = ["crash"]
+    else:
+        names = ["ready", "publishing", "partial", "published", "queue-me", "rule-me"]
+    for i, name in enumerate(names):
+        texts = dict(TEXTS, x="x" * 312) if name == "problems" else None
+        did = send_draft(fx, store, big, name, i, texts)
+        fx.send_ids[name] = did
+        if not name.startswith("crops-"):
+            write_crops(fx, did)
+    if "partial" in fx.send_ids:
+        set_sent(fx, fx.send_ids["partial"], "partial", {
+            "fb:kotleta": {"status": "published", "url": "https://www.facebook.com/" + PAGE_ID + "_1"},
+            "ig:kotleta": {"status": "published", "url": "https://www.instagram.com/p/OK/"},
+            "linkedin": {"status": "failed", "error": "HTTP 401 from LinkedIn: invalid access token"},
+            "x": {"status": "failed", "error": "HTTP 403 from X: not permitted"}})
+    if "published" in fx.send_ids:
+        set_sent(fx, fx.send_ids["published"], "published", {
+            "fb:kotleta": {"status": "published", "url": "https://www.facebook.com/" + PAGE_ID + "_2"},
+            "ig:kotleta": {"status": "published", "url": "https://www.instagram.com/p/OK2/"},
+            "linkedin": {"status": "published", "url": "https://www.linkedin.com/feed/update/urn:li:share:2/"},
+            "x": {"status": "published", "url": "https://x.com/i/web/status/78"}})
+    if crash:
+        did = fx.send_ids["crash"]
+        record = os.path.join(fx.paths.poster_state, poster_state.RECORD_FILE)
+        offset = os.path.getsize(record)
+        set_sent(fx, did, "publishing", {})
+        store.update(did, lambda d: d["publish"]["attempts"][0].update(
+            offset=offset, outcome={}, exit=None, ended=None) or d["publish"]["attempts"][0].pop("ended"),
+            sent_ok=True)
+        poster_state.append_jsonl(record, [{
+            "ts": config.iso_utc(fx.now), "package": did, "target": "fb:kotleta",
+            "network": "facebook", "status": "published", "post_id": f"{PAGE_ID}_9",
+            "url": f"https://www.facebook.com/{PAGE_ID}_9"}])
+    return fx
