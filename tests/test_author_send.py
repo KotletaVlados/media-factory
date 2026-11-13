@@ -456,6 +456,50 @@ class PublishTest(SendCase):
         self.assertEqual(self.draft()["state"], "published")
         self.assertEqual(self.status()["line"], "Опубликовано во всех 4 сетях")
 
+    def test_retry_never_resends_a_target_recovered_and_deleted_elsewhere(self):
+        self.poster.script = [pf.fb_ok() + pf.ig_ok() + pf.li_401() + pf.x_403(), pf.x_ok()]
+        self.publish()
+        self.wait()
+        self.assertEqual(self.draft()["state"], "partial")
+        rec = os.path.join(self.fx.paths.poster_state, poster_state.RECORD_FILE)
+        template = [r for r in self.record() if r.get("package") == self.did][0]
+        # LinkedIn is recovered through the CLI (published) and then deleted there (deleted)
+        for status in ("published", "deleted"):
+            poster_state.append_jsonl(rec, [dict(template, target="linkedin", status=status)])
+        calls = len(self.poster.calls)
+        status, _, page = self.form(self.did, "retry")
+        self.assertEqual(status, 303)          # X is genuinely failed and unclaimed: it goes
+        self.wait()
+        self.assertEqual(self.poster.calls[calls][self.poster.calls[calls].index("--targets") + 1], "x")
+        hosts = {r.url.split("/")[2] for r in self.poster.transports[calls].requests}
+        self.assertEqual(hosts, {"api.x.com"})             # nothing reaches LinkedIn again
+        self.assertEqual(self.draft()["state"], "partial")  # LinkedIn stays for the operator to check
+
+    def test_retry_with_only_held_targets_makes_no_request(self):
+        self.poster.script = [pf.fb_ok() + pf.ig_ok() + pf.li_401() + pf.x_403(), pf.li_ok() + pf.x_ok()]
+        self.publish()
+        self.wait()
+        rec = os.path.join(self.fx.paths.poster_state, poster_state.RECORD_FILE)
+        template = [r for r in self.record() if r.get("package") == self.did][0]
+        for t, statuses in (("linkedin", ("published", "deleted")), ("x", ("unknown",))):
+            for status in statuses:
+                poster_state.append_jsonl(rec, [dict(template, target=t, status=status)])
+        calls, before = len(self.poster.calls), self.draft()
+        status, _, page = self.form(self.did, "retry")
+        self.assertEqual(status, 409)
+        self.assertIn("повторять нечего", html.unescape(page))
+        self.assertEqual(len(self.poster.calls), calls)
+        self.assertEqual(self.draft()["publish"]["attempts"], before["publish"]["attempts"])
+
+    def test_start_page_puts_a_sent_drafts_list_above_the_photos(self):
+        _, _, before = self.page("/create")
+        self.assertLess(before.index("Недавние фото"), before.index("Черновики"))
+        self.publish()
+        self.wait()
+        _, _, after = self.page("/create")
+        self.assertLess(after.index("Черновики"), after.index("Недавние фото"))
+        self.assertIn("опубликован</span>", after)
+
     def test_unknown_is_never_retried_by_the_panel(self):
         from poster.http import TransportError
         self.poster.script = [pf.fb_ok() + pf.ig_ok() + pf.li_401() + [pf.x_ok()[0], TransportError("timeout")],
@@ -628,23 +672,34 @@ class ServeTest(pf.PanelCase):
         pf.write_crops(self.fx, did, SMALL)
         hold = threading.Event()
         fake = pf.FakePoster(hold=hold)
-        returned = {}
+        out = io.StringIO()
+        seen = {}
 
         def serve_forever(srv, *a, **kw):
             sender = srv.panel.sender
             draft = sender.store.load(did)
             sender.publish(did, send.seen(draft, sender.targets(), sender.crops(did)))
             self.assertTrue(fake.entered.wait(10))
-            threading.Timer(0.2, hold.set).start()
+            real_join = sender.join
+
+            def join(timeout=None):
+                # shutdown reached its wait: the publish is still running, the message is out;
+                # only now is the fake publisher released (no timer, no sleep)
+                seen["ended_at_join"] = fake.ended.is_set()
+                seen["said"] = "panel: ждём окончания публикации…" in out.getvalue()
+                hold.set()
+                real_join(10)
+            sender.join = join
+            self.addCleanup(hold.set)             # bounded cleanup if shutdown never waits
+            self.addCleanup(real_join, 10)
             raise KeyboardInterrupt
 
-        out = io.StringIO()
         with mock.patch.object(server.Server, "serve_forever", serve_forever):
             code = fcli.main(["panel", "--port", "0"], environ=self.fx.environ, clock=self.fx.clock,
                              stdout=out, stderr=out, publish=fake, machine_tz=self.fx.machine_tz)
-            returned["ended"] = fake.ended.is_set()
+            seen["ended_at_return"] = fake.ended.is_set()
         self.assertEqual(code, 0)
-        self.assertTrue(returned["ended"])
+        self.assertEqual(seen, {"ended_at_join": False, "said": True, "ended_at_return": True})
         self.assertIn("panel: ждём окончания публикации…", out.getvalue())
         self.assertEqual(store.load(did)["state"], "published")
 
@@ -718,6 +773,21 @@ class QueueTest(SendCase):
             status, _, page = self.queue(did=other)
         self.assertEqual(status, 409)
         self.assertIn("999", page)
+
+    def test_a_package_under_another_file_name_with_the_same_id_refuses_both_routes(self):
+        pf._write_json(os.path.join(self.fx.paths.packages, "other.json"), {
+            "schema": 1, "id": self.did, "theme": "t", "variants": {"facebook": {"text": "t"}}})
+        _, seen = self.review()
+        before = self.tree(self.fx.paths.stock, self.fx.paths.packages, self.fx.paths.content)
+        draft_before = self.draft()
+        for op, fields in (("publish", {"seen": seen}), ("queue", {"seen": seen, "folder": "my-photos"})):
+            status, _, page = self.form(self.did, op, fields)
+            self.assertEqual(status, 409, op)
+            self.assertIn(send.DUPLICATE, page)
+        self.assertEqual(self.tree(self.fx.paths.stock, self.fx.paths.packages, self.fx.paths.content),
+                         before)
+        self.assertEqual(self.draft(), draft_before)
+        self.assertEqual(self.poster.calls, [])
 
     def test_existing_rule_line(self):
         body, _ = self.review(query="?folder=city")

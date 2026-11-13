@@ -1115,6 +1115,10 @@ def create(ctx: Ctx) -> str:
             f'{esc(S.DRAFT_STAGE[d["stage"]])}</span><span class="muted mono">{esc(_stamp(d["updated"]))}</span></span></a></li>'
             for d in summaries[:10])
         drafts_html = f'<section><h2>Черновики · {len(summaries)}</h2><ul class="draft-list">{rows}</ul></section>'
+    # A sent post (running, partly done, interrupted or published) is account state the operator
+    # must notice: its list goes above the photos so the stage word is on the first screen (§17.6).
+    urgent = any(d["stage"] in ("publishing", "partial", "interrupted", "published") for d in summaries[:10])
+    lists = drafts_html + recent_html if urgent else recent_html + drafts_html
     # Without a key (or past the cap) the zone promises no topics.
     hint_topics = "" if why["topics"] else (
         f' · Gemini предложит темы (<span class="nowrap">{esc(bounds["topics"])}</span>)')
@@ -1126,7 +1130,7 @@ def create(ctx: Ctx) -> str:
             f'<input id="create-file" type="file" accept="image/jpeg,image/png,image/webp" class="create-file">'
             f'</label><p class="create-status" role="status" aria-live="polite"></p>'
             f'<p class="profile-line"><a href="/create/profile">{esc(profile_label)}</a></p>'
-            f'<noscript><p>{esc(S.CREATE_NEED_JS)}</p></noscript>{recent_html}{drafts_html}</div>')
+            f'<noscript><p>{esc(S.CREATE_NEED_JS)}</p></noscript>{lists}</div>')
     return page(ctx, "create", body, sub="Новый пост", sub_right=month,
                 scripts=("author.js", "create.js"))
 
