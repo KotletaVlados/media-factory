@@ -1257,9 +1257,10 @@
       var els = Array.prototype.slice.call(document.querySelectorAll(selector));
       els.forEach(function (el, i) {
         var cs = getComputedStyle(el), w = Math.round(el.getBoundingClientRect().width);
-        out.busy.push({text: words(el).slice(0, 40) || el.tagName, disabled: el.disabled, opacity: cs.opacity,
+        var off = el.disabled || el.getAttribute("aria-disabled") === "true";
+        out.busy.push({text: words(el).slice(0, 40) || el.tagName, disabled: off, opacity: cs.opacity,
                        cursor: cs.cursor, width: w});
-        if (!el.disabled || Number(cs.opacity) >= 1 || (before && Math.abs(before[i] - w) > 1)) {
+        if (!off || Number(cs.opacity) >= 1 || (before && Math.abs(before[i] - w) > 1)) {
           out.problems.push("a blocked control looks enabled or changed its width: " + (words(el).slice(0, 40) || el.tagName));
         }
       });
@@ -1449,10 +1450,22 @@
     } else if (sendState === "review-highlight-loading") {
       var sel_ = "#photo [data-c], .look [data-c]";
       var before = widths(sel_);
+      var links = document.querySelectorAll("#photo a.chip[data-c]");
+      if (links.length !== 2) { out.problems.push("expected two saved-style links, found " + links.length); }
       document.querySelector('[data-style="blur"]').click();
       await until(function () { return words(document.querySelector(".photo-status")).indexOf("Gemini рисует") >= 0; }, "running");
       see(".photo-status", "Gemini рисует «Размыть фон»… до 3 минут");
       disabledLook(sel_, before);
+      // a saved-style link is inert while the call runs: out of the tab order, no navigation
+      var href = location.href;
+      links.forEach(function (a) {
+        a.focus();
+        a.click();
+        if (a.getAttribute("tabindex") !== "-1" || a.getAttribute("aria-disabled") !== "true"
+            || location.href !== href) {
+          out.problems.push("a saved-style link stays live while the call runs: " + words(a));
+        }
+      });
       if (!cFetch.some(function (x) { return x.url.indexOf("/highlight") >= 0; })) { out.problems.push("no highlight POST"); }
     } else if (sendState === "review-highlight" || sendState === "review-highlight-text" || sendState === "review-highlight-402") {
       keep({month: words(document.getElementById("ai-month"))});

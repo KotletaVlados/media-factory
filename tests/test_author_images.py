@@ -13,6 +13,7 @@ import re
 import subprocess
 import threading
 import unittest
+from unittest import mock
 from decimal import Decimal
 
 from factory.authoring import budget, drafts, gemini, prompts, send
@@ -451,6 +452,100 @@ class HighlightTest(ImagesCase):
         self.ai_transport.add(pf.image_reply(pf.style_jpeg()))
         self.assertEqual(self.highlight("glow")[0], 200)
         self.assertNotIn("highlight_error", self.draft())
+
+    def test_a_style_with_exif_is_refused_and_replaces_nothing(self):
+        # a browser decodes the orientation tag: 1536 x 2048 stored shows as 2048 x 1536
+        pf.write_style(self.fx, self.did)
+        self.settings({"base": "blur"})
+        before = {n: self.crop(n, make_jpeg(*s), self.digest(n))[0] for n, s in
+                  {"facebook": (1536, 2048), "x": (1536, 864)}.items()}
+        self.assertEqual(before, {"facebook": 200, "x": 200})
+        crops = self.read_crops()
+        draft = self.draft()
+        with open(os.path.join(self.img, "blur.jpg"), "rb") as fh:
+            style = fh.read()
+        self.ai_transport.add(pf.image_reply(pf.make_exif6(1536, 2048, 123)))
+        status, reply = self.highlight("blur")
+        self.assertEqual((status, reply["error"]), (502, gemini.HAS_EXIF))
+        with open(os.path.join(self.img, "blur.jpg"), "rb") as fh:
+            self.assertEqual(fh.read(), style)
+        self.assertEqual([f for f in os.listdir(self.img)], ["blur.jpg"])      # no .up- leftover
+        self.assertEqual(self.read_crops(), crops)
+        after = self.draft()
+        self.assertEqual((after["base"], after.get("style_rev")), (draft["base"], draft.get("style_rev")))
+        self.assertEqual(after["highlight_error"]["text"], gemini.HAS_EXIF)
+        body, _ = self.review()
+        self.assertIn(gemini.HAS_EXIF, body)
+        # a fresh style (no stored one) is refused the same way and creates no file
+        self.ai_transport.add(pf.image_reply(pf.make_exif6(1536, 2048, 124)))
+        self.assertEqual(self.highlight("glow")[1]["error"], gemini.HAS_EXIF)
+        self.assertFalse(os.path.exists(os.path.join(self.img, "glow.jpg")))
+        # an ordinary JPEG still generates, and the base's crops are redrawn from it
+        self.ai_transport.add(pf.image_reply(pf.style_jpeg()))
+        self.assertEqual(self.highlight("blur")[0], 200)
+        self.assertNotIn("highlight_error", self.draft())
+
+    def test_regenerating_the_base_stales_its_look_tokens_and_crops(self):
+        pf.write_style(self.fx, self.did)
+        self.settings({"base": "blur"})
+        token = self.digest("facebook")
+        old = make_jpeg(1536, 2048)
+        self.assertEqual(self.crop("facebook", old, token)[0], 200)
+        # the same-style, same-size regeneration with different bytes
+        other = pf.make_photo(1536, 2048, 777)
+        self.assertNotEqual(other, pf.style_jpeg())
+        self.ai_transport.add(pf.image_reply(other))
+        self.assertEqual(self.highlight("blur")[0], 200)
+        self.assertEqual(os.listdir(self.out), [])                   # the crops are redrawn
+        self.assertNotEqual(self.digest("facebook"), token)
+        status, reply = self.crop("facebook", old, token)             # the page's old token
+        self.assertEqual((status, reply["error"]), (409, send.FOCUS_MOVED))
+        self.assertEqual(os.listdir(self.out), [])
+        # the new page's token, with a crop drawn from the new base, succeeds
+        status, reply = self.crop("facebook", pf.make_photo(1536, 2048, 4), self.digest("facebook"))
+        self.assertEqual(status, 200, reply)
+
+    def test_a_crop_in_flight_during_a_regeneration_is_refused(self):
+        pf.write_style(self.fx, self.did)
+        self.settings({"base": "blur"})
+        token = self.digest("facebook")
+        real = send.rules.check_image
+
+        def regenerate(network, info):          # between the early digest check and the write
+            result = real(network, info)
+            self.sender_store_style(pf.make_photo(1536, 2048, 778))
+            return result
+        with mock.patch.object(send.rules, "check_image", regenerate):
+            status, reply = self.crop("facebook", make_jpeg(1536, 2048), token)
+        self.assertEqual((status, reply["error"]), (409, send.FOCUS_MOVED))
+        self.assertEqual(os.listdir(self.out), [])
+
+    def read_crops(self):
+        found = {}
+        for n in ("facebook", "x"):
+            with open(os.path.join(self.out, f"{n}.jpg"), "rb") as fh:
+                found[n] = fh.read()
+        return found
+
+    def sender_store_style(self, data):
+        self.srv.panel.sender.store_style(self.did, "blur", data)
+
+    def test_other_styles_and_default_uploads_keep_their_tokens(self):
+        for path in self.crops.values():
+            os.unlink(path)
+        token = self.digest("x")
+        self.assertEqual(token, drafts.default_digest("x"))
+        # regenerating a style that is not the base leaves the base's tokens alone
+        self.ai_transport.add(pf.image_reply(pf.style_jpeg()))
+        self.assertEqual(self.highlight("glow")[0], 200)
+        self.assertEqual(self.digest("x"), token)
+        self.assertEqual(self.crop("x", make_jpeg(*self.sizes["x"]), token)[0], 200)
+        # a stored draft without a revision keeps its digest; a bad revision is refused
+        d = self.draft()
+        self.assertRegex(d["style_rev"]["glow"], r"\A[0-9a-f]{8}\Z")
+        for bad in ({"glow": "zz"}, {"sepia": "0" * 8}, ["glow"], {"glow": 1}):
+            with self.assertRaises(Refusal):
+                drafts.validate(dict(d, style_rev=bad))
 
     def test_a_result_after_sending_is_not_stored(self):
         def late(req):

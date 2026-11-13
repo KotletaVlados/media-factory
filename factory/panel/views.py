@@ -1392,7 +1392,7 @@ def _photo_section(ctx: Ctx, draft: dict) -> str:
         if style == shown:
             continue
         if style in results:
-            chips.append(f'<a class="chip" href="?style={style}#photo">{esc(S.PHOTO_STYLES[style])}</a>')
+            chips.append(f'<a class="chip" href="?style={style}#photo" data-c>{esc(S.PHOTO_STYLES[style])}</a>')
         else:
             chips.append(spend(style, S.PHOTO_CREATE.format(style=S.PHOTO_STYLES[style], bound=bound), "chip"))
     notices = f'<p class="create-notice k-bad" role="alert">{esc(why)}</p>' if why else ""

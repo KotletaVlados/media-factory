@@ -142,6 +142,11 @@ def _validate_images(data):
             raise Refusal("неверный черновик")
         if any(quote_problem(q) for q in quotes.values()):
             raise Refusal("неверный черновик")
+    revs = data.get("style_rev")
+    if revs is not None and (not isinstance(revs, dict) or any(
+            k not in STYLES or not isinstance(v, str) or not re.fullmatch(r"[0-9a-f]{8}", v)
+            for k, v in revs.items())):
+        raise Refusal("неверный черновик")
     who = data.get("who")
     if who is not None and (not isinstance(who, str) or len(who) > WHO_MAX):
         raise Refusal("неверный черновик")
@@ -168,8 +173,13 @@ def look(data, network):
 def look_digest(data, network):
     """D30: 12 hex of the network's base, ratio, frame, quote place and the quote it draws."""
     value = look(data, network)
-    raw = json.dumps([value[k] for k in ("base", "ratio", "frame", "quote_at", "quote")],
-                     ensure_ascii=False)
+    parts = [value[k] for k in ("base", "ratio", "frame", "quote_at", "quote")]
+    # a style base adds its revision: a regenerated style is another picture (a draft without
+    # one, and the original, keep the five-part digest)
+    rev = (data.get("style_rev") or {}).get(value["base"]) if value["base"] != "orig" else None
+    if rev:
+        parts.append(rev)
+    raw = json.dumps(parts, ensure_ascii=False)
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:12]
 
 

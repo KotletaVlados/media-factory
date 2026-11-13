@@ -105,17 +105,34 @@
   function busy(on) {
     busyCount += on ? 1 : -1;
     root.querySelectorAll("[data-c]").forEach(function (el) {
+      // a saved style is a link: it cannot be disabled, so it leaves the tab order, says so
+      // to assistive tech, and the click handler below stops the navigation
+      var link = el.tagName === "A";
       if (busyCount > 0) {
-        if (!el.disabled) {
-          el.disabled = true;
+        if (!el.disabled && !el.hasAttribute("data-busy")) {
+          if (link) {
+            el.setAttribute("aria-disabled", "true");
+            el.setAttribute("tabindex", "-1");
+          } else {
+            el.disabled = true;
+          }
           el.setAttribute("data-busy", "");
         }
       } else if (el.hasAttribute("data-busy")) {
-        el.disabled = false;
+        if (link) {
+          el.removeAttribute("aria-disabled");
+          el.removeAttribute("tabindex");
+        } else {
+          el.disabled = false;
+        }
         el.removeAttribute("data-busy");
       }
     });
   }
+  root.addEventListener("click", function (ev) {
+    var link = ev.target.closest && ev.target.closest("a[data-c]");
+    if (link && busyCount > 0) { ev.preventDefault(); }
+  }, true);
   api.busy = function () { return busyCount > 0; };
   // a counted reload (the probe) leaves the page as it was: the controls come back
   api.idle = function () { busyCount = 1; busy(false); };
