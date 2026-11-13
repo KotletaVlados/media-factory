@@ -601,14 +601,20 @@ class Sender:
         doc = {"schema": 1, "id": did, "theme": draft["topic"], "variants": variants,
                "meta": {"approved_by_operator": today, "source": "panel", "photo": draft["photo"]}}
         tmp = os.path.join(folder, f".{name}.{secrets.token_hex(4)}")
-        _write_new(tmp, (json.dumps(doc, ensure_ascii=False, indent=1) + "\n").encode("utf-8"))
         try:
-            os.link(tmp, final)
-        except FileExistsError:
+            # the media directory is ours from the rename on: any failure before the package
+            # is linked (a full disk at the JSON write, an existing name) removes it again
+            try:
+                _write_new(tmp, (json.dumps(doc, ensure_ascii=False, indent=1) + "\n")
+                           .encode("utf-8"))
+                os.link(tmp, final)
+            except FileExistsError:
+                raise Refusal(DUPLICATE) from None
+            finally:
+                _unlink(tmp)
+        except BaseException:
             shutil.rmtree(final_media, ignore_errors=True)
-            raise Refusal(DUPLICATE) from None
-        finally:
-            _unlink(tmp)
+            raise
         try:
             poster_package.load(final, self.paths.library)
         except poster_package.PackageError as exc:
