@@ -26,7 +26,7 @@ from decimal import Decimal
 from zoneinfo import ZoneInfo
 
 from poster import config, linkedin, package as poster_package, rules, state as poster_state, xapi
-from factory import checks, inputs as finputs, planner, ruleset as fruleset, runner as frunner
+from factory import checks, inputs as finputs, journal as fjournal, planner, ruleset as fruleset, runner as frunner, stock as fstock
 from factory.authoring import drafts, gemini, photos
 from factory.authoring.common import Refusal, jpeg_exif
 from factory.panel import strings as S
@@ -52,6 +52,7 @@ FOCUS_MOVED = "кадр изменился — обновите страницу
 DELETE_BUSY = "идёт публикация"
 DUPLICATE = "пакет с таким id уже есть"
 NO_TEXT = "нет текста — нажмите «Развернуть»"
+HELD = "повторять нечего: {names} уже отмечены в журнале постера как опубликованные, удалённые или неизвестные — проверьте аккаунт"
 UNKNOWN = "прошлая попытка закончилась неизвестно — проверьте аккаунт"
 RELOGIN = "войдите заново: python3 -m poster login linkedin"
 
@@ -561,6 +562,9 @@ class Sender:
     def _unique(self, did: str, snap) -> None:
         if os.path.lexists(os.path.join(self.paths.packages, f"{did}.json")):
             raise Refusal(DUPLICATE)
+        # the factory's own reader: a one-off package under any file name, by its declared id
+        if did in fstock._package_ids(self.paths.packages):
+            raise Refusal(DUPLICATE)
         if snap.inputs is not None:
             for folder in snap.inputs.stock.folders.values():
                 for e in folder.entries:
@@ -722,6 +726,9 @@ class Sender:
                 failed = [t for t in pub["targets"] if outcome.get(t, {}).get("status") == "failed"]
                 if not failed:
                     raise Refusal("повторять нечего: упавших сетей нет")
+                failed, held = self._unheld(did, failed)
+                if not failed:
+                    raise Refusal(HELD.format(names=", ".join(held)))
                 if len(pub["attempts"]) >= drafts.MAX_ATTEMPTS:
                     raise Refusal("попыток уже 20 — удалите черновик")
                 path = os.path.join(self.paths.content, pub["package"])
@@ -736,6 +743,19 @@ class Sender:
         finally:
             if not handed:
                 self._release(fd)
+
+    def _unheld(self, did: str, targets: list) -> tuple:
+        """(free, held): a target whose latest poster row is published, deleted or unknown, or
+        that a factory slot's attempt holds, is never sent again whatever the draft's saved
+        outcome says (the poster skips only a latest `published` row, so a post recovered and
+        then deleted through the CLI would go out again). Read fresh, like the factory's retry
+        (§9.3)."""
+        records = poster_state.read_jsonl(self.record_path)
+        logs = fjournal.index(poster_state.read_jsonl(os.path.join(self.paths.state, fjournal.RUNS)))
+        free, held = [], []
+        for t in targets:
+            (held if planner.taken_elsewhere(records, logs, did, t, "") else free).append(t)
+        return free, held
 
     def _start(self, fd: int, did: str, path: str, ids: list) -> None:
         with self._mutex:

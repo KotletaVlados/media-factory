@@ -1134,9 +1134,10 @@
         see(".main > .error", "Пост в очереди «Мои фото». Правило сохранено черновиком, но не запущено:");
         see(".main > .error li", "minimum gap");
       } else if (sendState === "send-start") {
+        // measured where the page opens: no scrolling, so a word below the window fails
+        if (scrollY !== 0) { out.problems.push("send-start did not open at the top (scrollY " + scrollY + ")"); }
         see("section h2", "Черновики · 4");
-        ["публикуется", "частично", "опубликован"].forEach(function (t) { see(".draft-stage", t, true); });
-        scrollTo(0, 0);
+        ["публикуется", "частично", "опубликован"].forEach(function (t) { see(".draft-stage", t); });
       }
     } catch (err) { out.problems.push(err.message); }
   }
