@@ -54,6 +54,13 @@ def disc(network: str, dim: bool = False) -> str:
     return f'<span class="{cls}">{esc(S.MONO.get(network, "?"))}</span>'
 
 
+def net_chip(target: str) -> str:
+    """A network name (with the account for Facebook and Instagram) in front of its disc."""
+    t = config.parse_target(target)
+    who = f" · {t.name}" if t.name else ""
+    return f'<span class="tchip">{disc(t.network)}<span>{esc(S.NET_NAME[t.network] + who)}</span></span>'
+
+
 def target_chip(target: str) -> str:
     return (f'<span class="tchip">{disc(M.network_of(target))}'
             f'<span class="mono">{esc(target)}</span></span>')
@@ -474,6 +481,36 @@ def files(ctx: Ctx, refusal=None) -> str:
     return page(ctx, "files", "".join(sections), sub=sub)
 
 
+def _state_groups(targets: list) -> list:
+    """Targets of one package that share a state word and have no link of their own are
+    shown as one row, so the date and hour of a plan are said once: [(chips, kind, text, url)]."""
+    out: list = []
+    for t, kind, text, url in targets:
+        if out and url is None and out[-1][3] is None and tuple(out[-1][1:3]) == (kind, text):
+            out[-1][0].append(t)
+        else:
+            out.append([[t], kind, text, url])
+    return out
+
+
+def _state_item(group: list) -> str:
+    targets, kind, text, url = group
+    chips = " ".join(net_chip(t) for t in targets)
+    link = (f' · <a href="{esc(url)}" target="_blank" rel="noopener">{esc(S.OPEN)}</a>' if url else "")
+    return f'<li><span class="tchips">{chips}</span><span class="st k-{kind}">{esc(text)}{link}</span></li>'
+
+
+def _arrived(ctx: Ctx, row: dict, title: str) -> str:
+    """One line on top of the package row the operator lands on from «В очередь»
+    (`queued=<package id>`): what was queued and when it goes out. Only a package of this
+    folder gets it, and the row is where the link's fragment scrolls to."""
+    if row["entry"] is None or row["entry"].id != ctx.q("queued"):
+        return ""
+    when = S.QUEUED_WHEN.format(when=S.when_words(row["planned"])) if row["planned"] else S.QUEUED_WAITS
+    return (f'<p class="queued-line k-ok" role="status">{esc(S.QUEUED_LINE.format(title=title))} · '
+            f'{esc(when)}</p>')
+
+
 def _folder_view(ctx: Ctx, name: str) -> str:
     snap = ctx.snap
     rows = M.folder_rows(snap, name)
@@ -487,10 +524,7 @@ def _folder_view(ctx: Ctx, name: str) -> str:
     for r in rows:
         variants = "".join(f'<li>{disc(net)}<span class="vtext" title="{esc(text)}">{esc(text)}</span></li>'
                            for net, text in r["variants"])
-        states = "".join(
-            f'<li>{target_chip(t)}<span class="st k-{kind}">{esc(text)}'
-            + (f' · <a href="{esc(url)}" target="_blank" rel="noopener">{esc(S.OPEN)}</a>' if url else "")
-            + "</span></li>" for t, kind, text, url in r["targets"])
+        states = "".join(_state_item(group) for group in _state_groups(r["targets"]))
         if not r["targets"]:
             label = S.PKG_STATE.get(r["state"], r["state"])
             kind = "bad" if r["state"] in ("invalid", "not-approved", "held", "check-account") else "muted"
@@ -498,9 +532,9 @@ def _folder_view(ctx: Ctx, name: str) -> str:
         reason = (f'<p class="small"><span class="alert-label">{esc(S.PROBLEM)}</span> '
                   f'<span class="core">{esc(r["reason"])}</span></p>' if r["reason"] else "")
         out.append(f'<article class="pkg" id="pkg-{esc(r["entry"].id if r["entry"] else r["file"])}">'
-                   f'{tile(r["entry"], None, "tile tall")}'
-                   f'<div class="pkg-main"><h3 class="mono">{esc(r["file"])}</h3>'
-                   f'<p class="muted">{esc(r["theme"])}</p>{reason}</div>'
+                   f'{_arrived(ctx, r, card.title)}{tile(r["entry"], None, "tile tall")}'
+                   f'<div class="pkg-main"><h3>{esc(r["theme"] or r["file"])}</h3>'
+                   f'<p class="muted small mono">{esc(r["file"])}</p>{reason}</div>'
                    f'<ul class="pkg-variants">{variants}</ul>'
                    f'<ul class="pkg-states">{states}</ul></article>')
     if not rows:
@@ -1274,6 +1308,9 @@ def _send_rows(view: dict) -> str:
                 f'{esc(S.SEND_OPEN.format(name=name))}</a>' if item.get("url") else "")
         account = config.parse_target(item["target"]).name   # only Facebook and Instagram have one
         who = f' · <span class="mono">{esc(account)}</span>' if account else ""
+        if item.get("reconnect"):
+            link = (f'<a class="send-open" href="/connection?net={esc(item["network"])}#net-detail">'
+                    f'{esc(S.SEND_RECONNECT)}</a>')
         out.append(f'<li data-target="{esc(item["target"])}"><span class="send-row-name">{esc(name)}{who} —</span> '
                    f'<span class="st k-{ROW_KIND[item["status"]]}" data-status>{esc(item["text"])}</span>'
                    f'<span class="send-link">{" · " + link if link else ""}</span></li>')
@@ -1286,13 +1323,13 @@ def _rule_line(ctx: Ctx, rule, folder: str) -> str:
     hours = ", ".join(rule.hours)
     summary = next((f for f in snap.plan.folders if f.name == folder), None) if snap.plan else None
     n = summary.counts.get("ready", 0) if summary else 0
-    slots = [s for s in planner.rule_slots(rule, snap.now, snap.now + _dt.timedelta(days=14))
-             if s.when > snap.now]
-    if not slots:
-        return S.SEND_RULE_NO_SLOT.format(id=rule.id, days=days, hours=hours, n=n)
-    local = slots[0].when.astimezone(rule.zone)
-    nxt = f"{S.DAYS_LOWER[local.weekday()]}, {S.day_short(local.date())}, {local:%H:%M}"
-    return S.SEND_RULE.format(id=rule.id, days=days, hours=hours, next=nxt, n=n)
+    nxt, new = M.rule_post_slots(snap, rule, [t.network for t in ctx.author.sender.targets()])
+    line = S.SEND_RULE.format(id=rule.id, days=days, hours=hours, n=n)
+    if nxt is not None and n:
+        line += S.SEND_RULE_NEXT.format(when=S.when_words(nxt.astimezone(rule.zone)))
+    if new is not None:
+        line += S.SEND_RULE_NEW.format(when=S.when_words(new.astimezone(rule.zone)))
+    return line
 
 
 def create_review(ctx: Ctx, refusal=None) -> str:
@@ -1384,7 +1421,11 @@ def create_review(ctx: Ctx, refusal=None) -> str:
         actions = []
         if view["failed"] and not live:
             failed = [S.NET_NAME[config.parse_target(t).network] for t in view["failed"]]
-            actions.append(f'<button class="btn green" type="button" data-open="dlg-retry">'
+            auth = [i["network"] for i in view["targets"] if i.get("reconnect")]
+            if auth:   # a failed sign-in fails again until it is renewed: that comes first
+                actions.append(f'<a class="btn green" href="/connection?net={esc(auth[0])}#net-detail">'
+                               f'{esc(S.SEND_RECONNECT_ALL.format(names=", ".join(S.NET_NAME[n] for n in auth)))}</a>')
+            actions.append(f'<button class="btn{"" if auth else " green"}" type="button" data-open="dlg-retry">'
                            f'{esc(S.SEND_RETRY.format(names=", ".join(failed)))}</button>')
         if not live:
             actions.append(f'<button class="btn" type="button" data-open="dlg-delete">{esc(S.SEND_DELETE)}</button>')
@@ -1419,7 +1460,8 @@ def create_review(ctx: Ctx, refusal=None) -> str:
                 f'<p class="send-text muted">{esc(send.NO_TEXT)}</p>')
         line = card.present.get("line", "")
         extra = "".join(f'<p class="small{cls}">{esc(x)}</p>' for x, cls in
-                        ((line, " mono"), (card.x_line, " mono"), (card.note, " k-warn")) if x)
+                        ((line, " mono"), (card.x_line, " mono"),
+                         (card.note if state == "draft" else "", " k-warn")) if x)
         cards.append(f'<article class="send-card" data-network="{esc(net)}"><h3>{esc(head)}</h3>'
                      f'<div class="send-crop">{img}</div>'
                      f'<p class="mono small send-size">{esc(size)}</p>{text}{extra}</article>')

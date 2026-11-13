@@ -502,8 +502,12 @@ def submit_problems(chrome, fx, srv, widths, out) -> list:
                     except RuntimeError:
                         if attempt == 2:
                             raise
-                page.wait_true(f"location.pathname === '/files' && location.hash === '#pkg-{did}' && "
-                               f"document.getElementById('pkg-{did}')", 30, "the queued package on /files")
+                # the landing says what was queued on its first screen: the line is whole in the window
+                page.wait_true(f"location.pathname === '/files' && location.search.includes('queued={did}') && location.hash === '#pkg-{did}' && "
+                               f"document.getElementById('pkg-{did}') && (() => {{ "
+                               f"const r = document.querySelector('.queued-line')?.getBoundingClientRect(); "
+                               f"return !!r && r.top >= 0 && r.bottom <= innerHeight; }})()",
+                               30, "the queued line on /files")
                 page.screenshot(os.path.join(out, f"submit-queue-{w}.png"))
         except RuntimeError as exc:
             problems.append(f"submit-queue-{w}: {exc}")
@@ -920,7 +924,7 @@ def main(argv=None) -> int:
         "review-published": ("send", f"/create/{ids['published']}/review"),
         "review-interrupted": ("send-crash", f"/create/{send_crash.send_ids['crash']}/review"),
         "review-delete": ("send", f"/create/{ids['published']}/review"),
-        "queued": ("send", f"/files?folder=my-photos&probe_pkg={ids['queue-me']}#pkg-{ids['queue-me']}"),
+        "queued": ("send", f"/files?folder=my-photos&queued={ids['queue-me']}&probe_pkg={ids['queue-me']}#pkg-{ids['queue-me']}"),
         "send-start": ("send", "/create"),
     }
     states += [(name, url(fixture, path)) for name, (fixture, path) in send_paths.items()]

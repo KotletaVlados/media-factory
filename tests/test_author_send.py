@@ -15,6 +15,7 @@ import os
 import re
 import threading
 import time
+import unittest
 import urllib.parse
 from decimal import Decimal
 from unittest import mock
@@ -501,8 +502,17 @@ class PublishTest(SendCase):
         self.assertIn("Повторить упавшие: LinkedIn, X", body)
         self.assertIn("Повторить публикацию в LinkedIn и X?", body)
         self.assertRegex(body, r"LinkedIn —</span> "
-                               r"<span class=\"st k-bad\" data-status>ошибка: 401")
-        self.assertIn("[redacted:LINKEDIN_ACCESS_TOKEN]", body)
+                               r"<span class=\"st k-bad\" data-status>ошибка: вход истёк или отозван")
+        self.assertRegex(body, r"X —</span> <span class=\"st k-bad\" data-status>ошибка: доступ запрещён")
+        # the poster's English text and its command stay out of the screen
+        shown = body[body.index('<div class="send"'):]
+        for raw in ("401", "403", "initializeUpload", "python3", "Forbidden", "revoked", "poster login"):
+            self.assertNotIn(raw, shown)
+        # a failed sign-in fails again: the connection page comes first, the retry is not the primary
+        self.assertIn('<a class="btn green" href="/connection?net=linkedin#net-detail">Переподключить: LinkedIn</a>',
+                      body)
+        self.assertIn('<button class="btn" type="button" data-open="dlg-retry">', body)
+        self.assertNotIn('<button class="btn green" type="button" data-open="dlg-retry">', body)
         status, headers, _ = self.form(self.did, "retry")
         self.assertEqual(status, 303)
         self.wait()
@@ -773,7 +783,7 @@ class QueueTest(SendCase):
         self.assertFalse(os.path.lexists(os.path.join(folder, "media", self.did)))
         self.assertEqual(self.draft(), draft_before)
         status, headers, _ = self.queue()
-        self.assertEqual((status, headers["location"]), (303, f"/files?folder=my-photos#pkg-{self.did}"))
+        self.assertEqual((status, headers["location"]), (303, f"/files?folder=my-photos&queued={self.did}#pkg-{self.did}"))
         self.assertTrue(os.path.isfile(os.path.join(folder, f"001-{self.did}.json")))
         self.assertTrue(os.path.isdir(os.path.join(folder, "media", self.did)))
         self.assertEqual(self.poster.calls, [])
@@ -804,7 +814,7 @@ class QueueTest(SendCase):
         self.assertIn('name="rule" value="1" checked', body)
         self.assertIn('name="rule_hour" value="16:00"', body)
         status, headers, _ = self.queue()
-        self.assertEqual((status, headers["location"]), (303, f"/files?folder=my-photos#pkg-{self.did}"))
+        self.assertEqual((status, headers["location"]), (303, f"/files?folder=my-photos&queued={self.did}#pkg-{self.did}"))
         folder = os.path.join(self.fx.paths.stock, "my-photos")
         name = f"001-{self.did}.json"
         self.assertTrue(os.path.isfile(os.path.join(folder, name)))
@@ -923,8 +933,8 @@ class QueueTest(SendCase):
         body, _ = self.review(query="?folder=city")
         snap = self.srv.panel.holder.get()
         n = next(f for f in snap.plan.folders if f.name == "city").counts.get("ready", 0)
-        self.assertIn(f"Правило «city-main»: пн, ср, пт в 10:00 · ближайшая публикация из папки: "
-                      f"пт, 13 нояб., 10:00 · перед этим постом в очереди {n}", body)
+        self.assertIn(f"Правило «city-main»: пн, ср, пт в 10:00 · перед этим постом в очереди {n}", body)
+        self.assertIn("ближайшая публикация из папки: пт, 13 нояб., 10:00", body)
         self.assertNotIn('name="rule"', body)
 
     def test_the_review_offers_the_free_hour_and_the_queue_writes_it(self):
@@ -934,6 +944,27 @@ class QueueTest(SendCase):
         self.assertEqual(status, 303)
         rule = fruleset.load(self.fx.paths.rules).get("my-photos")
         self.assertEqual((rule.hours, rule.status), (("16:00",), "active"))
+
+    def test_the_rule_line_and_the_library_name_the_same_slot_as_the_plan(self):
+        status, headers, _ = self.queue(rule=True, hour="16:00")
+        self.assertEqual(status, 303)
+        other = pf.send_draft(self.fx, self.store, self.pid, "o2", 2)
+        pf.write_crops(self.fx, other, SMALL)
+        body = html.unescape(self.review(other)[0])
+        snap = self.srv.panel.holder.get()
+        planned = [ps for ps in snap.plan.slots if ps.slot.rule == "my-photos" and ps.state == "planned"]
+        zone = fruleset.load(self.fx.paths.rules).get("my-photos").zone
+        first = S.when_words(planned[0].when.astimezone(zone))
+        self.assertIn(f"ближайшая публикация из папки: {first} · этот пост выйдет: ", body)
+        # the queued package's row says the same moment, once
+        _, _, files = self.page(headers["location"].split("#")[0])
+        files = html.unescape(files)
+        self.assertEqual(files.count(f"запланирован · {first}"), 1)
+        self.assertIn(f"В очереди «Мои фото» · выйдет {first}", files)
+        self.assertIn("<h3>", files)
+        for ident in ("fb:kotleta", "ig:kotleta"):
+            self.assertNotIn(f'<span class="mono">{ident}</span>', files)
+        self.assertIn("Facebook · kotleta", files)
 
     def test_no_free_hour_offers_nothing(self):
         for k, hour in enumerate(send.OFFER_TIMES):
@@ -1183,6 +1214,36 @@ class ParityTest(PosterTestCase):
         self.assertEqual((code, named), (0, set()))
         self.assertEqual(listed, {"x"})
         self.assertIn("X: нет текста — нажмите «Развернуть»", rv.problems)
+
+
+class FailureWordsTest(unittest.TestCase):
+    """Every failed row is worded in Russian, whatever the poster wrote (no English, no command)."""
+
+    CASES = [
+        ("401 LinkedIn initializeUpload: Invalid access token — token expired or revoked; run: "
+         "python3 -m poster login linkedin", "вход истёк или отозван", True),
+        ("HTTP 401 from LinkedIn: invalid access token", "вход истёк или отозван", True),
+        ("Graph API: Error validating access token; code 190", "вход истёк или отозван", True),
+        ("403 X media upload: Forbidden; not permitted", "доступ запрещён — проверьте права приложения", False),
+        ("429 X post: Too Many Requests", "сеть просит подождать — повторите позже", False),
+        ("LinkedIn image upload: network error: TimeoutError; nothing was posted",
+         "нет связи с сетью — повторите", False),
+        ("502 Facebook post: Bad gateway", "сеть ответила ошибкой — повторите позже", False),
+        ("Instagram needs an image; this variant has none", "для этой сети нужна картинка", False),
+        ("400 Facebook photo: Invalid parameter; code 100", "сеть отклонила пост", False),
+        ("", "сеть отклонила пост", False),
+    ]
+
+    def test_each_failure_class(self):
+        for error, words, auth in self.CASES:
+            got, needs = send.failure_words(error)
+            self.assertEqual((got, needs), (words, auth), error)
+            self.assertIsNone(re.search(r"[A-Za-z]{3,}|python3", got), got)
+
+    def test_a_maybe_posted_failure_says_so(self):
+        got, _ = send.failure_words("503 LinkedIn post: Service Unavailable; the post may exist — look at "
+                                    "the LinkedIn profile before re-running with --force-target linkedin")
+        self.assertEqual(got, "сеть ответила ошибкой — повторите позже · пост мог выйти — проверьте аккаунт до повтора")
 
 
 def Redactor_from(env_path):

@@ -1061,7 +1061,8 @@
           see(".send-action h2, .send-action p, .send-action button, .send-action label", t);
         });
       } else if (sendState === "review-rule") {
-        see(".send-rule", "Правило «city-main»: пн, ср, пт в 10:00 · ближайшая публикация из папки: пт, 13 нояб., 10:00");
+        see(".send-rule", "Правило «city-main»: пн, ср, пт в 10:00 · перед этим постом в очереди");
+        see(".send-rule", "ближайшая публикация из папки: пт, 13 нояб., 10:00");
         if (document.querySelector('[name="rule"]')) { out.problems.push("a rule is offered next to an existing one"); }
       } else if (sendState === "review-problems") {
         see(".send-problems");   // the whole block
@@ -1116,8 +1117,14 @@
         ["Публикация", "Публикуется… 1 из 4 · не закрывайте панель", "Facebook · kotleta — опубликовано",
          "Instagram · kotleta — ждём…"].forEach(function (t) { see(".send-action h2, .send-status p, .send-rows li", t); });
       } else if (sendState === "review-partial") {
-        ["Отправлено", "Опубликовано в 2 из 4 сетей", "LinkedIn — ошибка: HTTP 401", "Повторить упавшие: LinkedIn, X"]
-          .forEach(function (t) { see(".send-action h2, .send-status p, .send-rows li, .send-status button", t); });
+        ["Отправлено", "Опубликовано в 2 из 4 сетей", "LinkedIn — ошибка: вход истёк или отозван",
+         "X — ошибка: доступ запрещён", "Подключение", "Переподключить: LinkedIn", "Повторить упавшие: LinkedIn, X"]
+          .forEach(function (t) { see(".send-action h2, .send-status p, .send-rows li, .send-status button, .send-status a", t); });
+        // the poster's own English words and its command stay out of the screen
+        var sendText = (document.querySelector(".send") || document.body).innerText;
+        if (/python3|HTTP|\b40[13]\b|token|Forbidden|revoked/.test(sendText)) {
+          out.problems.push("an English poster error or a command is on the partial screen");
+        }
       } else if (sendState === "review-published") {
         see(".send-status-line", "Опубликовано во всех 4 сетях");
         see(".send-action h2", "Отправлено");
@@ -1128,7 +1135,12 @@
         see(".send-action h2", "Публикация");
       } else if (sendState === "queued") {
         var pkg = params.get("probe_pkg"), row = document.getElementById("pkg-" + pkg);
-        see("#pkg-" + pkg + " h3", "-" + pkg + ".json");
+        see("#pkg-" + pkg + " .queued-line", "В очереди «Мои фото» · выйдет");   // where the link lands, not scrolled
+        see("#pkg-" + pkg + " h3", "Время заметить");
+        see("#pkg-" + pkg + " .pkg-main", "-" + pkg + ".json");
+        if (/\b(fb|ig):kotleta\b/.test(document.querySelector("#pkg-" + pkg).innerText)) {
+          out.problems.push("the queued row shows target ids, not network names");
+        }
         var tile = row && row.querySelector("img");
         await until(function () { return tile && tile.complete; }, "the row's image");
         if (!tile || !tile.naturalWidth || tile.getAttribute("src").indexOf("/img?") !== 0) {

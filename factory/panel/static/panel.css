@@ -282,7 +282,10 @@ label.check input { min-height: 0; width: 16px; height: 16px; }
 .pkg-variants li, .pkg-states li { display: flex; align-items: center; gap: 8px; min-height: 26px;
                                    min-width: 0; }
 .vtext { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.pkg-states li { flex-wrap: wrap; gap: 2px 8px; }
 .pkg-states .st { min-width: 0; }
+.tchips { display: flex; flex-wrap: wrap; gap: 2px 12px; min-width: 0; }
+.queued-line { grid-column: 1 / -1; margin: 0; font-size: 15px; font-weight: 600; }
 
 /* ---------------------------------------------------------------- Правила */
 .rtable { display: grid; border-radius: 8px; overflow: hidden; margin-bottom: 16px; }
@@ -628,6 +631,7 @@ dialog.day::backdrop { background: rgb(0 0 0 / .7); }
 .send-status-line { font-size: 15px; }
 .send-rows { display: flex; flex-direction: column; gap: 6px; }
 .send-rows .st { font-size: 13px; }
+.send-rows a { display: inline-flex; align-items: center; min-height: 24px; }
 .send-row-name { color: var(--text); }
 .send-source { display: flex; flex-direction: column; gap: 6px; }
 .send-photo { position: relative; display: block; width: 100%; max-width: 480px; height: 160px; padding: 0;
