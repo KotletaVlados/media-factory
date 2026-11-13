@@ -540,10 +540,14 @@ dialog.day::backdrop { background: rgb(0 0 0 / .7); }
   /* photo and «Тема» on the left, «Тексты» on the right (design §8.3) */
   .create-columns { grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
     grid-template-areas: "photo texts" "topic texts"; grid-template-rows: auto 1fr; align-items: start; }
-  .create-photo { grid-area: photo; height: clamp(120px, 20vh, 220px); }
+  .create-photo { grid-area: photo; height: clamp(80px, 12vh, 180px); }
   .create-topic { grid-area: topic; }
   .create-texts { grid-area: texts; scroll-margin-top: 200px; }   /* already on the first screen: no scroll */
-  .topic-cards { grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
+  .topic-cards { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
+}
+/* 1000-1279: an even split, so two columns of cards fit and «Развернуть» stays on a 700 px screen */
+@media (min-width: 1000px) and (max-width: 1279px) {
+  .create-columns { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
 }
 .profile-fields { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px 16px; align-items: start; }
 @media (min-width: 600px) { .profile-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
@@ -575,5 +579,9 @@ dialog.day::backdrop { background: rgb(0 0 0 / .7); }
 .topic-label { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 12px; }
 .topic-label label { margin: 8px 0 4px; }
 .topic-label .topic-save { min-height: 0; padding: 0; }
-.create-actions { margin: 8px 0; }
+.create-topic .topic-heading { flex-wrap: wrap; align-items: center; min-height: 32px; }
+.create-topic .topic-heading .create-actions { margin: 0; }
+.create-topic .voice-status { flex: 1 1 100%; margin: 0; }
 .main-create .create-topic { margin-bottom: 8px; }
+.expand-row { scroll-margin-bottom: 16px; }
+.recent-hint { margin: -6px 0 10px; }

@@ -471,7 +471,7 @@ class FilesTabTest(PhotoCase):
 
     def test_folder_view_has_the_photo_section_grid_and_chips(self):
         body = self.get("/files?folder=city")[2]
-        self.assertIn('<h2 id="photos-h">Фото · <span class="mono">0</span></h2>', body)
+        self.assertIn('<h2 id="photos-h">Фото</h2>', body)
         self.assertIn("Фото пока нет", body)
         self.assertIn('<script src="/static/author.js" defer></script>', body)
         self.assertIn('data-pick="dir" disabled>Загрузить папку</button>', body)
@@ -511,7 +511,10 @@ class FilesTabTest(PhotoCase):
         self.assertEqual(chips[rows[1]["id"]], "опубликовано")
         self.assertEqual(chips[rows[2]["id"]], "в очереди")
         self.assertIn('alt="walk-0001-portrait.jpg" title="walk-0001-portrait.jpg"', body)
-        self.assertIn('<h2 id="photos-h">Фото · <span class="mono">4</span></h2>', body)
+        # the count stands once on this surface: in the sub row, not again in the heading
+        self.assertIn('<h2 id="photos-h">Фото</h2>', body)
+        self.assertIn('<p class="sub-left">4 фото</p>', body)
+        self.assertNotIn("Фото ·", body)
 
     def test_a_new_upload_is_the_first_tile_even_in_a_big_folder(self):
         os.makedirs(os.path.join(self.photos_dir(), "thumb"), 0o700)

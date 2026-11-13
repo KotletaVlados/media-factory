@@ -21,6 +21,7 @@ FILE = "ai-ledger.jsonl"
 LOCK = "ai-ledger.lock"
 MONTHS = ("январь", "февраль", "март", "апрель", "май", "июнь", "июль", "август", "сентябрь", "октябрь", "ноябрь", "декабрь")
 NEXT = ("января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря")
+ACTION = {"topics": "«Темы»", "voice": "«Голос»", "expand": "«Развернуть»", "regenerate": "«Перегенерировать»"}
 NO_KEY = "нет GEMINI_API_KEY в .env — темы, тексты и голос недоступны"
 BAD_CAP = "AI_MONTHLY_CAP_USD в .env: нужно число, например 10.00"
 
@@ -118,10 +119,12 @@ class Ledger:
                 self._total, self._key = self._sum(), key
             return self._total
 
-    def refusal(self, amount, limit, total=None):
+    def refusal(self, amount, limit, total=None, op=None):
         now = self.now()
-        # The month's amounts stand once, in the sub row (#ai-month); this says what to do.
-        return (f"Бюджет ИИ на {MONTHS[now.month - 1]} исчерпан: этот запрос — до ${amount:.2f}. "
+        # The month's amounts stand once, in the sub row (#ai-month); this says which action
+        # is refused and what to do. «до $0.05» is one unbreakable piece (no-break spaces).
+        what = f"{ACTION[op]} стоит" if op in ACTION else "запрос стоит"
+        return (f"Бюджет ИИ на {MONTHS[now.month - 1]} исчерпан: {what} до\u00a0${amount:.2f}. "
                 f"Новые запросы — с 1 {NEXT[now.month % 12]}, раньше — после того, "
                 "как вы поднимете месячный лимит в файле .env.")
 
@@ -132,7 +135,7 @@ class Ledger:
             total = self._sum()
             guard = max(amount, admission or amount)
             if total + guard > limit:
-                raise Refusal(self.refusal(guard, limit, total))
+                raise Refusal(self.refusal(guard, limit, total, op))
             rid = str(uuid.uuid4())
             state.append_jsonl(self.path, [{"ts": config.iso_utc(self.clock()), "month": self.month(),
                 "rid": rid, "vendor": "google", "model": model(op), "op": op, "draft": draft,

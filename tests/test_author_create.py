@@ -70,6 +70,8 @@ class CreateTest(pf.PanelCase):
         self.assertNotIn(">Файлы<", body)
         self.assertIn("Бросьте фото сюда", body)
         self.assertIn("Недавние фото", body)
+        # the hint is its own row under the heading, not a tail that wraps one word alone
+        self.assertIn('<h2>Недавние фото</h2><p class="recent-hint muted small">Нажмите на фото, чтобы начать пост</p>', body)
         self.assertIn("Черновики · 1", body)
         self.assertIn("ИИ · ноябрь $0.00 из $10.00", body)
         self.assertNotIn('name="folder"', body)
@@ -204,9 +206,15 @@ class CreateTest(pf.PanelCase):
                 self.assertEqual(status, 409)
                 self.assertIn("Бюджет ИИ на ноябрь исчерпан", data["error"])
                 self.assertIn("поднимете месячный лимит в файле .env", data["error"])
+                # the refusal names the action and keeps «до $0.NN» together
+                name = {"topics": "«Темы»", "expand": "«Развернуть»", "regenerate": "«Перегенерировать»", "voice": "«Голос»"}[op]
+                self.assertIn(f"исчерпан: {name} стоит до\u00a0$0.", data["error"])
+                self.assertNotIn("этот запрос", data["error"])
                 self.assertNotIn("$9.99", data["error"])   # the amounts stand once, in the sub row
             page = self.get(self.base)[2]
             self.assertIn("· лимит", page)
+            self.assertIn("исчерпан: «Развернуть» стоит до\u00a0$0.05.", page)   # a draft: its main action
+            self.assertIn("исчерпан: «Темы» стоит до\u00a0$0.02.", self.get("/create")[2])   # the start page
             self.assertEqual(page.count("$9.99 из $10.00"), 1)
         finally:
             srv.shutdown(); srv.server_close(); thread.join(5); self.srv = old
@@ -281,7 +289,7 @@ class CreateTest(pf.PanelCase):
 
     def test_start_page_cue_for_recent_photos_and_no_topic_promise_without_a_key(self):
         page = self.get("/create")[2]
-        self.assertIn("нажмите на фото, чтобы начать пост", page)
+        self.assertIn("Нажмите на фото, чтобы начать пост", page)
         self.assertIn('<span class="nowrap">до $0.02</span>', page)
         with open(self.fx.paths.env_file, encoding="utf-8") as fh:
             lines = [l for l in fh.read().splitlines() if not l.startswith("GEMINI_API_KEY=")]

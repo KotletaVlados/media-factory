@@ -224,7 +224,7 @@ class Service:
             limit = budget.cap(env)
             amount = budget.button(op, self.clock())
             if self.ledger.month_total() + amount > limit:
-                return self.ledger.refusal(amount, limit)
+                return self.ledger.refusal(amount, limit, op=op)
         except Refusal as exc:
             return exc.message
         return ""

@@ -394,7 +394,7 @@ def ago(minutes: int) -> str:
 CREATE_DROP = "Бросьте фото сюда"
 CREATE_PICK = "Выбрать фото"
 CREATE_FORMATS = "JPEG, PNG или WebP"
-CREATE_RECENT_HINT = "· нажмите на фото, чтобы начать пост"
+CREATE_RECENT_HINT = "Нажмите на фото, чтобы начать пост"
 DRAFT_STAGE = {"new": "без темы", "topic": "своя тема", "topics": "темы", "texts": "тексты готовы",
                "over": "длиннее лимита", "error": "ошибка"}
 CREATE_PROFILE_EMPTY = "Профиль автора не заполнен — темы и тексты будут общими"
