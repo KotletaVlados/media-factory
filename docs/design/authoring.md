@@ -1,7 +1,8 @@
 # Authoring posts in the panel: «Создать», topics, Gemini texts, photos, send
 
-Design document. Status: slices A and B′ are built (`main` at `eb75f0a`). Slice D′ (send,
-with plain per-network crops) is pinned in §17 and ready to build. C and M follow (§15).
+Design document. Status: slices A, B′ and D′ are built (`main` at `4dd221f`). Slice C
+(ratio choices, frame, quote, Gemini highlight styles) is pinned in §18 and ready to build.
+M follows (§15).
 
 History:
 
@@ -12,10 +13,12 @@ History:
   repository.
 - Revised on 2026-11-13 against `main` at `eb75f0a` for slice D′, after the operator's
   decisions of 2026-11-13 (send before images; a plain crop for each network).
+- Revised on 2026-11-13 against `main` at `4dd221f` for slice C (§18). Where §7.1, §9 or
+  §11 differ from the code as merged, §18 follows the code and says so.
 
 Vendor and browser documentation was read on the dates given in §4, and each external fact
 cites its page. Legend: **C** means confirmed on the cited official page; **O** means
-observed on this machine; **U** means unconfirmed, and §18 names the cheapest check for
+observed on this machine; **U** means unconfirmed, and §19 names the cheapest check for
 each.
 
 ## 1. Originating requirement
@@ -52,6 +55,7 @@ Decisions in force (the operator's forms and answers):
 | 2026-11-12 18:04 UTC | Texts are written by **Gemini**, not Claude. The project has no Anthropic key and takes no Anthropic dependency |
 | 2026-11-12 ~18:43 UTC | Build the photo phase by the research plan: «Создать» is the first tab, then drop a photo, then 3–5 topic suggestions from Gemini (or an own topic typed or dictated), then «Развернуть» gives four per-network texts, then (D) review and publish or queue. Rename «Файлы» to «Медиатека»: all photos with status marks; schedule-queue folders move deeper and are created automatically. Use the existing Gemini key; the operator has billing on or will turn it on |
 | Earlier | X and LinkedIn texts in English, Instagram and Facebook in Ukrainian; panel UI in Russian; X capped at USD 5 per month (poster ledger); the operator reviews texts before anything is published; code templates for photos (quote, frame, per-network crop) |
+| 2026-11-11 and 2026-11-12 | Gemini highlights the main person (blurred background, glow or outline), with several styles to choose from, inside the shared AI budget (built in C, §18) |
 | 2026-11-13 ~01:35 UTC | Build slice D (send) before C (images), so the first real post leaves the panel sooner |
 | 2026-11-13 07:01 UTC | D plus a simple automatic crop for each network, without effects, so the first post comes as fast as possible; templates and «highlight me» come later in C (§17) |
 
@@ -65,12 +69,12 @@ Decisions in force (the operator's forms and answers):
 | X short, LinkedIn business, Instagram one, Facebook another, for each audience | One text per network with its own language, length and angle (§8.4). «Профиль автора» names the audience of each network and goes into every request (§8.7) |
 | Minimum of movements | Three actions to four texts: drop a photo, tap a topic card, «Развернуть». Topics arrive without a click (§8.3) |
 | Type or dictate | Topic box plus «Голос», with Gemini transcription (§8.5) |
-| Maybe process the photo, maybe not | Slice D′: one plain crop per network, automatic, centred or moved by one tap (§17). Slice C: templates and highlight on request (§9) |
+| Maybe process the photo, maybe not | Slice D′: one plain crop per network, automatic, centred or moved by one tap (§17). Slice C: ratio, frame and quote per network, and Gemini highlight styles of the operator, each optional, on the review page (§9, pinned in §18) |
 | One button sends everything | Slice D′: review every variant, then publish now or queue, three movements after the texts (§10, §17) |
 | USD 10 a month for AI, then ask | One ledger, reservation before every call, refusal in Russian, month shown on «Создать» (§11) |
-| Video the same way, later | A separate task; not designed here (§20) |
+| Video the same way, later | A separate task; not designed here (§21) |
 
-Every row is built in slices B′, D′, C and M (§15). Cut scope is in §20.
+Every row is built in slices B′, D′, C and M (§15). Cut scope is in §21.
 
 ## 2. What exists today
 
@@ -145,7 +149,7 @@ has no active `ANTHROPIC_API_KEY` line and no `AI_MONTHLY_CAP_USD` line.
 | D4 | AI calls run in the request thread with a 120 s deadline and at most two at a time. Publishing (D) runs in a background thread | One job queue for everything | An AI call ends within seconds and the page waits; a publish can take over 5 minutes |
 | D5 | Gemini through the Interactions API with `"store": false` | `generateContent` (legacy, still supported, G9) | The current guides for structured output, audio and image editing use Interactions (G1, G4). Interactions stores requests for 55 days on the paid tier unless `store` is false (G9) |
 | D6 | Texts and topics with Gemini structured output: `response_format` of type `text`, `mime_type` `application/json` and a JSON `schema` | Free text parsed by hand; function calling | The schema is checked by the vendor, `minItems`/`maxItems` are enforced (G4), and the JSON is the text of the `model_output` step (G6) |
-| D7 | Texts and topics with `gemini-3.8-flash` at `thinking_level: "low"` | `gemini-4-hydrogen`; `gemini-3.5-flash-lite` | 3.8 Flash is the model the research report names. It is stable, takes images, supports structured output and costs $0.75 / $3.75 per MTok through 2026-12-31 and $1.50 / $7.50 after (G2, G3). Google's overview recommends Hydrogen for new projects, but it costs $1.50 / $7.50 now and thinks at `high` by default (G2, G3, G5). Flash-Lite is cheaper but Google describes it for throughput, not writing. The model is one constant in `prompts.py` (§20 names the trigger to switch) |
+| D7 | Texts and topics with `gemini-3.8-flash` at `thinking_level: "low"` | `gemini-4-hydrogen`; `gemini-3.5-flash-lite` | 3.8 Flash is the model the research report names. It is stable, takes images, supports structured output and costs $0.75 / $3.75 per MTok through 2026-12-31 and $1.50 / $7.50 after (G2, G3). Google's overview recommends Hydrogen for new projects, but it costs $1.50 / $7.50 now and thinks at `high` by default (G2, G3, G5). Flash-Lite is cheaper but Google describes it for throughput, not writing. The model is one constant in `prompts.py` (§21 names the trigger to switch) |
 | D8 | Transcription with `gemini-3.5-flash-lite` and inline audio | `gemini-3.5-transcribe` | Inline WebM and OGG audio are documented for general models (G8). The transcribe model's examples upload through the Files API first, which costs two requests and a clean-up |
 | D9 | Authoring pages need JavaScript; with JS off they say so | A no-JS path for each step | Drop, recording and canvas exist only in JS. «Профиль автора» is a plain form and works without JS |
 | D10 | The AI month is shown in the row under the top bar on every «Создать» page, not in the top bar | A top-bar item (first revision) | The top bar already gains the «Создать» tab and the longer «Медиатека» label. Measured in §11.5: the bar keeps its heights except at 1 414–1 513 px, where it moves to two rows as it already does at 1 280. The AI spend happens only on «Создать», so the fact sits there once |
@@ -155,7 +159,7 @@ has no active `ANTHROPIC_API_KEY` line and no `AI_MONTHLY_CAP_USD` line.
 | D14 | Voice audio stays in the page. The server holds it in memory for one call and never writes it to disk | Storing `voice-<n>.webm` for a retry (first revision) | No recording of the operator's voice on disk. The page keeps the blob for «Повторить расшифровку» |
 | D15 | Draft writes are per field, under a short per-draft lock; the last write wins | A whole-file revision on every write | An AI result that arrives while the operator types would make the next autosave stale. The panel is local and used by one operator |
 | D16 | «Перегенерировать» sends the topic, the profile, the photo, that network's current text and the wish | All four texts as context (first revision) | The reservation bound stays small and fixed. Consistency across networks comes from the shared topic and profile |
-| D17 | «Профиль автора» is one form page saved to `content/profile.json` | Profile in the env file; a profile that learns from edits | The content folder is ignored by git and holds the operator's own data. Learning from edits is deferred (§20) |
+| D17 | «Профиль автора» is one form page saved to `content/profile.json` | Profile in the env file; a profile that learns from edits | The content folder is ignored by git and holds the operator's own data. Learning from edits is deferred (§21) |
 
 ## 4. Vendor and platform facts
 
@@ -206,29 +210,36 @@ factory/authoring/            standard library only
   budget.py     (B′) AI ledger: reserve, settle, month total, cap, static bounds
   prices.py     (B′) dated price table with source URL and read date
   prompts.py    (B′) model constants, instructions, schemas, per-network targets
-  gemini.py     (B′) request build, reply parse, usage -> price; (C) image edit
+  gemini.py     (B′) request build, reply parse, usage -> price; (C) highlight op,
+                expand quotes, Russian 4xx reasons
   send.py       (D′) crop contract, review checks, package writing, publish thread,
-                status, queue and the offered rule, delete
+                status, queue and the offered rule, delete; (C) ratio choices, base,
+                look digest, settings, style files
 factory/panel/
   server.py     JSON and audio route kinds; /create routes; AI transport injection;
                 drafts cache and AI-month cache (one entry each);
                 (D′) review, status, file, image, focus, publish, retry, queue, delete;
-                publish-function and targets injection; Ctrl+C waits for a publish
-  views.py      create, create_draft, create_profile; «черновик» chip; (D′) create_review
+                publish-function and targets injection; Ctrl+C waits for a publish;
+                (C) settings, highlight
+  views.py      create, create_draft, create_profile; «черновик» chip; (D′) create_review;
+                (C) its «Фото» section and card controls
   model.py      photo_uses includes drafts (given by the server, §8.8)
   strings.py    tabs and every new Russian string
   static/author.js    (A) + MFAuthor.uploadFile(folder, csrf, file) for «Создать»;
-                      (D′) MFAuthor.makeCrop(bitmap, spec, focus)
+                      (D′) MFAuthor.makeCrop(bitmap, spec, focus);
+                      (C) frame and quote in makeCrop, layoutTemplate
   static/create.js    (B′) drop zone, topics, voice, expand, editors, regenerate
-  static/send.js      (D′) crops, focus, dialogs, status polling on the review page
+  static/send.js      (D′) crops, focus, dialogs, status polling on the review page;
+                      (C) base as source, styles, settings
   static/panel.css    create and review styles
-tests/test_author_{drafts,profile,budget,gemini,create}.py,
-tests/panel_fixture.py (create fixture, FakeGemini), tools/visual_check.py
+tests/test_author_{drafts,profile,budget,gemini,create,send,images}.py,
+tests/panel_fixture.py (create, send and images fixtures, FakeGemini), tools/visual_check.py
 KEYS.md, README.md
 ```
 
-The poster stays unchanged. The factory core (`stock`, `ruleset`, `planner`, `runner`,
-`journal`, `checks`, `attention`, `cli`, `inputs`, `paths`) stays unchanged.
+The poster stays unchanged, except that C's `vendor_message` reads a JSON array (§18, D33).
+The factory core (`stock`, `ruleset`, `planner`, `runner`, `journal`, `checks`,
+`attention`, `cli`, `inputs`, `paths`) stays unchanged.
 
 ### 5.2 Files and state
 
@@ -312,7 +323,7 @@ view has the «Фото» section (the photo count stands once, in the sub row �
 «в очереди» and «опубликовано» from stock packages. The first revision also planned a
 text-post button, a drafts strip and a «Пост» button on each tile for lane B. In this
 revision the drafts list lives on «Создать» (§8.2) and the tile button moves to slice M
-(§15). Text-only posts are deferred (§20).
+(§15). Text-only posts are deferred (§21).
 
 ## 7. Drafts
 
@@ -347,7 +358,7 @@ B′ writes these fields:
   poster's id pattern `[a-z0-9][a-z0-9._-]{0,79}` and later becomes the package id. An
   existing id retries with new hex.
 - `folder` and `photo` name an indexed photo. A draft always has a photo in B′; text-only
-  posts are deferred (§20).
+  posts are deferred (§21).
 - `topics_auto` is `pending` (a new draft with a key, before its automatic request),
   `done` (the automatic request was reserved, whatever its outcome) or `manual` (no key
   when the draft was created).
@@ -361,7 +372,9 @@ B′ writes these fields:
   the same op.
 - `state`: always `draft` in B′. D′ adds `publishing`, `partial` and `published`, plus
   `publish`, `focus` and `refused` (§17.2). A queued draft is removed, so `queued` is never
-  stored. C adds `base`, `styles`, and per variant `image`, `template` and `quote`.
+  stored. C adds `base`, `look`, `quotes`, `who` and `highlight_error` at the top level
+  (§18.2). The first revision put `image`, `template` and `quote` inside each variant, but
+  B′ code rewrites a variant's whole dict on every edit, so §18 follows the code (D29).
 
 ### 7.2 Lifecycle and locks
 
@@ -697,7 +710,10 @@ Unchanged from the first revision except where noted. Slice D′ builds, ahead o
 integer sizes), the focus tap, `MFAuthor.makeCrop`, the `POST /create/<id>/image` route
 and `out/<network>.jpg`. It builds them automatically on the review page, not behind a
 «Сохранить картинки» button (§17.1, D18–D20). C keeps the rest of this section and reuses
-D′'s crop function, route and files.
+D′'s crop function, route and files. §18 pins C against the merged code. Where it differs
+from this section, §18 governs: the controls are on the review page (D27), 1.91:1 is
+955 × 500 (D28), a change deletes and re-makes crops (D30), and the bound is computed
+(D32).
 
 ### 9.1 Code templates (per network, in the browser)
 
@@ -836,7 +852,7 @@ failure removes what was written.
      problems.
 5. Ctrl+C waits for a running publish. An interrupted one shows «прервано — проверьте
    аккаунт» on its review page and in «Черновики» (an attention-bell item is deferred,
-   §20).
+   §21).
 
 ### 10.4 Add to the queue
 
@@ -906,6 +922,7 @@ thinking included (G5). Audio is bounded by its length at Opus's lowest bitrate:
 | Expand (3.8 Flash) | + topic 2 000 ch ≈ 24 100 | 6 000 | до $0.05 / до $0.09 | ≈ $0.011 |
 | Regenerate (3.8 Flash) | + text 5 000 ch + wish 200 ch ≈ 44 900 | 2 500 | до $0.05 / до $0.09 | ≈ $0.005 |
 | Voice (3.5 Flash-Lite) | 1 MB body → ≤ 1 399 s × 32 + prompt ≈ 45 800 | 2 000 | до $0.02 / до $0.02 | ≈ $0.001 |
+| Highlight (Nano Banana 2.1, C) | prompt ≤ 1 KB + 512 + photo 2 240 (G17 unconfirmed) | one 2K image 1 680 + 1 000, all at $30.00/MTok | до $0.09 / до $0.09 | ≈ $0.06 (U until LC3) |
 
 Settling prices `total_input_tokens` at the input rate and `total_output_tokens +
 total_thought_tokens` at the output rate. If LC1 shows that output already includes
@@ -1086,8 +1103,11 @@ The slices:
     base that D′'s crop function draws from.
 
   C reuses D′'s `MFAuthor.makeCrop`, `POST /create/<id>/image`, `out/<network>.jpg` and
-  the review page unchanged. The review page simply shows whatever crops are stored.
-  Acceptance, as in the first revision without its item 1:
+  the review page. It extends them as §18 pins: an optional frame and quote in the crop
+  spec, the ratio and `look` checks on the crop route, and the strip and card controls on
+  the review page (D27). **Pinned acceptance: §18.5**, which governs; the four items
+  below are its items 3, 5–6, 8 and 1. The first revision's acceptance, without its
+  item 1:
   1. Frame and quote fit inside the image, with at most 4 quote lines (measured with a
      `Range`).
   2. A fake Gemini image is stored as `img/blur.jpg` and shown beside the original, with one
@@ -1095,8 +1115,8 @@ The slices:
   3. Choosing a style as the base redraws every preview and re-posts every crop.
   4. Each ratio choice gives the exact integer size of its ratio, and passes
      `check_image`.
-  - Live check: LC3. The operator provides one photo of themselves and a verdict on the
-    face.
+  - Live check: LC3, after the merge (§18.9). The operator provides one photo of
+    themselves and a verdict on the face.
 - **M: «Медиатека» layout** (cut from B′, §16.5). On `/files`:
   - a section «Все фото» on top: the newest photos across photo-lane folders, 60 per step,
     each with its chip and a «Пост» button posting `/create/new`;
@@ -1274,7 +1294,7 @@ carry spec item 1, 4–7 item 2, 8–12 item 3, 13 item 4, 14 item 5, 15–16 it
 19. **Checks.** `python3 -I -B -m unittest discover -s tests -t .` passes, and so does
     `python3 tools/visual_check.py --out DIR` with every state of §16.2 at all seven
     widths. `git status --short --ignored` in the worktree shows nothing new after both.
-20. **Live check.** LC1 (§18) ran with at most 6 real Gemini calls, a non-personal test
+20. **Live check.** LC1 (§19) ran with at most 6 real Gemini calls, a non-personal test
     image and clip, and a cumulative reserved bound under $0.10. Each call is in the
     ledger, and the lane's report lists every call.
 
@@ -1399,12 +1419,12 @@ specification are whole in §16.1.
 | Cut | Goes to | Why it can wait |
 |---|---|---|
 | «Медиатека» as "all photos on top, queue folders deeper", and a «Пост» button on each tile | Slice M (§15) | Spec item 1 asks for the rename, everything slice A shows, and a folder the operator never makes. Those are in B′. The re-layout changes the visual check's ellipsis states and every Files test, so it reviews better on its own |
-| Both-language variants (`en+uk`), per-network on/off switches | §20 | The languages are fixed by the decisions; no one asked for switches |
+| Both-language variants (`en+uk`), per-network on/off switches | §21 | The languages are fixed by the decisions; no one asked for switches |
 | The `quote` line for the quote-on-photo template | C (§9.1) | Only C draws it |
 | «Удалить черновик», removing drafts after send | D (§10.5) | B′ caps drafts at 500 and lists the 10 newest |
 | AI month in the top bar | Replaced by the «Создать» sub row (D10) | Measured and simpler |
-| Profile that learns from repeated edits | §20 | Not in the acceptance; needs a design for what counts as a repeated edit |
-| Text-only posts (no photo) | §20 | The operator asked to start with photos; Instagram needs an image |
+| Profile that learns from repeated edits | §21 | Not in the acceptance; needs a design for what counts as a repeated edit |
+| Text-only posts (no photo) | §21 | The operator asked to start with photos; Instagram needs an image |
 
 ## 17. Slice D′: pinned acceptance (the lane is judged against this section)
 
@@ -1441,13 +1461,13 @@ commit unless marked *new*.
 |---|---|---|---|
 | D18 | The crops are drawn in the browser on `<canvas>` from the **original** (`/photo?v=orig`, decoded with `createImageBitmap(blob, {imageOrientation: "from-image"})`), saved as JPEG and posted to the server. The server only checks and stores the bytes | Crops on the server; crops from the view copy | The standard library has no image codec (D1; §2 Machine). The view copy is at most 1 600 px on its long side (§6.6), so it cannot give 2 048. Canvas JPEGs carry no camera metadata (slice A, B2) |
 | D19 | Sizes. **Instagram** 4:5 as exactly 4k × 5k with k = min(270, ⌊W/4⌋, ⌊H/5⌋), so 1 080 × 1 350 at most. **Facebook** and **LinkedIn** keep the original ratio, with the long side min(2 048, the original's long side). **X** 16:9 as exactly 16k × 9k with k = min(100, ⌊W/16⌋, ⌊H/9⌋), so 1 600 × 900 at most. Nothing is upscaled. JPEG quality is 0.9, then 0.8 and 0.7 while the file is above min(the network's byte limit, 8 MB) | Rounded sizes such as `round(w × 5 / 4)`; the ratio choices of §9.1 | Integer multiples keep Instagram at exactly 0.8, the edge of `IG_MIN_ASPECT` (`rules.py:26`), so rounding can never land at 0.7996. Measured on 2026-11-13 (O): `check_image` passes 1 080 × 1 350 on every network, and 1 536 × 2 048 and 1 600 × 900 everywhere except Instagram's ratio check for 1 536 × 2 048 (aspect 0.750 refused). A 3 024 × 4 032 fixture JPEG (`panel_fixture.make_photo`) takes 0.87 s to generate. The ratio choices stay in C |
-| D20 | **Centre crop by default.** One tap on the source photo on the review page sets `focus` (fx, fy in 0..1). Only the cropped networks (Instagram, X) are redrawn. The window is the largest one of the ratio, centred on the focus and clamped inside the photo | Face detection; Gemini; drag-to-crop | The standard library has no face detection, and Gemini is outside D′ (no paid call, decision of 2026-11-13). Without the tap, a portrait centre crop to 16:9 can cut a head; the tap is the smallest fix, and it is optional. Drag-to-crop stays deferred (§20) |
+| D20 | **Centre crop by default.** One tap on the source photo on the review page sets `focus` (fx, fy in 0..1). Only the cropped networks (Instagram, X) are redrawn. The window is the largest one of the ratio, centred on the focus and clamped inside the photo | Face detection; Gemini; drag-to-crop | The standard library has no face detection, and Gemini is outside D′ (no paid call, decision of 2026-11-13). Without the tap, a portrait centre crop to 16:9 can cut a head; the tap is the smallest fix, and it is optional. Drag-to-crop stays deferred (§21) |
 | D21 | `send.review` runs the poster's own functions in the order of `cmd_publish` (`poster/cli.py:210-252`) on the snapshot's env, record and X month, and words each problem in Russian. A parity test against `poster publish --dry-run` keeps the two equal (§17.8). At publish time the poster's own pre-flight runs again and is the authority | Run `--dry-run` for each page and parse its English lines | Parsing would tie Russian words to English sentences, and the dry run also prints every request. The snapshot already holds the env, the record and the X month, rebuilt only when their files change (`model.state_key`), so a review page reads no extra store |
 | D22 | Publishing runs in one background thread per content folder, guarded by `flock(content/drafts/.publish.lock, LOCK_EX \| LOCK_NB)`. It calls the injectable publish function, by default `factory.runner.poster_main`, which is `poster.cli.main` in this process. Progress is read from the poster record after a byte offset stored at the start. The outcome is written into the draft when the thread ends | A subprocess; an in-memory flag | The runner already calls the poster in-process (`runner.py:47`), and tests inject a fake transport the same way. A lock file is released by the kernel when the process dies, so after a crash or restart the panel can tell «прервано» from «идёт» without any GET writing |
 | D23 | When every target is published, the draft stays, in state `published` and read-only, until «Удалить черновик» | Removing the draft at once (first revision, §10.3) | A removed draft would turn the page that shows the links into a 404 on reload. The «Медиатека» chip can read «опубликовано» for its photo. 500 drafts is far away, and deletion now exists |
 | D24 | The targets are `config.PROFILES["kotleta"]` in poster order (`fb:kotleta`, `ig:kotleta`, `linkedin`, `x`). `make_server(..., publish=None, targets=None)` takes both for tests and for LC4. Nothing in the env file or the UI changes them. «В очередь» re-reads the rules file on the POST and refuses a folder that any rule, active or draft, reads with a destination outside these targets, before anything is written | Per-network switches; an env setting | Every decision names all four networks. A constructor parameter is enough for the fakes and for LC4's one-Page run (§17.9) |
 | D25 | «В очередь» with no active rule reading the folder carries a checkbox, checked by default: «Публиковать из «<папка>» по правилу: пн, ср, пт в 10:00». One click queues the package, then creates the rule and starts it through `checks.activation_problems`. A refused start saves the rule as a draft and shows why on «Правила» | A second click after queuing; a rule created without the checks | It costs one movement fewer. The checks are exactly what `factory rule start` runs, and the refusal display already exists (`views.rules(ctx, refusal=…)`) |
-| D26 | Any problem disables both buttons, including a LinkedIn token and the X month, even for «В очередь» | Queue despite publish-time problems (the runner skips X by itself) | The pinned specification says so. The looser queue is deferred (§20) |
+| D26 | Any problem disables both buttons, including a LinkedIn token and the X month, even for «В очередь» | Queue despite publish-time problems (the runner skips X by itself) | The pinned specification says so. The looser queue is deferred (§21) |
 
 ### 17.2 Draft states and fields
 
@@ -1898,7 +1918,7 @@ The critic also checks that:
 - The factory core: `factory/{stock,ruleset,planner,runner,journal,checks,attention,cli,
   inputs,paths}.py` and `factory/panel/actions.py`. D′ calls `checks.activation_problems`,
   `fruleset.parse_rule`/`write`, `finputs.load`, `fstock` and `runner.poster_main`.
-- The bell and its attention items (an item for an interrupted publish is deferred, §20).
+- The bell and its attention items (an item for an interrupted publish is deferred, §21).
 - B′'s Gemini routes, prompts, budget and ledger. `gemini.py` changes only by moving its
   Exif walk into a shared helper, and every B′ test passes unchanged.
 - The pages Подключение, Календарь, Охваты, Подписчики and Диалоги. On Правила, only the
@@ -1981,13 +2001,586 @@ That post is their own action through the review page, not a check.
 | Cut | Goes to | Why it can wait |
 |---|---|---|
 | Ratio choices, frame, quote, Gemini highlight, side by side, base switch | C (§9, §15) | Decision of 2026-11-13: plain crops now, templates and highlight later |
-| An attention-bell item for an interrupted publish | §20 | «прервано» shows on the review page and in «Черновики» on `/create`, the panel's first page |
-| Re-publishing an interrupted target from the panel | §20 | It risks a double post; the poster's `--force-target` exists for the rare case |
-| Per-network switches; queuing despite publish-time problems | §20 | The specification blocks both buttons on any problem (D26) |
-| Editing texts after a partial publish | §20 | A sent draft is read-only; the operator retries or deletes |
+| An attention-bell item for an interrupted publish | §21 | «прервано» shows on the review page and in «Черновики» on `/create`, the panel's first page |
+| Re-publishing an interrupted target from the panel | §21 | It risks a double post; the poster's `--force-target` exists for the rare case |
+| Per-network switches; queuing despite publish-time problems | §21 | The specification blocks both buttons on any problem (D26) |
+| Editing texts after a partial publish | §21 | A sent draft is read-only; the operator retries or deletes |
 | Choosing the offered rule's days and hours on the review page | Правила | The rule is saved and editable there |
 
-## 18. Unconfirmed facts and live checks
+## 18. Slice C: pinned acceptance (the lane is judged against this section)
+
+Slice C adds the optional image work of §9 on top of D′'s plain crops. The requirement it
+serves is the operator's of 2026-11-11 (§1): maybe put an effect on the photo, or make the
+main person, the operator, stand out somehow. Their later decisions shape it:
+
+- 2026-11-08: photos always get code templates (quote on the photo, frame, crop per
+  network), plus optional AI effects through Gemini;
+- 2026-11-11 and 2026-11-12: Gemini highlights the main person (blurred background, glow or
+  outline), with several styles to choose from, inside the shared $10 a month;
+- 2026-11-13: D first, then C (form answer at 06:59 UTC); D′ with plain automatic crops
+  first, templates and «highlight me» in C afterwards (answer at 07:06 UTC to the form
+  asked at 07:01, which is the time §1's table gives). Both times were read in the primary
+  record.
+
+Everything C adds is optional, so the fewest movements stay as they are. With no C
+control touched, D′'s plain crops go out unchanged (item 12). A styled post costs one
+paid click (a style) and one free click («Взять за основу»). A quote or a frame costs one
+free choice per network.
+
+Read against `main` at `4dd221f` on 2026-11-13. Every function named here exists at that
+commit unless marked *new*.
+
+**Where §9 and the merged code disagree, the code governs**, as the brief for this
+section requires. Each case is a decision below, and §9 stays as the first revision's
+plan:
+
+- **The controls go on the review page, not the draft page** (§9.3). See D27.
+- **Instagram 1.91:1 is 955 × 500, not 1 080 × 566** (§9.1). See D28.
+- **Settings are stored at the top level, not per variant** (§7.1). See D29. This one
+  conflicts with B′ code rather than D′ code.
+- **A change deletes crops, and the page re-makes them** (§9.1). See D30.
+- **A focus tap deletes every crop that is not at the original ratio**, where D′ deletes
+  only Instagram and X (`send.py:604-606`). See D35.
+
+**Builds:**
+
+- **Python.**
+  - `send.py`: the ratio choices and their sizes (`crop_size`, `crop_problem` and
+    `store_crop` take the network's chosen ratio and the base); the settings write; the
+    style files.
+  - `gemini.py`: the `highlight` op, the `quotes` of the expand schema, and the Russian 4xx
+    wording.
+  - `prompts.py`, `prices.py` and `budget.py`: the image model, its price and its bound.
+  - `drafts.py`: the fields of §18.2.
+  - `poster/http.py`: `vendor_message` reads a JSON array; this is the one poster change.
+- **Panel.**
+  - `server.py`: the routes of §18.3.
+  - `views.create_review`: the «Фото» section and the card controls (§18.4).
+  - `strings.py`: every new Russian string.
+- **Browser.**
+  - `author.js`: `MFAuthor.makeCrop(bitmap, spec, focus)` takes the optional `spec.frame`
+    and `spec.quote`. `MFAuthor.cropSize` takes the ratio, and `MFAuthor.layoutTemplate`
+    is *new*.
+  - `send.js`: the base as the crop source, the style calls, the settings posts and the
+    `look` value on each crop post.
+  - `panel.css` and `probe.js`.
+- **Tests, fixture fakes and visual-check states** (§18.6, §18.8). A README section
+  «Картинки: шаблоны и стили».
+
+### 18.1 Decisions
+
+| # | Decision | Rejected options | Why |
+|---|---|---|---|
+| D27 | The ratio, frame and quote controls, the style strip and «Взять за основу» live on the **review page**: the strip in a «Фото» section that replaces D′'s source box, the per-network controls on each card. The draft page stays as B′ and D′ left it | The draft page's photo as the strip (§9.3) | D′ put the crops, the focus tap and the previews on the review page (`views.py:1437-1467`, `send.js:99-190`). So C's controls sit next to what they change, and the draft page keeps its measured first screen (§8.3: the topic box and «Развернуть» on a 700 px screen) |
+| D28 | Every fixed ratio a:b gives exactly a·k × b·k, with k = min(⌊capW/a⌋, ⌊capH/b⌋, ⌊W/a⌋, ⌊H/b⌋) for a base of W × H. The cap box (capW, capH) is Instagram 1 080 × 1 350, X 1 600 × 1 600, and Facebook and LinkedIn 2 048 × 2 048. «как у фото» keeps the base's ratio with the long side min(cap, the base's long side), where the cap is 1 600 for X and 2 048 for Facebook and LinkedIn. **1.91:1 is 191:100**. Nothing is upscaled | 1.91:1 as 1 080 × 566 (§9.1) | This extends D′'s own rule (`send.py:76-87`, `author.js:65-75`; D19), which keeps the poster's aspect checks exact. 1 080 × 566 is 1.908, not 1.91. Spec item 4 asks for the exact integer size of the ratio. 955 × 500 is exactly 1.91, which `check_image` accepts (`IG_MAX_ASPECT`, `rules.py:26`; `955/500 <= 1.91` is True, O). Instagram upscales it about 13 % for display; §21 names the trigger to revisit |
+| D29 | The draft keeps `base`, `look`, `quotes`, `who` and `highlight_error` **at the top level** (§18.2) | `image`, `template` and `quote` inside each variant (§7.1) | B′ code replaces a variant's whole dict on every edit, expand and regenerate (`server.py:498-499`, `gemini.py:286-288`). A choice stored inside it would vanish on the next keystroke |
+| D30 | A change of ratio, frame, quote or base deletes the affected `out/<network>.jpg` under `.lock`, and the reply reloads the page. D′'s `missing` path (`send.js:235-237`) then re-makes the crops. Each crop POST carries `look`, a 12-hex digest of that network's base, ratio, frame, quote place and quote text. `store_crop` refuses a mismatch with D′'s «кадр изменился — обновите страницу». An absent `look` means the default look, so D′'s posts and tests stay valid | Redrawing in place without a reload; a version counter | It is the mechanism D′ already uses for the focus (`send.py:584-585`, `:593-608`), so one path makes every crop. The digest refuses a crop drawn from a stale page (a second tab, or a crop chain still running when the base changed). `seen` already makes the published bytes the reviewed ones (`send.py:288-299`) |
+| D31 | The quote is laid out with the canvas's own `measureText`, so what is measured is what is drawn. The font starts at 6 % of the width and steps down by 1 px to max(10 px, 2.5 % of the width). The text is at most 4 lines. A quote that does not fit fails that crop with a reason; it is never cut | Line breaking by a hidden DOM element; truncating the quote | The canvas measure is exact for the pixels. The panel never shortens operator text (§8.6). The `Range` measurement of spec item 1 checks the result (item 3) |
+| D32 | **Highlight request and bound.** It is §9.2's request with `"resolution": "high"` on the image block, timeout 180 s, model `gemini-nano-banana-2.1`. The bound counts prompt bytes + 512 + **2 240** image tokens at $1.50/MTok, plus **1 680 + 1 000** output tokens at **$30.00/MTok** (G11). The worst case, with `who` at 120 four-byte characters, is ≈ $0.086, so the button reads **«до $0.09»**. Settling prices every output and thought token at $30.00 | 1 120 image tokens and text at $7.50 (the first revision's sums) | The photo's token count and the split of the usage by modality are G17, unconfirmed. Charging every output token at the image rate errs on the safe side. If a reply bills more than reserved, the ledger keeps the actual (the month stays honest). LC3 measures it, and the constants change in review |
+| D33 | **Gemini 4xx in Russian.** The line stays «Не удалось получить <что> от Gemini (HTTP <код>): <причина>» (B′ tests assert `HTTP 429`, `HTTP 400`; `test_author_create.py:227-231`). But `<причина>` now comes from a Russian table by status, never from the vendor. The reduced vendor message goes to one redacted panel-log line. `vendor_message` reads a JSON array as its first object (`poster/http.py:183-204`) | Showing the reduced English message (B′, `gemini.py:269-273`); a Gemini-only parser | The live test of 2026-11-13 saw «(HTTP 402): [{ "error": { "code": 402, …» on the draft page. The array fell through to the raw-body branch (`poster/http.py:203-204`), reproduced (O) with a synthetic body of that shape. Fixing the shared reducer helps every caller (`http.check`, `poster/http.py:212`, used by all four network clients). Only Google sends a top-level array, so the network clients' messages do not change |
+| D34 | A failed highlight is stored as `highlight_error`, never as `error` | Reusing `error` with `op: "highlight"` | `drafts.validate` accepts only the B′ ops (`drafts.py:131`). The draft page's banner prices its retry by `bounds[error["op"]]` (`views.py:1219`), which has no `highlight` |
+| D35 | A focus tap deletes the crops of every target network whose ratio is not «как у фото». The hint names those networks; with none, the hint and ring are hidden and the tile is not a button | D′'s fixed Instagram and X (`send.py:604-606`, `strings.py:459`) | With C, Facebook and LinkedIn can be cropped too. The live test of 2026-11-13 (one target, `fb:kotleta`) showed the fixed «(Instagram и X)» hint for networks that were not sent |
+
+### 18.2 Draft fields
+
+`draft.json` keeps every field of §7.1 and §17.2. `drafts.validate` accepts these, each
+optional:
+
+```json
+{
+  "base": "blur",
+  "look": {"instagram": {"ratio": "1:1", "frame": "white", "quote_at": "bottom"}},
+  "quotes": {"x": "Small steps, fresh angles.", "instagram": "Маленькі кроки — нові кути."},
+  "who": "мужчина в синей куртке",
+  "highlight_error": {"style": "glow", "text": "Gemini не вернул картинку",
+                      "model_text": "…", "ts": "2026-11-13T10:05:00Z"}
+}
+```
+
+- `base` is `orig` (the default when absent), `blur`, `glow` or `outline`. A style is
+  accepted only while `img/<style>.jpg` exists.
+- `look.<network>`:
+  - `ratio` is one of that network's choices, the first being the default:
+    - Instagram: `4:5`, `1:1`, `1.91:1`;
+    - Facebook: `orig`, `4:5`, `1:1`, `16:9`;
+    - LinkedIn: `orig`, `1.91:1`, `1:1`;
+    - X: `16:9`, `orig`, `1:1`.
+  - `frame` is `none` (the default), `white`, `black` or `gold` (`#e8c47c`);
+  - `quote_at` is `none` (the default), `top` or `bottom`.
+
+  An absent network has the defaults, which are D′'s crops.
+- `quotes.<network>` is one line of at most 140 characters, NFC, with no line break.
+  Expand writes all four (§18.5 item 4); `/settings` writes one. Text edits and regenerate
+  never touch it.
+- `who` is at most 120 characters, saved with each highlight call and sent in its prompt.
+- `highlight_error` is cleared by the next highlight success. `text` and `model_text` are
+  redacted, at most 500 and 300 characters.
+- Files:
+  - `img/<style>.jpg` (0600, in `img/`, 0700, a real directory, not a symlink);
+  - `out/<network>.jpg`, as in D′.
+
+  «Удалить черновик» removes both, with the draft folder.
+- `drafts.stage` and the «Черновики» stage words are unchanged.
+
+### 18.3 Routes
+
+The header checks of §14.1 and §17.3 apply unchanged. Both new POSTs go through
+`_create_write`, so a sent draft answers 409 «черновик уже отправлен» (`server.py:478-479`).
+
+| Route | Kind, limit | Does |
+|---|---|---|
+| `POST /create/<id>/settings` | JSON, 64 KB | Either `{base}`, or `{network, ratio?, frame?, quote_at?, quote?}`. Under `.lock` it validates by §18.2, saves, and deletes `out/<n>.jpg` for each network whose `look` digest changed: all target networks for a new base, one for a card. It answers `{base, look, missing}`. Refusals: 400 for an unknown key or value; 409 «сначала создайте этот стиль» for a base without its file; 409 «впишите цитату» for a place other than `none` with an empty quote; 409 «цитата — не больше 140 знаков» |
+| `POST /create/<id>/highlight` | JSON, 64 KB | `{style, who}`: one Gemini call (§18.5 items 5–7). It answers `{style, width, height, url, month}`. Refusals are 409 (budget, key, busy), 502 (vendor or reply) and 504 (no connection or timeout), each `{error, month}` |
+| `POST /create/<id>/image?…&look=<12 hex>` | image, 8 MB (D′) | D′'s checks. The ratio, the size and the «как у фото» reference come from the network's `look` and the base (item 1). `look` must equal the stored digest; absent means the default look |
+| `GET /create/<id>/file?name=<n>` | image, `no-store` (D′) | `name` is one of the four networks (`out/`) or the three styles (`img/`), sniffed as JPEG, as `crop_file` does (`send.py:517-528`). Any other name answers 404 |
+| `GET /create/<id>/review?style=<s>` | page (D′) | `style` picks the result shown in the right tile. By default that is the base if it is a style, else the newest result |
+
+The POST route regex (`server.py:93`) gains `settings|highlight`. The GET regex stays
+`review|status|file`.
+
+**Security.** Each promise names the server-side check that keeps it; §18.8 tries the
+hostile input.
+
+| Threat | Server-side check | Hostile test |
+|---|---|---|
+| A foreign site spends on a style or changes a look | JSON kind: `Origin` required and equal to the panel's, `X-CSRF-Token` checked before any body byte (`server.py:394-419`) | `/highlight` and `/settings` with `Origin: http://evil.example`, without the token, with a wrong `Host`: 403/421; the ledger and the draft are byte-identical; the fake transport saw nothing |
+| Path traversal through a style or file name | `style` and `name` only from fixed tuples; `img/` and `out/` must be real directories (D′'s `_real_dir`, `send.py:402-414`) | `name=../../.env`, `style=../x`, an `img/` symlinked to a scratch folder: 400/404/409, nothing read or written outside |
+| Personal data kept by Google, or camera metadata sent | Only the view copy, checked by `gemini.image` (`gemini.py:101-114`: JPEG, no Exif APP1). `"store": false`; no file name; `who` only as prompt text. The key's project must have billing on (G10, §20 item 1) | The captured request has `"store": false`, no `name` field and the view copy's base64; an injected Exif view copy answers 409 with no request |
+| Key values in pages, JSON, logs, drafts | `_json` and `_page` redact; the JSON body is redacted before use (`server.py:471`); `vendor_message` and the model's text part are redacted before storing or logging | A canary key inside a 402 array body and inside a text-only answer: in no page, JSON reply, log line, ledger row or draft |
+| Spending without the operator | One call per click; reservation before sending; refusal above the cap; no retry by itself; `.ai.lock` per draft and two calls at once (`gemini.py:190-198`) | Month at $9.99: 409 and zero requests; two clicks on one draft: one request and 409 «уже выполняется»; a reload during a held call sends nothing |
+| A style result published unseen | A new result changes nothing until «Взять за основу». A base change deletes every crop, so «Проблем нет» and both buttons wait for the new crops, which the review shows. `seen` covers their bytes | `/publish` with the `seen` of the page before the switch: 409 «черновик изменился после проверки — проверьте ещё раз» |
+
+### 18.4 The review page in C (state `draft`)
+
+Order: D′'s action block (unchanged, first), then **«Фото»**, then the cards, then
+«Удалить черновик». In the other states nothing of C is shown.
+
+**«Фото»** (`<section id="photo">`, replacing D′'s `send-source`, `views.py:1437-1443`):
+
+1. **Heading row**: «Фото» and the status line (`role="status"`). The status line reads
+   «Gemini рисует «Размыть фон»… до 3 минут» while a call runs.
+2. **Two equal tiles side by side at every width** (`grid-template-columns: 1fr 1fr`, at
+   most 2 × 320 px). Each tile has its label as text above a 160 px box (`object-fit:
+   contain`):
+   - the left tile is «Оригинал» (the view copy);
+   - the right tile is the shown style («Размыть фон», «Свечение» or «Контур») from
+     `/create/<id>/file?name=<s>`. With no result it reads «Здесь появится фото со стилем —
+     выберите стиль ниже».
+
+   Under the base tile stands the word «основа»; under the other, when it holds an image,
+   «Взять за основу». Under the right tile with a result is «Создать заново · до $0.09».
+   The focus ring and tap sit on the base tile only (D35).
+3. **Style chips**: one chip for each of «Размыть фон», «Свечение» and «Контур» except
+   the style the right tile shows, which its label already names.
+   - A style with a result is a link to `?style=<s>#photo`.
+   - A style without a result is a button «Свечение — создать · до $0.09» that spends
+     (§18.5 item 5).
+4. **«Кто главный на фото (необязательно)»**: one input, at most 120 characters, with the
+   placeholder «например: мужчина в синей куртке». Its value is saved with the next call.
+5. **Notices** (`role="alert"`, at most one line each):
+   - no key: «нет GEMINI_API_KEY в .env — стили фото недоступны»;
+   - the budget refusal «Бюджет ИИ на ноябрь исчерпан: «Стиль фото» стоит до $0.09. …»;
+   - the stored `highlight_error` with «Повторить · до $0.09». A text-only answer adds the
+     line «Ответ Gemini: «<model_text>»».
+
+   With no key or past the cap, the spending chips are disabled and carry the reason in
+   `title`. The «Создать» pages' `_author_state` is unchanged (`views.py:1080-1097`), so
+   no B′ page gains a highlight notice.
+6. **Focus hint**: «Нажмите на фото-основу, чтобы сдвинуть центр кадра (Instagram и X)».
+   It names the cropped target networks by `S.names_and`.
+
+**Card controls** (state `draft`, on every card under the size line):
+
+- One wrapping row of three label-and-select pairs, each pair unbreakable:
+  - «Кадр»: «как у фото», «4:5», «1:1», «1.91:1», «16:9», as the network allows;
+  - «Рамка»: «нет», «белая», «чёрная», «золотая»;
+  - «Цитата»: «нет», «внизу», «вверху».
+- While «Цитата» is not «нет», a second row: «Текст цитаты» (input, at most 140, the
+  stored quote or empty) and «Применить».
+- A «Кадр» or «Рамка» change posts `/settings` at once. A «Цитата» change posts at once
+  only when a quote is stored; otherwise it opens the second row, and «Применить» posts
+  the place and the text together. «Применить» posts an edited quote. The reply reloads the
+  page, which re-makes the crop.
+- While the crop line runs or a POST is in flight, every C control and «Взять за основу»
+  is disabled and keeps its width (D30's race).
+
+**Template drawing** (`author.js`, after the crop is drawn, on the same canvas):
+
+- **Frame**: four filled rectangles inside the edges, `f = max(16, round(0.025 × short
+  side))` px wide, in `#ffffff`, `#000000` or `#e8c47c`. The output size never changes.
+- **Quote band**: `rgba(0, 0, 0, 0.6)`, inside the frame, across the inner width.
+  - Its centre is the middle of the top or bottom third of the area inside the frame,
+    clamped inside it.
+  - The text is white `600` `system-ui, sans-serif`, line height 1.25, with padding of
+    0.5 em, centred.
+  - Line width is at most min(0.86 W, inner width − 2 × padding), and there are at most
+    4 lines (D31).
+- `MFAuthor.layoutTemplate(W, H, frame, quote)` returns `{inset, band: [x, y, w, h],
+  font, lines: [{text, x, y, w}], fits}`. `makeCrop` draws from it, and `send.js` records
+  it in `MFSend.results` for the probe.
+- A word longer than the line is broken between characters; nothing else changes the
+  text.
+- With `frame` `none` and no quote, `makeCrop` runs D′'s path unchanged.
+- A quote that does not fit fails the crop through D′'s `failed()` (`send.js:85-96`):
+  «Не удалось подготовить картинку для Instagram: цитата не помещается в 4 строки —
+  сократите». A ratio whose k is 0 fails the same way: «фото слишком маленькое для 1.91:1».
+
+**Source of every crop:** `D.source`. This is `/photo?…&v=orig` for the base `orig`
+(`views.py:1481`), or `/create/<id>/file?name=<style>`. It replaces `D.orig`
+(`send.js:108`).
+
+### 18.5 Acceptance list
+
+Each item is observable by a test, a probe or a screenshot named in §18.6–§18.8. The
+specification's items map as follows:
+
+| Specification item | Acceptance items |
+|---|---|
+| 1 (frame and quote fit, `Range`) | 3 |
+| 2 (fake image stored and shown; text-only answer) | 5, 6 |
+| 3 (base redraws every preview, re-posts every crop) | 8 |
+| 4 (exact sizes, `check_image`) | 1 |
+| 5 (budget guard, bound on every button) | 7 |
+| 6 (errors in Russian, never raw JSON; the `vendor_message` fix and its test) | 9 |
+| 7 (A, B′ and D′ tests; visual check) | 12, 13 |
+| Fences (fake Gemini only, no spend) | 14 |
+| This design's own | 2, 4, 10, 11 |
+
+1. **Ratio choices and sizes.**
+   - `send.crop_size(network, ratio, W, H)` and `MFAuthor.cropSize(network, ratio, W, H)`
+     agree. The probe compares the browser's values with this table, and the test compares
+     Python's:
+
+     | Network | Choice | 3 024 × 4 032 | 320 × 240 | style 1 536 × 2 048 |
+     |---|---|---|---|---|
+     | Instagram | 4:5 (default) | 1 080 × 1 350 | 192 × 240 | 1 080 × 1 350 |
+     | Instagram | 1:1 | 1 080 × 1 080 | 240 × 240 | 1 080 × 1 080 |
+     | Instagram | 1.91:1 | 955 × 500 | 191 × 100 | 955 × 500 |
+     | Facebook | как у фото (default) | 1 536 × 2 048 | 320 × 240 | 1 536 × 2 048 |
+     | Facebook | 4:5 | 1 636 × 2 045 | 192 × 240 | 1 536 × 1 920 |
+     | Facebook | 1:1 | 2 048 × 2 048 | 240 × 240 | 1 536 × 1 536 |
+     | Facebook | 16:9 | 2 048 × 1 152 | 320 × 180 | 1 536 × 864 |
+     | LinkedIn | как у фото (default) | 1 536 × 2 048 | 320 × 240 | 1 536 × 2 048 |
+     | LinkedIn | 1.91:1 | 1 910 × 1 000 | 191 × 100 | 1 528 × 800 |
+     | LinkedIn | 1:1 | 2 048 × 2 048 | 240 × 240 | 1 536 × 1 536 |
+     | X | 16:9 (default) | 1 600 × 900 | 320 × 180 | 1 536 × 864 |
+     | X | как у фото | 1 200 × 1 600 | 320 × 240 | 1 200 × 1 600 |
+     | X | 1:1 | 1 600 × 1 600 | 240 × 240 | 1 536 × 1 536 |
+
+   - Every crop the page makes for the first and third columns sniffs as JPEG.
+     `check_image(network, sniff(path))` returns no error, and the marker walk finds no
+     `Exif` APP1.
+   - `POST /image` refuses, with 409 and nothing written:
+     - a crop whose ratio is not the look's;
+     - a fixed ratio over its cap box;
+     - a «как у фото» crop more than 1 % off the base's ratio. The base is the view copy's
+       index size for `orig` (`send.py:530-539`) and the sniffed `img/<style>.jpg` for a
+       style;
+     - a «как у фото» crop whose long side is over its cap or under min(cap, the base's
+       long side).
+2. **Settings and redraw.**
+   - A card's select change posts `/settings`. The stored `look` changes, and only that
+     network's `out/` file is deleted: the other three keep their mtime.
+   - The page reloads, makes one crop (one `/image` POST) and reloads once more.
+   - A crop posted with the previous `look` digest answers 409 «кадр изменился — обновите
+     страницу».
+   - Unknown keys or values answer 400, and a sent draft answers 409. In each case nothing
+     is written.
+3. **Frame and quote fit, measured with a `Range`** (spec item 1). The `review-template`
+   probe covers the four networks' template crops and runs `layoutTemplate` on every size of
+   item 1's first column. It uses four quotes: a short Russian one, 140 Russian
+   characters, 140 × «а» with no space, and an English one. Every one fits on every size. It
+   reports:
+   - **numerically:** `lines.length ≤ 4`; each line's `measureText` width ≤ min(0.86 W,
+     inner width − 2 × padding); the band inside `[f, W − f] × [f, H − f]`; the font at
+     least max(10, 0.025 W);
+   - **with a `Range`:** the probe lays the returned lines out as DOM text at the same
+     coordinates and font in a W × H box (`white-space: pre`, one absolutely positioned
+     span per line). For each line it reads `Range.getClientRects()` over its text node:
+     exactly one rect, lying inside the band, and the band inside the box minus the frame.
+     The count of line rects is the quote's line count, at most 4;
+   - **in the pixels:** the probe draws one crop with each of the three frame colours and
+     decodes the JPEGs. In each, the pixel at (f/2, f/2) is within 12 of that colour per
+     channel, so the frame is drawn inside the image;
+   - **at the limit:** a 140-character quote on a 191 × 100 crop gives `fits: false`. The
+     crop line shows «Не удалось подготовить картинку для Instagram: цитата не помещается
+     в 4 строки — сократите», and no `/image` POST is sent.
+4. **Quotes from «Развернуть».**
+   - The expand schema gains a required `quotes` object with the four network keys
+     (`prompts.py:35`). The prompt asks for one line per network, at most 90 characters,
+     in that network's language, with no hashtags or links.
+   - The captured request equals `prompts.SCHEMAS["expand"]`. `draft.json` `quotes` holds
+     the four lines, NFC.
+   - A reply without `quotes` is still accepted and stores none. B′'s
+     `test_steps_last_output_and_output_text` sends one (`test_author_gemini.py:39-40`).
+     Any other extra key stays invalid (`:53`).
+   - A quote over 140 characters or with a line break is not stored; the texts are.
+   - Regenerate and text edits leave `quotes` byte-identical.
+   - An expand that changes the quote of a network whose `quote_at` is not `none` deletes
+     that network's crop.
+   - «Развернуть · до $0.05» is unchanged. The worst-case bound with the schema and prompt
+     lines added is $0.0403 now and $0.0807 from 2027-01-01, so the buttons stay $0.05 and
+     $0.09 (O, `budget.bound` on 2026-11-13).
+5. **A style result** (spec items 2 and 5).
+   - «Размыть фон — создать · до $0.09» posts `/create/<id>/highlight` `{style: "blur",
+     who}`.
+   - The fake transport receives exactly one request. Its URL and headers are §8.4's,
+     `model` is `gemini-nano-banana-2.1` and `store` is false.
+   - The input is the style instruction of §9.2 + «The main person is the most prominent
+     person in the photo.» + the `who` line when given + «Do not add text, logos or other
+     people.», then the view copy's base64 with `"resolution": "high"`.
+   - `response_format` is `{"type": "image", "mime_type": "image/jpeg", "aspect_ratio":
+     "3:4", "image_size": "2K"}`. 3:4 is the nearest of §9.2's list to the fixture's 3:4
+     view copy (nearest by |log r − log c|).
+   - When the fake is called, the ledger's last row is `reserved` with `op: "highlight"`
+     and `price` equal to the reserved bound. After it there is one `ok` row priced by D32.
+   - The fake's 1 536 × 2 048 JPEG is stored as `img/blur.jpg` (0600, `img/` 0700) and
+     served by `/file?name=blur`.
+   - The page shows it in the right tile beside «Оригинал». Both images are loaded, the
+     tiles share a top and have equal widths (±1 px) at all ten widths, and the sub row's
+     month changes to the reply's `month`.
+   - `who` is saved in `draft.json`.
+6. **No image in the answer** (spec item 2).
+   - A completed reply with only a text block shows «Gemini не вернул картинку», «Ответ
+     Gemini: «<text>»» and «Повторить · до $0.09». After a reload it is shown again from
+     `highlight_error`.
+   - It settles `ok` at the reported usage, and nothing is written under `img/`.
+   - An image block that is not a JPEG by sniffing gives «Gemini вернул картинку не в JPEG
+     — повторите». One over 8 MB decoded gives «Gemini вернул слишком большую картинку —
+     повторите». Both settle `ok`.
+   - `incomplete` and `failed` replies give §8.4's messages.
+   - A result arriving after the draft was sent is not stored, and the answer is 409
+     «черновик уже отправлен».
+7. **Every Gemini call is guarded and priced on its button** (spec item 5).
+   - Every spending control shows its bound as text: the three create chips, «Создать
+     заново», «Повторить», and B′'s four.
+   - `budget.button("highlight")` is at least `budget.bound` for every style with `who` at
+     120 four-byte characters, and reads $0.09.
+   - With the month at $9.99, the chips are disabled, «Бюджет ИИ на ноябрь исчерпан:
+     «Стиль фото» стоит до $0.09. …» shows once, and a forced POST answers 409 with that
+     text. The transport sees zero requests.
+   - With no key: «нет GEMINI_API_KEY в .env — стили фото недоступны» and zero requests.
+   - Two concurrent clicks on one draft give one request and 409 «уже выполняется». A
+     third concurrent AI call across drafts gives 409 «ИИ занят двумя запросами —
+     подождите».
+   - A 503 settles `unknown`, and the reservation counts. A timeout settles `unknown` (504).
+     A 402 settles `failed` and counts 0 (every 4xx, `gemini.py:263`; §11.1 lists six codes,
+     and the code governs).
+   - A test wraps the fake transport for every op (topics, expand, regenerate, voice,
+     highlight). Each request finds a `reserved` row of its op written after the previous
+     request; none is sent without one.
+8. **«Взять за основу» redraws everything** (spec item 3). On a draft with `img/blur.jpg`
+   and D′'s crops:
+   - «Взять за основу» under «Размыть фон» posts `/settings` `{base: "blur"}` once. All
+     four `out/` files are deleted.
+   - The page reloads, fetches `/create/<id>/file?name=blur` as the source and posts four
+     crops, then reloads once more.
+   - All four files differ from before (SHA-256) and have the third column's sizes of item
+     1. Every card's `<img>` shows the new bytes. «основа» stands under «Размыть фон», and
+     «Проблем нет · 4 сети» returns.
+   - «Взять за основу» under «Оригинал» goes back the same way.
+   - A crop posted from the old base answers 409. While the four crops are being made, the
+     strip and the card controls are disabled.
+   - A new result for the base style («Создать заново») also deletes all four crops.
+9. **Gemini errors in Russian, never raw JSON** (spec item 6).
+   - `vendor_message(Response(402, {}, b'[{"error": {"code": 402, "message": "x"}}]'))`
+     returns «x; code 402». An empty array or an array of non-objects falls back as today.
+     An object body gives the same answer as before (test `VendorMessageTest`).
+   - The 4xx reason table is:
+
+     | Status | `<причина>` |
+     |---|---|
+     | 400 | «Gemini не принял запрос — подробности в журнале панели» |
+     | 401, 403 | «ключ GEMINI_API_KEY не принят — проверьте ключ и доступ к Gemini API» |
+     | 402 | «закончились предоплаченные кредиты Gemini — пополните баланс в Google AI Studio» |
+     | 404 | «модель недоступна для этого ключа» |
+     | 413 | «запрос слишком большой» |
+     | 429 | «Gemini просит подождать — повторите позже» |
+     | other 4xx | «Gemini отклонил запрос — подробности в журнале панели» |
+
+     `<что>` is B′'s word (`gemini.py:25`) or «картинку» for a highlight. 5xx and transport
+     errors keep B′'s lines.
+   - A fake 402 with the array body gives «Не удалось получить тексты от Gemini (HTTP 402):
+     закончились предоплаченные кредиты Gemini — пополните баланс в Google AI Studio» on
+     expand (on the draft page), and the same line with «картинку» on a highlight (on the
+     review page).
+   - The page's visible text, the JSON `error`, and the stored `error.text` and
+     `highlight_error.text` contain none of `[{`, `{"`, `"error"` or `prepayment`.
+   - The panel log has exactly one redacted line, «panel: gemini <op> HTTP 402: <reduced
+     message>».
+   - B′'s `test_vendor_failure_settlement_stored_error_redaction_and_retry` passes
+     unchanged.
+10. **Focus with C's ratios.**
+    - With Facebook at 4:5, a tap deletes the Instagram, Facebook and X crops, and
+      LinkedIn's keeps its mtime. The hint reads «… (Instagram, Facebook и X)».
+    - With every target at «как у фото» (for example `targets=("fb:kotleta",)`), the hint
+      and ring are absent, and the base tile is an `<img>`, not a button.
+11. **Storage.**
+    - Draft fields outside §18.2 are refused by `validate`.
+    - `img/` and `out/` symlinked to a scratch folder are refused, with nothing written
+      there.
+    - «Удалить черновик» removes `img/`.
+    - No GET writes (hashes of `content/` before and after every C state's GETs).
+    - `git check-ignore content/drafts/d/img/blur.jpg` holds.
+12. **D′ unchanged by default.**
+    - A draft with no C field makes byte-identical crops through the default path and
+      through `makeCrop` with `frame: "none"` and no quote (probe, same bitmap).
+    - Every D′ test in `tests/test_author_send.py` passes unchanged; that file is not
+      edited (another lane changes it).
+    - D′'s visual states and their defining text pass. The package format, publish, queue,
+      retry, status and delete are unchanged.
+13. **Checks.**
+    - `python3 -I -B -m unittest discover -s tests -t .` passes, with HOME and TMPDIR
+      outside the checkout.
+    - `python3 tools/visual_check.py --out DIR` passes every state of §16.2, §17.6 and §18.6
+      at all ten widths.
+    - `git status --short --ignored` in the worktree shows nothing new after both.
+14. **No real call, no spend.**
+    - Every Gemini request in tests and in the visual check goes to `FakeTransport` or
+      `FakeGemini`, and `tests/base.py`'s guard sees no other connection.
+    - No stage reads a real key: fixtures carry the canary env.
+    - LC3 is not run (§18.9).
+    - The X ledger, the poster record, `content/packages/` and the stock are unchanged by C
+      (hashes), except through D′'s own publish and queue states.
+
+### 18.6 UI states and widths for the visual critic
+
+Every state runs in `tools/visual_check.py` at the ten widths (390, 900, 1000, 1100, 1200,
+1279, 1280, 1440, 1600, 1920) with the probe's existing checks: cut text, sideways scroll,
+overlaps, targets under 24 × 24, an alert below the first screen, and contrast. The
+panel ships one theme, dark (`color-scheme: dark`, `panel.css:32`), and Russian UI.
+
+The visual critic frames each state at **390, 900, 1440 and 1920**, as in §17.6. Each state
+is defined by visible text that must be whole on the first screen at every width (measured
+with a `Range`). The C states load with `#photo`, or with `#send-cards-h` for the card
+states, because D′'s action block comes first and fills a 390 px screen. Cards are judged
+scrolled until each is whole.
+
+**Measurement** (2026-11-13, O): `main` at `4dd221f`, Chrome for Testing 156.0.8078.4
+headless shell at device scale 1, the «send» fixture's `ready` review page. Placeholders
+were injected for the card row (the three pairs with their longest options) and the chip row
+(four labels, «Оригинал» and the three create chips, one more than C shows):
+
+| Viewport | Card columns | Card inner width | Card row lines | Chip row lines |
+|---|---|---|---|---|
+| 390 | 1 | 340 px | 2 | 3 (widest chip 262 px) |
+| 900 | 2 | 400 | 2 | 1 |
+| 1 000 | 3 | 286 | 2 | 1 |
+| 1 100 | 3 | 319 | 2 | 1 |
+| 1 200 | 4 | 254 | 3 | 1 |
+| 1 279, 1 280, 1 440, 1 600, 1 920 | 4 | 272 | 3 | 1 |
+
+The pairs measured 143, 131 and 132 px. No pair or chip overflowed its box, and no page
+scrolled sideways. The narrowest card (254 px at 1 200) holds one pair per line. The quote
+row (a text input that shrinks beside «Применить») was not measured; `review-template`
+measures it.
+
+Three fixtures carry the states, separate from B′'s and D′'s, so their states and counts
+stay as they are. FakeGemini runs in process:
+
+- **«images»** (static): `my-photos` with the 3 024 × 4 032 photo, and these drafts:
+  - `plain` (four texts, D′ crops, no style);
+  - `styled` (as `plain`, plus `img/blur.jpg` 1 536 × 2 048 and four quotes);
+  - `based` (base `blur`, crops at the third column's sizes).
+
+  Variants of the fixture: `ledger_usd=9.99`, and `key=False`.
+- **«images-live»**: per width, one draft for each state that changes a draft or holds a
+  call. They are `tpl`, `ratio`, `hold`, `hl`, `text`, `e402`, `base` and `x402`. FakeGemini
+  answers each by its draft: a 1 536 × 2 048 JPEG, a held call, a text-only answer, or a
+  402 with the array body.
+
+| State | Setup | Defining text on the first screen |
+|---|---|---|
+| `review-styles-empty` | «images», `plain`, `#photo` | «Фото», «Оригинал», «основа», «Здесь появится фото со стилем — выберите стиль ниже», «Размыть фон — создать · до $0.09», «Свечение — создать · до $0.09», «Контур — создать · до $0.09», «Кто главный на фото (необязательно)» |
+| `review-styles` | «images», `styled`, `?style=blur#photo` | «Оригинал» with «основа», «Размыть фон» with «Взять за основу» and «Создать заново · до $0.09», the chips «Свечение — создать · до $0.09» and «Контур — создать · до $0.09» (no chip repeats the shown style) |
+| `review-based` | «images», `based`, `#photo` | «основа» under «Размыть фон», «Взять за основу» under «Оригинал», «Нажмите на фото-основу, чтобы сдвинуть центр кадра (Instagram и X)» |
+| `review-template` | «images-live», `tpl-<w>`. Four quotes stored. Looks: Instagram 1:1, white frame, quote at the bottom; X 1:1, black frame, quote at the top; LinkedIn 1.91:1, gold frame; Facebook 16:9, quote at the bottom. No crops stored, so the page makes them. `#send-cards-h` after the reload | The selected options («1:1», «белая», «внизу», «1.91:1», «золотая», «16:9»), the quote inputs, and the size lines «1 080 × 1 080», «1 600 × 1 600», «1 910 × 1 000», «2 048 × 1 152». Probe JSON: item 3 |
+| `review-ratio` (functional) | «images-live», `ratio-<w>`: the probe changes each select through the UI in turn and waits for each redraw | Probe JSON: every choice's size equals item 1's first column, and every `/image` answered 200 |
+| `review-highlight-loading` | «images-live», `hold-<w>`, `#photo`: the probe clicks «Размыть фон — создать · до $0.09»; FakeGemini holds until teardown | «Gemini рисует «Размыть фон»… до 3 минут»; the chips, «Взять за основу» and the card controls dimmed and disabled |
+| `review-highlight` | «images-live», `hl-<w>`: the probe clicks; the fake answers the JPEG | «Размыть фон» tile with its image beside «Оригинал», «Взять за основу». Probe JSON: item 5 |
+| `review-highlight-text` | «images-live», `text-<w>`: the probe clicks; text-only answer | «Gemini не вернул картинку», «Ответ Gemini: «…»», «Повторить · до $0.09» |
+| `review-highlight-402` | «images-live», `e402-<w>`: the probe clicks; 402 array | «Не удалось получить картинку от Gemini (HTTP 402): закончились предоплаченные кредиты Gemini — пополните баланс в Google AI Studio». Probe: none of item 9's raw fragments in `document.body.innerText` |
+| `create-error-402` | «images-live», `x402-<w>`: the draft page with a topic; the probe clicks «Развернуть · до $0.05»; 402 array | The same line with «тексты», and «Повторить · до $0.05» (the live test's surface) |
+| `review-base` (functional, then framed) | «images-live», `base-<w>`: the probe clicks «Взять за основу» under «Размыть фон» | Probe JSON: item 8 (one `/settings`, four `/image`, two reloads, four new hashes, X 1 536 × 864). Frame: «основа» under «Размыть фон», «Проблем нет · 4 сети» |
+| `review-styles-budget` | «images» with the ledger at $9.99, `plain`, `#photo` | «Бюджет ИИ на ноябрь исчерпан: «Стиль фото» стоит до $0.09. …» once; the red «ИИ · ноябрь $9.99 из $10.00 · лимит»; the chips disabled |
+| `review-styles-nokey` | «images» without the key, `styled`, `#photo` | «нет GEMINI_API_KEY в .env — стили фото недоступны»; the chips disabled; «Взять за основу» still enabled |
+
+The critic also checks that:
+
+- the two tiles stand side by side with equal widths at every width;
+- no tile label, chip, select or quote input is cut (`scrollWidth` against `clientWidth`,
+  and `Range` rects for the labels);
+- disabled controls keep their width and look disabled;
+- «основа» and the loading and error lines are words, not colour only;
+- neither the 160 px tiles nor the 240 px crop boxes shift the layout when an image
+  arrives;
+- the sticky bar never covers the defining text from 900 px up (the anchor jump uses the
+  existing `scroll-padding-top`).
+
+### 18.7 Not touched
+
+- `poster/**`, except `vendor_message` reading an array (D33) and its test. Its other
+  callers (`http.check`) keep their output for every object body.
+- The factory core and `factory/panel/actions.py`.
+- B′:
+  - routes, prompts, budget and ledger, except the expand schema's `quotes` (item 4) and
+    the 4xx reason (item 9);
+  - the draft page's layout and the «Создать» page. `_author_state` and `_create_notice`
+    are unchanged.
+- D′:
+  - the package format, publish, retry, queue with the offered rule, delete, status, the
+    dialogs and `seen`;
+  - the crop route, except the ratio, base and `look` checks;
+  - `tests/test_author_send.py`, which is not edited (another open lane changes its
+    `test_partial_then_retry_only_the_failed_targets`).
+- `.env`, `KEYS.md` and `KEYS.local.md`. There is no new key; `GEMINI_API_KEY` and
+  `AI_MONTHLY_CAP_USD` are reused.
+- The CSP: style images are same-origin `<img>` and canvas sources. No new dependency, no
+  Anthropic code, no new vendor.
+- The operator's running panel on port 8770 and the primary checkout. No real Gemini call,
+  no publishing, no paid API in any stage of this lane.
+
+### 18.8 Test plan and mocks
+
+No test opens a non-loopback socket (`tests/base.py` guard).
+
+| File | Covers (items) | Mocks |
+|---|---|---|
+| `tests/test_author_images.py` (*new*) | Item 1's table through `crop_size` and `check_image` on `make_photo` crops; the crop route's ratio, base and `look` checks (1). The settings route over `http.client` on port 0 with the header checks and the hostile input of §18.3 (2, 11). Expand with and without `quotes` (4). The highlight route: request shape, reserve before send, the `ok` row, the file and its route, text-only, non-JPEG, oversize, `incomplete`, a result after sending (5, 6). Budget, key, concurrency, 503, timeout and 402 settlements, and the reserve-before-every-request wrapper over all five ops (7). Base switch deletions and the stale-crop 409 (8). `VendorMessageTest`, and the Russian lines on expand and highlight with the log line and canaries (9). Focus deletions and the hint (10). Validation and storage (11) | `server.make_server(..., ai_transport=FakeTransport)`; `FakeGemini` |
+| `tests/panel_fixture.py` | `build_images(root, *, key=True, ledger_usd=None, live_widths=())`. `FakeGemini` answers requests whose `response_format.type` is `image` by draft: a fixed-seed `make_photo(1536, 2048)` JPEG, text only, PNG, a 402 with `[{"error": {"code": 402, "message": "Your prepayment credits are depleted.", "status": "RESOURCE_EXHAUSTED"}}]`, or a hold. All of these are synthetic, not vendor observations | — |
+| `tools/visual_check.py`, `static/probe.js` | The states of §18.6, with their probe JSON checks (1, 3, 5, 8, 9, 10) | The in-process `FakeGemini` |
+| Existing B′ and D′ tests | Unchanged and passing (12) | — |
+
+The project's checks run as `AGENTS.md` and `README.md` give them, one at a time through the
+gate wrapper. A page-body assertion on status digits strips the panel's random CSRF token
+first, as the other lane's `assertNoPosterWords` helper does (the token can contain
+«402»).
+
+### 18.9 LC3, after the merge (not in this lane)
+
+LC3 (§19) settles G17: the photo's token count on the image model, the full `aspect_ratio`
+list, the place of the image block in the reply, and whether the operator's face is kept.
+
+- It needs the operator's photo, their go-ahead and Gemini credits. The shared key
+  answered 402 «prepayment credits are depleted» on 2026-11-13 around 16:2x UTC.
+- It is one «Размыть фон» through the review page, bounded at $0.09.
+- The report gives the `usage` numbers against D32's bound, and the operator's verdict on
+  the face. If the face is changed or refused, §21's code "spotlight" is the fallback.
+
+No stage of this lane makes a real Gemini call.
+
+### 18.10 What was cut from C, and where it went
+
+| Cut | Goes to | Why it can wait |
+|---|---|---|
+| The strip and chips on the draft page (§9.3) | Review page (D27) | The crops and focus already live there; the draft page's first screen is measured and full |
+| An «Оригинал» chip in the chip row (§9.3) | Dropped | The left tile always shows the original |
+| Instagram 1.91:1 at 1 080 × 566 | §21 | Not an exact ratio; 955 × 500 is (D28) |
+| Showing the vendor's English reason on the page | §21 (the panel log keeps it) | Spec item 6: Russian, never raw JSON (D33) |
+| Per-modality settlement of image tokens | §21 | The usage fields are G17; every output token is charged at the image rate meanwhile (D32) |
+| A different base per network; several kept results per style; drag-to-place a quote; custom colours and fonts | §21 | Not asked; one base, three frame colours and two quote places cover the decision of 2026-11-08 |
+
+## 19. Unconfirmed facts and live checks
 
 Every live check needs the operator's OK. B′'s LC1 is pre-approved by the pinned
 specification within its limits.
@@ -1996,7 +2589,7 @@ specification within its limits.
 |---|---|---|---|
 | LC1 | G12–G16; the reply shape and `usage` on the real key; the typical costs of §11.2 | Below | < $0.10, at most 6 calls |
 | LC2 | Merged into LC1 on 2026-11-12 (transcription now runs on a public-domain clip) | — | — |
-| LC3 | G17; the image block's place in the reply | One «Размыть фон» on a photo of the operator at 2K. If `aspect_ratio` is refused, drop the field. If Gemini refuses or changes the face, build the code "spotlight" of §20 | ≈ $0.06 |
+| LC3 | G17; the image block's place in the reply; the real `usage` against D32's bound | After C's merge, with the operator's photo, go-ahead and Gemini credits (the key answered 402 on 2026-11-13): one «Размыть фон» on a photo of the operator at 2K through the review page. If `aspect_ratio` is refused, drop the field. If Gemini refuses or changes the face, build the code "spotlight" of §21 (§18.9) | bound $0.09, typical ≈ $0.06 |
 | LC4 | The panel's publish path end to end with the real poster (D′) | After the merge and the operator's go-ahead: one photo post from the review page to the main profile's Facebook Page only, then `python3 -m poster delete` (§17.9) | free |
 | LC5 | B6; folder upload and the microphone from Windows; transcription of the operator's own voice | The operator opens `http://localhost:8770/` after the merge, drops two phone photos on «Создать», and dictates a topic | ≈ $0.002 |
 
@@ -2044,7 +2637,7 @@ specification within its limits.
 If B6 fails (the panel is reached by a WSL address), voice stays off with its message and
 the rest works.
 
-## 19. Open items for the operator (non-blocking)
+## 20. Open items for the operator (non-blocking)
 
 1. **Gemini billing.** The key's Google Cloud project has, or will have, an active billing
    account (answered 2026-11-12). Until then, photos and voice fall under the unpaid
@@ -2056,10 +2649,14 @@ the rest works.
    default Page is the main profile's Facebook Page, the one the operator chose for the
    factory's live schedule test. The post is deleted at once, and the other networks are
    untouched (§17.9).
+5. **Gemini credits.** The shared key answered 402 «prepayment credits are depleted» on
+   2026-11-13 around 16:2x UTC. Until the credits are topped up, topics, texts, voice and
+   C's styles answer with C's Russian 402 line (§18.5 item 9), and LC3 cannot run. A
+   «highlight me» photo goes to Google, so the billing of item 1 applies to it too.
 
 No question here changes the design; each has a default above.
 
-## 20. Deferred — not currently justified
+## 21. Deferred — not currently justified
 
 | Item | Why deferred | Trigger to build |
 |---|---|---|
@@ -2093,8 +2690,13 @@ No question here changes the design; each has a default above.
 | Per-network switches on the review page; queuing despite publish-time problems (X month, LinkedIn token) (D′) | The specification blocks both buttons on any problem (D26); the runner already skips X over budget for queued posts | A problem on one network blocks a post the operator wants on the others |
 | Editing texts after a partial publish (D′) | A sent draft is read-only; retry and delete cover it | Operator asks |
 | Face-aware automatic crop (D′) | No detector in the standard library; Gemini is outside D′. A centre crop plus one tap covers it | Centre crops cut heads often enough that the operator taps on most posts |
+| Instagram 1.91:1 at 1 080 × 566 (C) | Not an exact ratio; 955 × 500 is exactly 1.91 and passes the poster's check (D28) | The operator finds 1.91:1 posts soft on Instagram |
+| The vendor's English reason on the page (C) | Spec item 6: errors in Russian, never raw JSON; the reason table covers the documented statuses, and the panel log keeps the reduced message (D33) | A 4xx worded «Gemini не принял запрос» or «Gemini отклонил запрос» recurs and the log is not enough |
+| Per-modality settlement of image-model tokens (C) | The usage fields per modality are unconfirmed (G17); charging every output token at the image rate errs on the safe side (D32) | LC3 shows the fields |
+| A different base per network; several kept results per style; drag-to-place a quote; custom frame colours, fonts or quote places (C) | One base, three colours and two places cover the decision of 2026-11-08 | Operator asks |
+| Style controls on the draft page (C) | The crops, the focus and the previews live on the review page (D27) | Operator asks to style before the texts |
 
-## 21. Sources
+## 22. Sources
 
 Google, read 2026-11-12 (`ai.google.dev` redirects to `aistudio.google.com/docs`):
 [Models](https://ai.google.dev/gemini-api/docs/models) ·
