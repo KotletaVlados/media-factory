@@ -396,7 +396,9 @@ CREATE_PICK = "Выбрать фото"
 CREATE_FORMATS = "JPEG, PNG или WebP"
 CREATE_RECENT_HINT = "Нажмите на фото, чтобы начать пост"
 DRAFT_STAGE = {"new": "без темы", "topic": "своя тема", "topics": "темы", "texts": "тексты готовы",
-               "over": "длиннее лимита", "error": "ошибка"}
+               "over": "длиннее лимита", "error": "ошибка", "publishing": "публикуется",
+               "partial": "частично", "published": "опубликован", "interrupted": "прервано"}
+DRAFT_STAGE_BAD = ("error", "over", "interrupted")
 CREATE_PROFILE_EMPTY = "Профиль автора не заполнен — темы и тексты будут общими"
 CREATE_PROFILE_FILLED = "Профиль автора · заполнен"
 CREATE_PROFILE_HINT = ("Профиль уходит в каждый запрос к Gemini вместе с фото. "
@@ -419,3 +421,61 @@ CREATE_JS = {
 }
 CREATE_NETWORKS = {"x": "X · англ.", "linkedin": "LinkedIn · англ.",
                    "instagram": "Instagram · укр.", "facebook": "Facebook · укр."}
+
+# ---------------------------------------------------------------- Отправка (authoring.md §17)
+SEND_TITLE = "Проверка перед отправкой"
+SEND_EDIT = "← Изменить тексты"
+SEND_GO = "Проверить и отправить →"
+SEND_SUB = "Отправка · черновик от {date}"
+SEND_OK = "Проблем нет · {n} {word}"
+NET_WORDS = ("сеть", "сети", "сетей")            # 1 сеть, 4 сети, 5 сетей
+NET_OF_WORDS = ("сети", "сетей", "сетей")        # из 1 сети, из 4 сетей
+SEND_PROBLEMS = "Отправить нельзя — исправьте:"
+SEND_REFUSED = "Постер отказал до отправки — ничего не опубликовано:"
+SEND_PUBLISH = "Опубликовать сейчас"
+SEND_QUEUE = "В очередь"
+SEND_FOLDER = "Папка:"
+SEND_RULE = "Правило «{id}»: {days} в {hours} · ближайшая публикация из папки: {next} · перед этим постом в очереди {n}"
+SEND_RULE_NO_SLOT = "Правило «{id}»: {days} в {hours} · перед этим постом в очереди {n}"
+SEND_OFFER = "Публиковать из «{title}» по правилу: пн, ср, пт в 10:00"
+SEND_CROPS = "Готовлю картинки: {names}…"
+SEND_CROP_FAILED = "Не удалось подготовить картинку для {name}: {reason}"
+SEND_REPEAT = "Повторить"
+SEND_FOCUS_HINT = "Нажмите на фото, чтобы сдвинуть центр кадра (Instagram и X)"
+SEND_FOCUS_LABEL = "Сдвинуть центр кадра"
+SEND_CARDS = "Что уйдёт в сети"
+SEND_DELETE = "Удалить черновик"
+SEND_LANG = {"en": "англ.", "uk": "укр."}
+SEND_SIZE = "{w} × {h} · {size}"
+SEND_NO_CROP = "картинка готовится…"
+SEND_X_LINE = "этот пост в X: ${est} · после него {month} ${after} из ${cap}"
+SEND_LI_NOTE = "токен LinkedIn истекает через {n} дн. — войдите заново: python3 -m poster login linkedin"
+SEND_LIVE = "Публикуется… {done} из {total} · не закрывайте панель"
+SEND_PARTIAL = "Опубликовано в {done} из {total} {word}"
+SEND_ALL = "Опубликовано во всех {total} сетях"
+SEND_ONE = "Опубликовано в {name}"
+SEND_INTERRUPTED = "Публикация прервана — проверьте аккаунт"
+SEND_ROW = {"published": "опубликовано", "failed": "ошибка: {error}", "unknown": "неизвестно — проверьте аккаунт",
+            "waiting": "ждём…", "interrupted": "прервано — проверьте аккаунт"}
+SEND_OPEN = "открыть в {name}"
+SEND_RETRY = "Повторить упавшие: {names}"
+DLG_PUBLISH = "Опубликовать в {n} {word} сейчас?"
+DLG_PUBLISH_TEXT = "{names}. Это нельзя отменить."
+DLG_PUBLISH_YES = "Да, опубликовать"
+DLG_RETRY = "Повторить публикацию в {names}?"
+DLG_RETRY_YES = "Да, повторить"
+DLG_DELETE = "Удалить черновик?"
+DLG_DELETE_TEXT = ("Тексты и картинки черновика пропадут. Фото останется в «Медиатеке», "
+                   "опубликованные посты — в сетях.")
+DLG_DELETE_YES = "Да, удалить"
+DLG_CANCEL = "Отмена"
+QUEUED_RULE_REFUSED = "Пост в очереди «{title}». Правило сохранено черновиком, но не запущено:"
+SEND_JS = {"crops": SEND_CROPS, "crop_failed": SEND_CROP_FAILED, "repeat": SEND_REPEAT,
+           "network": "нет связи с панелью — повторите", "decode": "фото не читается браузером",
+           "row": SEND_ROW, "open": SEND_OPEN}
+
+
+def names_and(names) -> str:
+    """«Facebook, Instagram, LinkedIn и X»."""
+    names = list(names)
+    return names[0] if len(names) == 1 else ", ".join(names[:-1]) + " и " + names[-1]

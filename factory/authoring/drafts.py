@@ -21,10 +21,83 @@ from factory.authoring.common import Refusal, atomic, directory, lock, read, tex
 ID_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}-[a-z0-9][a-z0-9-]*-[0-9a-f]{4}\Z")
 LANGS = {"x": "en", "linkedin": "en", "instagram": "uk", "facebook": "uk"}
 MAX_DRAFTS = 500
+STATES = ("draft", "publishing", "partial", "published")   # D′ (authoring.md §17.2)
+STATUSES = ("published", "failed", "unknown", "interrupted")
+MAX_ATTEMPTS = 20
+MAX_LINE = 500
+SENT = "черновик уже отправлен"
+
+
+def _ts(value):
+    try:
+        dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except (ValueError, TypeError, AttributeError):
+        raise Refusal("неверная дата черновика") from None
+
+
+def _line(value):
+    if not isinstance(value, str) or len(value) > MAX_LINE:
+        raise Refusal("неверный черновик")
+
+
+def _unit(value):
+    return (isinstance(value, (int, float)) and not isinstance(value, bool)
+            and 0 <= value <= 1)
+
+
+def _validate_send(data):
+    """The D′ fields (§17.2): `focus`, `refused` and `publish`, each optional."""
+    focus = data.get("focus")
+    if focus is not None and (not isinstance(focus, list) or len(focus) != 2
+                              or not all(_unit(v) for v in focus)):
+        raise Refusal("неверный черновик")
+    refused = data.get("refused")
+    if refused is not None:
+        if not isinstance(refused, dict) or not isinstance(refused.get("lines"), list) \
+                or len(refused["lines"]) > 40:
+            raise Refusal("неверный черновик")
+        for line in refused["lines"]:
+            _line(line)
+        _ts(refused.get("ts"))
+    publish = data.get("publish")
+    if publish is None:
+        if data["state"] != "draft":
+            raise Refusal("неверный черновик")
+        return
+    if (not isinstance(publish, dict) or not isinstance(publish.get("package"), str)
+            or not isinstance(publish.get("targets"), list) or not publish["targets"]
+            or not all(isinstance(t, str) and len(t) <= 40 for t in publish["targets"])
+            or not isinstance(publish.get("attempts"), list)
+            or not 1 <= len(publish["attempts"]) <= MAX_ATTEMPTS):
+        raise Refusal("неверный черновик")
+    for attempt in publish["attempts"]:
+        if not isinstance(attempt, dict) or not isinstance(attempt.get("targets"), list):
+            raise Refusal("неверный черновик")
+        if not all(t in publish["targets"] for t in attempt["targets"]):
+            raise Refusal("неверный черновик")
+        _ts(attempt.get("started"))
+        if attempt.get("ended") is not None:
+            _ts(attempt["ended"])
+        offset = attempt.get("offset")
+        if not isinstance(offset, int) or isinstance(offset, bool) or offset < 0:
+            raise Refusal("неверный черновик")
+        code = attempt.get("exit")
+        if code is not None and (not isinstance(code, int) or isinstance(code, bool)):
+            raise Refusal("неверный черновик")
+        outcome = attempt.get("outcome", {})
+        if not isinstance(outcome, dict):
+            raise Refusal("неверный черновик")
+        for target, row in outcome.items():
+            if target not in attempt["targets"] or not isinstance(row, dict) \
+                    or row.get("status") not in STATUSES:
+                raise Refusal("неверный черновик")
+            for key in ("url", "error"):
+                if row.get(key) is not None:
+                    _line(row[key])
 
 
 def validate(data):
-    if not isinstance(data, dict) or data.get("schema") != 1 or data.get("state") != "draft":
+    if not isinstance(data, dict) or data.get("schema") != 1 or data.get("state") not in STATES:
         raise Refusal("неверный черновик")
     if not valid_id(data.get("id")) or not isinstance(data.get("folder"), str):
         raise Refusal("неверный черновик")
@@ -58,6 +131,7 @@ def validate(data):
     if error is not None and (not isinstance(error, dict) or error.get("op") not in (
             "topics", "expand", "regenerate", "voice") or not isinstance(error.get("text"), str)):
         raise Refusal("неверная ошибка черновика")
+    _validate_send(data)
     return data
 
 
@@ -66,8 +140,16 @@ def valid_id(did):
 
 
 def stage(d):
-    """Where a draft stands, for the list: error, over, texts, topics, topic or new."""
+    """Where a draft stands, for the list: the D′ states first (publishing, partial,
+    published, or interrupted when its last attempt holds an interrupted target), then
+    error, over, texts, topics, topic or new. A `publishing` draft whose publisher died is
+    told apart by the server (it needs the publish lock), never stored."""
     from poster import rules
+    if d["state"] != "draft":
+        last = d["publish"]["attempts"][-1].get("outcome", {})
+        if d["state"] == "partial" and any(r["status"] == "interrupted" for r in last.values()):
+            return "interrupted"
+        return d["state"]
     if d["error"]:
         return "error"
     if d["variants"]:
@@ -111,7 +193,7 @@ class Store:
         directory(self.root, True)
         with lock(os.path.join(self.root, ".create.lock")):
             if len(self.summaries()) >= MAX_DRAFTS:
-                raise Refusal("черновиков уже 500 — удаление черновиков появится в срезе D")
+                raise Refusal("черновиков уже 500 — удалите ненужные")
             date = self.clock().astimezone(ZoneInfo(self.machine_tz)).date().isoformat()
             # Build under a dot-name so concurrent lists never see a half-created draft.
             # os.mkdir still claims the id, under the cross-process creation lock.
@@ -138,14 +220,34 @@ class Store:
                     shutil.rmtree(prepared)
             return data
 
-    def update(self, did, mutate):
-        path = self.path(did)
-        with lock(os.path.join(path, ".lock")):
+    def locked(self, did):
+        """The draft's short `.lock` (§7.2). flock belongs to the open file, so a holder
+        writes with `save`, never with `update` (a second open would wait on itself)."""
+        return lock(os.path.join(self.path(did), ".lock"))
+
+    def save(self, did, data):
+        """Write a whole draft; the caller holds `locked(did)`."""
+        data["updated"] = iso_utc(self.clock())
+        atomic(os.path.join(self.path(did), "draft.json"), validate(data))
+        return data
+
+    def update(self, did, mutate, sent_ok=False):
+        """A field write under `.lock`. Only a draft in state `draft` takes operator and AI
+        edits (§17.2: a sent draft is read-only); the send code passes `sent_ok`."""
+        with self.locked(did):
             data = self.load(did)
+            if data["state"] != "draft" and not sent_ok:
+                raise Refusal(SENT)
             mutate(data)
-            data["updated"] = iso_utc(self.clock())
-            atomic(os.path.join(path, "draft.json"), validate(data))
-            return data
+            return self.save(did, data)
+
+    def remove(self, did):
+        """Delete a draft folder; the caller holds `locked(did)`. It is renamed to a dot-name
+        first, so a list never sees half of it, then removed."""
+        path = self.path(did)
+        gone = os.path.join(self.root, f".gone-{did}-{secrets.token_hex(4)}")
+        os.rename(path, gone)
+        shutil.rmtree(gone, ignore_errors=True)
 
     def ai_lock(self, did):
         return lock(os.path.join(self.path(did), ".ai.lock"), nonblocking=True)
@@ -163,8 +265,14 @@ class Store:
             if key != self._key:
                 rows = []
                 for did, *_ in key:
-                    d = self.load(did)
-                    rows.append(dict({k: d[k] for k in ("id", "folder", "photo", "topic", "updated")},
+                    try:
+                        d = self.load(did)
+                    except Refusal as exc:   # deleted or queued between the scan and the read
+                        if exc.status != 404:
+                            raise
+                        continue
+                    rows.append(dict({k: d[k] for k in ("id", "folder", "photo", "topic", "updated",
+                                                        "state")},
                                      stage=stage(d)))
                 self._summaries = sorted(rows, key=lambda d: (d["updated"], d["id"]), reverse=True)
                 self._key = key

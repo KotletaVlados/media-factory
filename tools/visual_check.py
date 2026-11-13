@@ -41,6 +41,16 @@ tap, or «Тексты» or the first card's editor is off screen once the texts
 `create-texts` also fails when the whole «пожелание…» hint of a text card does not fit its field
 (widths 1000, 1100, 1200 and 1279 are in the default set for this).
 
+The send states (authoring.md §17.6) run on four more fixtures: «send» (static drafts in every
+state; at start the check posts one publish, which a FakePoster holds until teardown, and queues
+two drafts, the second with the offered rule, whose 409 Rules page is saved as `rule-refused`),
+«send-problems», «send-crash» and «send-live» (a draft per width for the canvas crops and for the
+focus tap). Every publish goes to the in-process FakePoster: the real poster with a scripted
+transport, so nothing leaves the machine. The probe checks each state's defining text on the
+first screen, the dialogs (a double click on the opener, focus inside, a click behind, «Отмена»;
+Tab and Escape are then pressed over DevTools), the crop sizes and windows, and the focus tap;
+afterwards the stored crops, the focus and the one publish call are checked here.
+
 It also computes the WCAG contrast of every text colour pair from panel.css. It prints the
 snapshot build time (`snapshot_ms`, budget 1000 ms) and exits 1 on any finding.
 
@@ -179,6 +189,8 @@ class Chrome:
             page.screenshot(png)
             if "probe_create=create-voice" in url:
                 result["author_voice"] = page.evaluate("window.MFProbeVoiceFinish()", await_promise=True)
+            if "probe_send=review-confirm" in url or "probe_send=review-delete" in url:
+                result["keyboard"] = page.keyboard_in_dialog()
             full_h = min(max(h, int(result.get("height", h))), FULL_MAX)
             if full_png and full_h > h:
                 page.send("Emulation.setDeviceMetricsOverride", {
@@ -287,6 +299,28 @@ class Live:
             time.sleep(0.2)
         raise RuntimeError(f"no probe output for {self.url} within {timeout} s")
 
+    def key(self, key: str, code: int) -> None:
+        for kind in ("keyDown", "keyUp"):
+            self.send("Input.dispatchKeyEvent", {"type": kind, "key": key, "code": key,
+                                                 "windowsVirtualKeyCode": code})
+
+    def keyboard_in_dialog(self) -> dict:
+        """Real Tab presses never reach the page behind the open modal dialog; Escape closes it;
+        no form was submitted (authoring.md §17.5 item 7). Each stop is "dialog", "browser"
+        (Chrome lets Tab leave a modal dialog for its own UI: the document then has no focused
+        element) or "page:<tag>" (a focus behind the dialog, a finding)."""
+        inside = []
+        for _ in range(6):
+            self.key("Tab", 9)
+            inside.append(self.evaluate(
+                "(function () { var a = document.activeElement;"
+                " if (!a || a === document.body || a === document.documentElement) { return 'browser'; }"
+                " return a.closest('dialog[open]') ? 'dialog' : 'page:' + a.tagName.toLowerCase(); })()"))
+        self.key("Escape", 27)
+        time.sleep(0.2)
+        return {"tabs": inside, "closed": self.evaluate("!document.querySelector('dialog[open]')"),
+                "submits": self.evaluate("window.MFProbeSubmits ? window.MFProbeSubmits() : -1")}
+
     def screenshot(self, out: str) -> None:
         # every image inside the viewport has loaded (lazy tiles included) before the capture
         self.evaluate("Promise.all(Array.prototype.filter.call(document.images, function (i) {"
@@ -308,9 +342,10 @@ def with_probe(url: str) -> str:
     return urllib.parse.urlunsplit(parts._replace(query=query))
 
 
-def start(fixture, ai_transport=None):
+def start(fixture, ai_transport=None, publish=None):
     srv = server.make_server(fixture.paths, fixture.clock, fixture.machine_tz, 0,
-                             log=io.StringIO(), ai_transport=ai_transport or panel_fixture.FakeGemini())
+                             log=io.StringIO(), ai_transport=ai_transport or panel_fixture.FakeGemini(),
+                             publish=publish or panel_fixture.FakePoster())
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     return srv
 
@@ -329,6 +364,106 @@ def post_page(srv, path: str, fields: dict, out_file: str) -> str:
     with open(out_file, "w", encoding="utf-8") as fh:
         fh.write(page)
     return resp.status
+
+
+def form_values(srv, path: str) -> dict:
+    """GET a page and read its hidden form values (csrf, seen) as the browser would post them."""
+    conn = http.client.HTTPConnection("127.0.0.1", srv.port, timeout=30)
+    conn.request("GET", path, headers={"Host": f"127.0.0.1:{srv.port}"})
+    page = conn.getresponse().read().decode("utf-8")
+    conn.close()
+    seen = re.search(r'name="seen" value="([0-9a-f]*)"', page)
+    return {"seen": seen.group(1) if seen else ""}
+
+
+def post_form(srv, path: str, fields: dict) -> int:
+    host = f"127.0.0.1:{srv.port}"
+    conn = http.client.HTTPConnection("127.0.0.1", srv.port, timeout=30)
+    conn.request("POST", path, body=urllib.parse.urlencode(dict(fields, csrf=srv.panel.csrf)),
+                 headers={"Host": host, "Content-Type": "application/x-www-form-urlencoded"})
+    resp = conn.getresponse()
+    resp.read()
+    conn.close()
+    return resp.status
+
+
+D19 = {"facebook": [1536, 2048], "instagram": [1080, 1350], "linkedin": [1536, 2048], "x": [1600, 900]}
+D19_SMALL = {"facebook": [320, 240], "instagram": [192, 240], "linkedin": [320, 240], "x": [320, 180]}
+SEND_STATES = ("send-draft", "review", "review-rule", "review-problems", "review-crops", "review-focus",
+               "review-confirm", "review-publishing", "review-partial", "review-published",
+               "review-interrupted", "review-delete", "queued", "rule-refused", "send-start")
+
+
+def send_problems(state, result) -> list:
+    """The send probe's own problems plus the facts this state must report (§17.6)."""
+    s = result.get("send") or {}
+    out = list(s.get("problems", [])) if s else ["no send probe result"]
+    for look in s.get("busy", []):
+        if not look["disabled"] or float(look["opacity"]) >= 1 or look["cursor"] == "pointer" or look["width"] < 60:
+            out.append(f"a blocked button looks enabled or lost its width: {look}")
+    if state == "review-crops":
+        sizes = {c["network"]: [c["width"], c["height"]] for c in s.get("crops") or []}
+        if sizes != D19:
+            out.append(f"crop sizes {sizes}, expected {D19}")
+        x = next((c for c in s.get("crops") or [] if c["network"] == "x"), {})
+        if x.get("window") != [0, 1166, 3024, 1701]:
+            out.append(f"X window {x.get('window')}, expected [0, 1166, 3024, 1701]")
+        if (s.get("posts"), s.get("reloads")) != (4, 1):
+            out.append(f"posts/reloads {s.get('posts')}/{s.get('reloads')}, expected 4/1")
+        exif = s.get("exif") or {}
+        if exif.get("decoded") != [3024, 4032] or {n: exif.get(n) for n in D19} != D19:
+            out.append(f"EXIF-6 original 4032 x 3024 gave {exif}, expected portrait {D19}")
+        small = s.get("small") or {}
+        if {n: small.get(n) for n in D19_SMALL} != D19_SMALL:
+            out.append(f"320 x 240 original gave {small}, expected {D19_SMALL} (no upscale)")
+    if state == "review-focus":
+        f = s.get("focus") or {}
+        before, after = f.get("before") or {}, f.get("after") or {}
+        for n in ("instagram", "x"):
+            if not before.get(n) or before.get(n) == after.get(n):
+                out.append(f"the {n} crop did not change after the tap")
+        x = next((c for c in f.get("crops") or [] if c["network"] == "x"), {})
+        if x.get("window") != [0, 0, 3024, 1701] or f.get("reloads") != 2:
+            out.append(f"after the tap: X window {x.get('window')}, reloads {f.get('reloads')}")
+    if state in ("review-confirm", "review-delete"):
+        k = result.get("keyboard") or {}
+        tabs = k.get("tabs") or []
+        if (any(t.startswith("page") for t in tabs) or tabs.count("dialog") < 2 or k.get("closed") is not True
+                or k.get("submits") != 0):
+            out.append(f"keyboard in the dialog: {k} (Tab must stay inside, Escape must close, nothing posted)")
+    return out
+
+
+def send_after(fx, widths, before: dict, fake, kinds) -> list:
+    """After the run: the canvas crops stored by the page (`kinds` names the live states that
+    ran: crops, focus), the focus tap, and the one publish of the send fixture."""
+    from factory.authoring import common, drafts
+    from poster import rules as prules
+    out = []
+    store = drafts.Store(fx.paths.content, fx.clock, fx.machine_tz)
+    for w in widths:
+        for kind in kinds:
+            did = fx.send_ids[f"{kind}-{w}"]
+            folder = os.path.join(fx.paths.content, "drafts", did, "out")
+            for n, size in D19.items():
+                path = os.path.join(folder, f"{n}.jpg")
+                if not os.path.isfile(path):
+                    out.append(f"{kind}-{w}: no {n} crop stored")
+                    continue
+                info = prules.sniff(path)
+                with open(path, "rb") as fh:
+                    data = fh.read()
+                if [info.width, info.height] != size or info.format != "jpeg" or common.jpeg_exif(data) != "ok" \
+                        or prules.check_image(n, info).errors:
+                    out.append(f"{kind}-{w}: {n} is {info.describe()}, expected a {size} JPEG the poster accepts")
+                if kind == "focus" and n in ("facebook", "linkedin") and os.stat(path).st_mtime_ns != before[(did, n)]:
+                    out.append(f"focus-{w}: the {n} crop changed on the tap")
+            focus = store.load(did).get("focus") or [9, 9]
+            if kind == "focus" and (abs(focus[0] - 0.5) > 0.01 or abs(focus[1] - 0.2) > 0.01):
+                out.append(f"focus-{w}: stored focus {focus}, expected the tapped point, about [0.5, 0.2]")
+    if len(fake.calls) != 1:
+        out.append(f"the send fixture's poster was called {len(fake.calls)} times, expected once")
+    return out
 
 
 UPLOAD_RUN1 = "Готово: загружено 2 из 6 · уже были: 1 · пропущено 4"
@@ -564,6 +699,21 @@ def main(argv=None) -> int:
     panel_fixture._env_file(create_empty.paths.env_file, {"GEMINI_API_KEY": panel_fixture.CANARIES["GEMINI_API_KEY"]})
     create_budget = panel_fixture.build_create(os.path.join(fixtures_root, "create-budget"), ledger_usd="9.99")
     create_nokey = panel_fixture.build_create(os.path.join(fixtures_root, "create-nokey"), key=False)
+    send = panel_fixture.build_send(os.path.join(fixtures_root, "send"))
+    send_bad = panel_fixture.build_send(os.path.join(fixtures_root, "send-problems"), problems=True)
+    send_crash = panel_fixture.build_send(os.path.join(fixtures_root, "send-crash"), crash=True)
+    send_live = panel_fixture.build_send(os.path.join(fixtures_root, "send-live"), live_widths=widths)
+    exif_pid = panel_fixture.store_photo(send_live, "my-photos", panel_fixture.make_exif6(4032, 3024, 77),
+                                         panel_fixture.make_photo(360, 480, 77),
+                                         panel_fixture.make_photo(1200, 1600, 77), "exif6.jpg")
+    small_pid = next(r["id"] for r in fphotos.read_index(os.path.join(send_live.paths.stock, "my-photos",
+                                                                      fphotos.PHOTOS))
+                     if r["name"] == "walk-01.jpg")
+    focus_mtimes = {(did, n): os.stat(os.path.join(send_live.paths.content, "drafts", did, "out", f"{n}.jpg")).st_mtime_ns
+                    for key, did in send_live.send_ids.items() if key.startswith("focus-")
+                    for n in ("facebook", "linkedin")}
+    send_hold = threading.Event()
+    send_fake = panel_fixture.FakePoster(hold=send_hold, wait=4 * 3600)   # released at teardown
     fake = panel_fixture.FakeGemini()
     fake.hold = {did for name, did in create_live.create_ids.items() if "loading" in name}
     # the behaviour draft's first voice call answers 503 once: the retry must send the same bytes
@@ -582,6 +732,10 @@ def main(argv=None) -> int:
     for w in widths:
         for kind in ("topics-loading", "expand-loading", "expand-texts", "voice", "drop", "behaviour", "autoretry"):
             servers[f"create-live-{kind}-{w}"] = start(create_live, fake)
+    servers["send"] = start(send, publish=send_fake)
+    servers["send-problems"] = start(send_bad)
+    servers["send-crash"] = start(send_crash)
+    servers["send-live"] = start(send_live)
     t0 = time.perf_counter()
     snap = servers["data"].panel.holder.get()
     snapshot_ms = snap.build_ms
@@ -655,6 +809,46 @@ def main(argv=None) -> int:
     print(f"files-409: POST /files/new-folder answered {status}")
     states.append(("files-409", "file://" + folder_page))
     probe_urls["files-409"] = "file://" + folder_probe
+    # slice D′: one held publish, one queue, and one queue whose offered rule is refused (§17.6)
+    ids = send.send_ids
+    status = post_form(servers["send"], f"/create/{ids['publishing']}/publish",
+                       form_values(servers["send"], f"/create/{ids['publishing']}/review"))
+    if status != 303 or not send_fake.entered.wait(30):
+        sys.exit(f"send fixture: the held publish did not start ({status})")
+    status = post_form(servers["send"], f"/create/{ids['queue-me']}/queue",
+                       dict(form_values(servers["send"], f"/create/{ids['queue-me']}/review"), folder="my-photos"))
+    print(f"queued: POST /create/<queue-me>/queue answered {status}")
+    setup_problems = [] if status == 303 else [f"queueing queue-me answered {status}, expected 303"]
+    refused = os.path.join(pages, "rule-refused.html")
+    refused_probe = os.path.join(pages, "rule-refused-probe.html")
+    status = post_page(servers["send"], f"/create/{ids['rule-me']}/queue?probe=1",
+                       dict(form_values(servers["send"], f"/create/{ids['rule-me']}/review"),
+                            folder="my-photos", rule="1"), refused_probe)
+    with open(refused_probe, encoding="utf-8") as fh:
+        shot = fh.read().replace('<script src="/static/probe.js" defer></script>', "")
+    with open(refused, "w", encoding="utf-8") as fh:
+        fh.write(shot)
+    print(f"rule-refused: POST /create/<rule-me>/queue with the rule answered {status}")
+    if status != 409:
+        setup_problems.append(f"queueing rule-me with the rule answered {status}, expected 409")
+    send_paths = {
+        "send-draft": ("send", f"/create/{ids['ready']}#texts"),
+        "review": ("send", f"/create/{ids['ready']}/review"),
+        "review-rule": ("send", f"/create/{ids['ready']}/review?folder=city"),
+        "review-problems": ("send-problems", f"/create/{send_bad.send_ids['problems']}/review"),
+        "review-confirm": ("send", f"/create/{ids['ready']}/review"),
+        "review-publishing": ("send", f"/create/{ids['publishing']}/review"),
+        "review-partial": ("send", f"/create/{ids['partial']}/review"),
+        "review-published": ("send", f"/create/{ids['published']}/review"),
+        "review-interrupted": ("send-crash", f"/create/{send_crash.send_ids['crash']}/review"),
+        "review-delete": ("send", f"/create/{ids['published']}/review"),
+        "queued": ("send", f"/files?folder=my-photos&probe_pkg={ids['queue-me']}#pkg-{ids['queue-me']}"),
+        "send-start": ("send", "/create"),
+    }
+    states += [(name, url(fixture, path)) for name, (fixture, path) in send_paths.items()]
+    states += [("review-crops", ""), ("review-focus", "")]
+    states.append(("rule-refused", "file://" + refused))
+    probe_urls["rule-refused"] = "file://" + refused_probe
     if args.only:
         states = [s for s in states if args.only in s[0]]
 
@@ -665,6 +859,20 @@ def main(argv=None) -> int:
 
     def one(state, address, w):
         h = WIDTHS.get(w, 900)
+        if state in SEND_STATES:   # real time: canvas work, dialogs, held requests (§17.6)
+            if not address:
+                did = send_live.send_ids[f"{state[len('review-'):]}-{w}"]
+                address = url("send-live", f"/create/{did}/review?probe_exif={exif_pid}&probe_small={small_pid}")
+            if state in probe_urls:
+                address = probe_urls[state]
+            parts = urllib.parse.urlsplit(address)
+            query = parts.query + ("&" if parts.query else "") + "probe=1&probe_send=" + state
+            address = urllib.parse.urlunsplit(parts._replace(query=query))
+            result = chrome.live(address, w, h, os.path.join(out, f"{state}-{w}.png"),
+                                 os.path.join(out, f"{state}-{w}-full.png"))
+            with open(os.path.join(out, f"{state}-{w}-probe.json"), "w", encoding="utf-8") as fh:
+                json.dump(result, fh, ensure_ascii=False, indent=2)
+            return state, w, result, min(max(h, int(result.get("height", h))), FULL_MAX)
         if state in author_paths or state in ("create-topics-loading", "create-expand-loading", "create-expand-texts",
                                               "create-voice", "create-drop", "create-behaviour", "create-autoretry"):
             if not address:
@@ -711,6 +919,10 @@ def main(argv=None) -> int:
                         {"kind": "photo-copies", "el": "", "text": "", "detail": problem})
                 if w == widths[0]:
                     print(f"photos: {state}: {json.dumps(result.get('photos'), ensure_ascii=False)}")
+            if state in SEND_STATES:
+                for problem in send_problems(state, result):
+                    findings.setdefault(f"{state}-{w}", []).append(
+                        {"kind": "send", "el": "", "text": "", "detail": problem})
             if state in author_paths or state.startswith("create-"):
                 for problem in author_problems(state, result):
                     findings.setdefault(f"{state}-{w}", []).append(
@@ -770,6 +982,16 @@ def main(argv=None) -> int:
     for problem in author_index_problems(create_live, widths, "create-drop" in [s[0] for s in states]):
         failed = True
         print(f"AUTHOR INDEX: {problem}")
+    for problem in setup_problems:
+        failed = True
+        print(f"SEND SETUP: {problem}")
+    ran = [s[0][len("review-"):] for s in states if s[0] in ("review-crops", "review-focus")]
+    if any(s[0] in SEND_STATES for s in states):
+        for problem in send_after(send_live, widths, focus_mtimes, send_fake, ran):
+            failed = True
+            print(f"SEND: {problem}")
+    send_hold.set()
+    servers["send"].panel.sender.join(30)
     fake.release.set()
     for srv in servers.values():
         srv.shutdown()

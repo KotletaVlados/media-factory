@@ -84,5 +84,74 @@ class DraftTest(PosterTestCase):
             drafts.atomic(os.path.join(path, "draft.json"), drafts.validate(row))
         fresh = drafts.Store(self.fx.paths.content, self.clock, self.fx.machine_tz)
         self.assertEqual(len(fresh.summaries()), 500)
-        with self.assertRaisesRegex(Refusal, "500"):
+        with self.assertRaisesRegex(Refusal, "удалите ненужные"):
             fresh.create(self.fx.paths.stock, "my-photos", self.photo, True)
+
+
+class SentDraftTest(DraftTest):
+    """The D′ states and fields of authoring.md §17.2, as every writer stores them."""
+
+    def sent(self, state="partial", outcome=None, **extra):
+        import copy
+        if not hasattr(self, "_draft"):
+            self._draft = self.create()
+        d = copy.deepcopy(self._draft)
+        targets = ["fb:kotleta", "ig:kotleta", "linkedin", "x"]
+        attempt = {"started": "2026-11-09T10:00:00Z", "ended": "2026-11-09T10:01:00Z",
+                   "targets": targets, "offset": 12, "exit": 1,
+                   "outcome": outcome if outcome is not None else {
+                       "fb:kotleta": {"status": "published", "url": "https://example.com/p"},
+                       "linkedin": {"status": "failed", "error": "HTTP 401"}}}
+        data = dict(d, state=state, publish={"package": f"packages/{d['id']}.json",
+                                             "targets": targets, "attempts": [attempt]}, **extra)
+        return d, data
+
+    def test_each_writer_value_is_read_back(self):
+        for state in ("publishing", "partial", "published"):
+            d, data = self.sent(state, focus=[0.5, 0.2],
+                                refused={"lines": ["x: X budget"], "ts": "2026-11-09T10:00:00Z"})
+            drafts.atomic(os.path.join(self.store.path(d["id"]), "draft.json"), drafts.validate(data))
+            self.assertEqual(self.store.load(d["id"]), data)
+        drafts.atomic(os.path.join(self.store.path(d["id"]), "draft.json"), drafts.validate(self._draft))
+        self.store.update(d["id"], lambda x: x.update(focus=[0, 1], refused={"lines": [], "ts": "2026-11-09T10:00:00Z"}))
+        self.assertEqual(self.store.load(d["id"])["focus"], [0, 1])
+
+    def test_limits_and_shapes(self):
+        bad = [
+            dict(state="publishing", publish=None),
+            dict(focus=[0.5, 1.5]), dict(focus=[0.5]), dict(focus=[True, 0.5]),
+            dict(refused={"lines": ["x" * 501], "ts": "2026-11-09T10:00:00Z"}),
+            dict(refused={"lines": [], "ts": "soon"}),
+        ]
+        for extra in bad:
+            d, data = self.sent()
+            data.update(extra)
+            if data.get("publish") is None:
+                data.pop("publish")
+            with self.assertRaises(Refusal, msg=extra):
+                drafts.validate(data)
+        d, data = self.sent()
+        data["publish"]["attempts"] *= 21
+        with self.assertRaises(Refusal):
+            drafts.validate(data)
+        for outcome in ({"fb:kotleta": {"status": "deleted"}}, {"fb:demo": {"status": "published"}},
+                        {"x": {"status": "failed", "error": "e" * 501}}):
+            d, data = self.sent(outcome=outcome)
+            with self.assertRaises(Refusal, msg=outcome):
+                drafts.validate(data)
+        d, data = self.sent()
+        with self.assertRaises(Refusal):
+            drafts.validate(dict(data, state="sent"))
+
+    def test_sent_drafts_refuse_edits_and_have_stage_words(self):
+        d, data = self.sent("published", outcome={})
+        drafts.atomic(os.path.join(self.store.path(d["id"]), "draft.json"), drafts.validate(data))
+        with self.assertRaisesRegex(Refusal, "черновик уже отправлен"):
+            self.store.update(d["id"], lambda x: x.update(topic="x"))
+        self.store.update(d["id"], lambda x: x.update(focus=[0.1, 0.1]), sent_ok=True)
+        self.assertEqual(drafts.stage(self.store.load(d["id"])), "published")
+        for state, outcome, word in (("partial", None, "partial"), ("publishing", {}, "publishing"),
+                                     ("partial", {"fb:kotleta": {"status": "interrupted"}}, "interrupted")):
+            _, data = self.sent(state, outcome)
+            self.assertEqual(drafts.stage(drafts.validate(data)), word)
+        self.assertEqual(self.store.summaries()[0]["state"], "published")

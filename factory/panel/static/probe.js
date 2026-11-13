@@ -230,7 +230,8 @@
                                           controls: controls.length, findings: findings, scrollY: window.scrollY,
                                           hash: location.hash, expanders: measured,
                                           ellipsis: ellipsized.map(clampText),
-                                          whole: whole.map(clampText), photos: photos, author: window.MFProbeAuthor});
+                                          whole: whole.map(clampText), photos: photos, author: window.MFProbeAuthor,
+                                          send: window.MFProbeSend});
         document.body.appendChild(pre);
       });
     });
@@ -917,9 +918,232 @@
     } catch (err) { out.problems.push(err.message); }
   }
 
+  // ------------------------------------------------------------ slice D′ (authoring.md §17.6)
+  // Installed while the deferred scripts run, before send.js's first crop post: the page's
+  // reload is counted instead of done, and in `review-crops` the first /image POST waits
+  // until the probe has read the crop line.
+  var sendState = new URLSearchParams(location.search).get("probe_send");
+  var sendHold = {held: false};
+  if (sendState && window.MFSend) {
+    window.MFSend.reloads = 0;
+    window.MFSend.reload = function () { window.MFSend.reloads += 1; };
+    if (sendState === "review-crops") {
+      var realFetch = window.fetch, gate = new Promise(function (ok) { sendHold.release = ok; });
+      window.fetch = function (url, options) {
+        if (!sendHold.held && String(url).indexOf("/image?") >= 0) {
+          sendHold.held = true;
+          return gate.then(function () { return realFetch(url, options); });
+        }
+        return realFetch(url, options);
+      };
+    }
+  }
+
+  async function sendChecks() {
+    if (!sendState) { return; }
+    var params = new URLSearchParams(location.search);
+    var out = {state: sendState, problems: [], defining: [], busy: []};
+    window.MFProbeSend = out;
+    var submits = 0;
+    // every form submission is counted and stopped: no state in this probe posts a form
+    document.addEventListener("submit", function (e) {
+      if (!e.defaultPrevented) { submits += 1; e.preventDefault(); }
+    });
+    window.MFProbeSubmits = function () { return submits; };
+    function sleep(ms) { return new Promise(function (ok) { setTimeout(ok, ms); }); }
+    async function until(predicate, label, timeout) {
+      var deadline = performance.now() + (timeout || 10000);
+      while (!predicate()) {
+        if (performance.now() > deadline) { throw new Error("timed out: " + label); }
+        await sleep(50);
+      }
+    }
+    function words(el) { return el.textContent.replace(/[\s\u00a0]+/g, " ").trim(); }
+    // the element holding `expected` is whole between the sticky bar (or the top, in a dialog) and the bottom
+    function see(selector, expected, whenScrolled) {
+      var el = Array.prototype.find.call(document.querySelectorAll(selector), function (e) {
+        return shown(e) && (!expected || words(e).indexOf(expected) >= 0);
+      });
+      if (!el) { out.problems.push("missing «" + (expected || selector) + "»"); return null; }
+      if (whenScrolled) { el.scrollIntoView({block: "nearest"}); }
+      var range = document.createRange(); range.selectNodeContents(el);
+      var r = range.getBoundingClientRect();
+      out.defining.push({selector: selector, text: expected || words(el).slice(0, 80),
+                         top: Math.round(r.top), bottom: Math.round(r.bottom)});
+      var top = el.closest("dialog") ? 0 : stickyBottom();
+      if (r.top < top - 1 || r.bottom > innerHeight + 1 || r.left < -1 || r.right > innerWidth + 1) {
+        out.problems.push("defining text off screen: «" + (expected || selector) + "» at " +
+                          Math.round(r.top) + ".." + Math.round(r.bottom) + " in " + innerHeight);
+      }
+      return el;
+    }
+    function looks(selector) {
+      document.querySelectorAll(selector).forEach(function (el) {
+        var cs = getComputedStyle(el);
+        out.busy.push({text: words(el), disabled: el.disabled, opacity: cs.opacity, cursor: cs.cursor,
+                       width: Math.round(el.getBoundingClientRect().width)});
+      });
+    }
+    function modal(id) {
+      var d = document.getElementById(id);
+      return !!(d && d.open && d.matches(":modal"));
+    }
+    async function dialogCheck(opener, id, texts) {
+      var button = document.querySelector(opener);
+      if (!button) { out.problems.push("missing " + opener); return; }
+      var behind = document.querySelector('[form="send-queue"]') || document.querySelector(".send-rows a");
+      button.click();
+      await until(function () { return modal(id); }, "dialog " + id);
+      var dialog = document.getElementById(id);
+      // the second click of a double click on the opener lands on «Да, …»: nothing is posted
+      dialog.querySelector("[data-confirm]").dispatchEvent(
+        new MouseEvent("click", {bubbles: true, cancelable: true, detail: 2}));
+      await sleep(50);
+      if (!modal(id) || submits) { out.problems.push("a double click on the opener confirmed " + id); }
+      texts.forEach(function (t) { see("#" + id + " h2, #" + id + " p, #" + id + " button", t); });
+      out.focus = document.activeElement ? words(document.activeElement) : "";
+      if (!dialog.contains(document.activeElement)) { out.problems.push("focus is outside the dialog"); }
+      var box = dialog.getBoundingClientRect();
+      if (box.top < 0 || box.left < 0 || box.bottom > innerHeight || box.right > innerWidth) {
+        out.problems.push("the dialog leaves the viewport: " + Math.round(box.left) + "," + Math.round(box.top) +
+                          ".." + Math.round(box.right) + "," + Math.round(box.bottom));
+      }
+      if (behind) {   // a click on a control behind the dialog reaches nothing
+        var b = behind.getBoundingClientRect();
+        var hit = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
+        out.behind = hit ? hit.tagName.toLowerCase() + (hit.id ? "#" + hit.id : "") : "";
+        if (hit && behind.contains(hit)) { out.problems.push("a click behind the dialog reaches " + out.behind); }
+        if (hit) { hit.dispatchEvent(new MouseEvent("click", {bubbles: true, cancelable: true})); }
+        await sleep(50);
+        if (submits) { out.problems.push("a click behind the dialog submitted a form"); }
+      }
+      dialog.querySelector("[data-close]").click();
+      if (dialog.open) { out.problems.push("«Отмена» left the dialog open"); }
+      button.click();   // open again: Tab and Escape are pressed over DevTools after this probe
+      await until(function () { return modal(id); }, "dialog reopened");
+      out.dialog = id;
+    }
+    async function sha(path) {
+      var r = await fetch(path, {credentials: "same-origin", cache: "no-store"});
+      var d = await crypto.subtle.digest("SHA-256", await r.arrayBuffer());
+      return Array.from(new Uint8Array(d)).map(function (b) { return b.toString(16).padStart(2, "0"); }).join("");
+    }
+    async function sizesOf(pid) {   // an original through the same author.js functions, nothing posted
+      var blob = await (await fetch("/photo?folder=my-photos&id=" + pid + "&v=orig")).blob();
+      var bitmap = await createImageBitmap(blob, {imageOrientation: "from-image"});
+      var result = {decoded: [bitmap.width, bitmap.height]};
+      for (var n of ["facebook", "instagram", "linkedin", "x"]) {
+        var size = window.MFAuthor.cropSize(n, bitmap.width, bitmap.height);
+        var crop = await window.MFAuthor.makeCrop(bitmap, {ratio: {instagram: [4, 5], x: [16, 9]}[n] || null,
+          width: size[0], height: size[1], maxBytes: 5000000}, [0.5, 0.5]);
+        var back = await createImageBitmap(crop.blob);
+        result[n] = [back.width, back.height];
+        back.close();
+      }
+      bitmap.close();
+      return result;
+    }
+    var did = (location.pathname.match(/^\/create\/([^/]+)/) || [])[1];
+    try {
+      if (sendState === "send-draft") {
+        see(".send-go", "Проверить и отправить →");
+        var y = scrollY;
+        see(".draft-links", "Удалить черновик", true);
+        scrollTo(0, y);
+      } else if (sendState === "review") {
+        ["Проверка перед отправкой", "Проблем нет · 4 сети", "Опубликовать сейчас", "В очередь", "Папка",
+         "Публиковать из «Мои фото» по правилу: пн, ср, пт в 10:00"].forEach(function (t) {
+          see(".send-action h2, .send-action p, .send-action button, .send-action label", t);
+        });
+      } else if (sendState === "review-rule") {
+        see(".send-rule", "Правило «city-main»: пн, ср, пт в 10:00 · ближайшая публикация из папки: пт, 13 нояб., 10:00");
+        if (document.querySelector('[name="rule"]')) { out.problems.push("a rule is offered next to an existing one"); }
+      } else if (sendState === "review-problems") {
+        see(".send-problems");   // the whole block
+        ["Отправить нельзя — исправьте:", "X: длиннее лимита: 312 / 280 — сократите",
+         "Facebook: нет FB_PAGE_KOTLETA_TOKEN в .env", "LinkedIn: токен истёк"].forEach(function (t) {
+          see(".send-problems p, .send-problems li", t);
+        });
+        looks('[data-open="dlg-publish"], [form="send-queue"]');
+      } else if (sendState === "review-crops") {
+        await until(function () { return sendHold.held; }, "the first crop post", 60000);
+        see(".send-crops", "Готовлю картинки: Facebook, Instagram, LinkedIn, X…");
+        looks('[data-open="dlg-publish"], [form="send-queue"]');
+        sendHold.release();
+        await until(function () { return window.MFSend.reloads >= 1; }, "four crops posted", 60000);
+        out.crops = window.MFSend.results;
+        out.posts = window.MFSend.posts;
+        out.reloads = window.MFSend.reloads;
+        out.exif = await sizesOf(params.get("probe_exif"));
+        out.small = await sizesOf(params.get("probe_small"));
+      } else if (sendState === "review-focus") {
+        var base = "/create/" + did + "/file?name=";
+        var before = {instagram: await sha(base + "instagram"), x: await sha(base + "x")};
+        var img = document.querySelector(".send-photo img");
+        await until(function () { return img.complete && img.naturalWidth; }, "source photo");
+        var r = img.getBoundingClientRect(), k = Math.min(r.width / img.naturalWidth, r.height / img.naturalHeight);
+        var w = img.naturalWidth * k, h = img.naturalHeight * k;
+        document.querySelector("[data-focus]").dispatchEvent(new MouseEvent("click", {bubbles: true,
+          clientX: r.left + (r.width - w) / 2 + 0.5 * w, clientY: r.top + (r.height - h) / 2 + 0.2 * h}));
+        await until(function () { return window.MFSend.reloads >= 1; }, "focus stored");
+        var stored = window.MFSend.focus || [];
+        // a click lands on whole pixels: the stored point is (0.5, 0.2) within a pixel of the box
+        if (Math.abs(stored[0] - 0.5) > 0.01 || Math.abs(stored[1] - 0.2) > 0.01) {
+          out.problems.push("the tap stored focus " + JSON.stringify(stored) + ", expected about [0.5, 0.2]");
+        }
+        // the reload (counted, not done) would make the dropped crops: the same call, with the stored point
+        await window.MFSend.prepare(["instagram", "x"], stored);
+        var line = document.querySelector(".send-crops");
+        await until(function () { return window.MFSend.reloads >= 2 || line.getAttribute("role") === "alert"; },
+                    "crops made again", 50000);
+        if (window.MFSend.reloads < 2) { out.problems.push("crops after the tap: " + line.textContent); }
+        var after = {instagram: await sha(base + "instagram"), x: await sha(base + "x")};
+        out.focus = {before: before, after: after, crops: window.MFSend.results, reloads: window.MFSend.reloads,
+                     stored: stored};
+      } else if (sendState === "review-confirm") {
+        await dialogCheck('[data-open="dlg-publish"]', "dlg-publish",
+                          ["Опубликовать в 4 сети сейчас?", "Это нельзя отменить.", "Да, опубликовать", "Отмена"]);
+      } else if (sendState === "review-delete") {
+        await dialogCheck('.send-status [data-open="dlg-delete"]', "dlg-delete",
+                          ["Удалить черновик?", "Да, удалить", "Отмена"]);
+      } else if (sendState === "review-publishing") {
+        ["Публикуется… 1 из 4 · не закрывайте панель", "Facebook · fb:kotleta — опубликовано",
+         "Instagram · ig:kotleta — ждём…"].forEach(function (t) { see(".send-status p, .send-rows li", t); });
+      } else if (sendState === "review-partial") {
+        ["Опубликовано в 2 из 4 сетей", "LinkedIn · linkedin — ошибка: HTTP 401", "Повторить упавшие: LinkedIn, X"]
+          .forEach(function (t) { see(".send-status p, .send-rows li, .send-status button", t); });
+      } else if (sendState === "review-published") {
+        see(".send-status-line", "Опубликовано во всех 4 сетях");
+        ["Facebook", "Instagram", "LinkedIn", "X"].forEach(function (n) { see(".send-open", "открыть в " + n); });
+      } else if (sendState === "review-interrupted") {
+        see(".send-status-line", "Публикация прервана — проверьте аккаунт");
+        see(".send-rows li", "Instagram · ig:kotleta — прервано — проверьте аккаунт");
+      } else if (sendState === "queued") {
+        var pkg = params.get("probe_pkg"), row = document.getElementById("pkg-" + pkg);
+        see("#pkg-" + pkg + " h3", "-" + pkg + ".json");
+        var tile = row && row.querySelector("img");
+        await until(function () { return tile && tile.complete; }, "the row's image");
+        if (!tile || !tile.naturalWidth || tile.getAttribute("src").indexOf("/img?") !== 0) {
+          out.problems.push("the queued row shows no image from /img");
+        }
+        var chip = Array.prototype.some.call(document.querySelectorAll(".pgrid .ptile"), function (t) {
+          return words(t).indexOf("в очереди") >= 0;
+        });
+        if (!chip) { out.problems.push("no «в очереди» chip on the queued photo"); }
+      } else if (sendState === "rule-refused") {
+        see(".main > .error", "Пост в очереди «Мои фото». Правило сохранено черновиком, но не запущено:");
+        see(".main > .error li", "minimum gap");
+      } else if (sendState === "send-start") {
+        see("section h2", "Черновики · 4");
+        ["публикуется", "частично", "опубликован"].forEach(function (t) { see(".draft-stage", t, true); });
+        scrollTo(0, 0);
+      }
+    } catch (err) { out.problems.push(err.message); }
+  }
+
   // after the load event, so the browser has already scrolled to a #fragment
   function later() {
-    authorChecks().then(function () { setTimeout(run, 100); }, function (err) {
+    authorChecks().then(function () { return sendChecks(); }).then(function () { setTimeout(run, 100); }, function (err) {
       window.MFProbeAuthor = {problems: [err.message]}; setTimeout(run, 100);
     });
   }

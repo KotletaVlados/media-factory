@@ -8,14 +8,13 @@ from __future__ import annotations
 import base64
 import json
 import os
-import struct
 import threading
 import unicodedata
 from contextlib import contextmanager
 
 from poster import config, http, rules
 from factory.authoring import budget, drafts, photos, prices, profile, prompts
-from factory.authoring.common import Refusal, text
+from factory.authoring.common import Refusal, jpeg_exif, text
 
 URL = "https://generativelanguage.googleapis.com/v1beta/interactions"
 REVISION = "2026-05-20"
@@ -107,30 +106,12 @@ def image(stock, draft):
         data = fh.read(photos.LIMITS["view"] + 1)
     if len(data) > photos.LIMITS["view"]:
         raise Refusal("копия фото слишком большая")
-    # Marker walk, bounded at 64 KB of headers; entropy-coded bytes are never searched.
-    pos = 2
-    while pos < min(len(data), 65536):
-        if data[pos] != 0xff:
-            raise Refusal("неверная копия фото — загрузите фото заново")
-        while pos < len(data) and data[pos] == 0xff:
-            pos += 1
-        if pos >= len(data):
-            break
-        marker = data[pos]
-        pos += 1
-        if marker in (0xda, 0xd9):
-            return data
-        if marker in range(0xd0, 0xd9) or marker == 0x01:
-            continue
-        if pos + 2 > len(data):
-            break
-        length = struct.unpack(">H", data[pos:pos + 2])[0]
-        if length < 2 or pos + length > len(data) or pos + length > 65536:
-            break
-        if marker == 0xe1 and data[pos + 2:pos + 8] == b"Exif\x00\x00":
-            raise Refusal("копия фото содержит EXIF — загрузите фото заново")
-        pos += length
-    raise Refusal("неверная копия фото — загрузите фото заново")
+    kind = jpeg_exif(data)
+    if kind == "exif":
+        raise Refusal("копия фото содержит EXIF — загрузите фото заново")
+    if kind != "ok":
+        raise Refusal("неверная копия фото — загрузите фото заново")
+    return data
 
 
 def request(op, key, prompt, media, mime):

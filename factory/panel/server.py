@@ -31,7 +31,7 @@ from dataclasses import dataclass
 from poster import config, package as poster_package, rules as poster_rules
 from poster.redact import Redactor
 from factory import ruleset as fruleset
-from factory.authoring import photos, drafts, profile, budget, gemini
+from factory.authoring import photos, drafts, profile, budget, gemini, send
 from factory.authoring.common import Refusal, text
 from factory.panel import actions, model, strings as S, views
 
@@ -42,7 +42,8 @@ STATIC = {"panel.css": "text/css; charset=utf-8",
           "panel.js": "text/javascript; charset=utf-8",
           "probe.js": "text/javascript; charset=utf-8",
           "author.js": "text/javascript; charset=utf-8",
-          "create.js": "text/javascript; charset=utf-8"}
+          "create.js": "text/javascript; charset=utf-8",
+          "send.js": "text/javascript; charset=utf-8"}
 SECURITY_HEADERS = {
     "Content-Security-Policy": "default-src 'self'; img-src 'self'; style-src 'self'; "
                                "script-src 'self'; frame-ancestors 'none'",
@@ -66,6 +67,7 @@ class Route:
     types: tuple
     handler: str = ""
     action: str = ""
+    draft: str = ""
 
 
 def declared_length(raw) -> int | None:
@@ -88,6 +90,14 @@ def post_route(path: str, query: dict) -> Route | None:
         return Route(FORM, MAX_BODY, (FORM_TYPE,), "profile")
     if path == "/create/new":
         return Route(JSON, 64 * 1024, ("application/json",), "create", "new")
+    match = re.fullmatch(r"/create/([^/]+)/(image|focus|publish|retry|queue|delete)", path)
+    if match:   # slice D′ (authoring.md §17.3)
+        did, op = match[1], match[2]
+        if op == "image":
+            return Route(IMAGE, send.MAX_CROP, ("image/jpeg",), did, "image")
+        if op == "focus":
+            return Route(JSON, 64 * 1024, ("application/json",), did, "focus")
+        return Route(FORM, MAX_BODY, (FORM_TYPE,), "send", op, did)
     match = re.fullmatch(r"/create/([^/]+)/(topics|topic|expand|regenerate|text|voice)", path)
     if match:
         op = match[2]
@@ -102,7 +112,8 @@ class Panel:
     """State shared by the request threads: the snapshot holder, the CSRF token, the lock
     that serialises the panel's own writes."""
 
-    def __init__(self, paths, clock, machine_tz: str, log=None, ai_transport=None):
+    def __init__(self, paths, clock, machine_tz: str, log=None, ai_transport=None, publish=None,
+                 targets=None):
         self.paths, self.clock, self.machine_tz = paths, clock, machine_tz
         self.holder = model.Holder(paths, clock, machine_tz, log)
         self.csrf = secrets.token_hex(32)
@@ -110,6 +121,8 @@ class Panel:
         self.drafts = drafts.Store(paths.content, clock, machine_tz)
         self.ai_ledger = budget.Ledger(paths.state, clock)
         self.ai = gemini.Service(paths, clock, self.drafts, self.ai_ledger, self.redactor, ai_transport)
+        self.sender = send.Sender(paths, clock, machine_tz, self.drafts, self.holder, self.redactor,
+                                  self.holder.log, publish, targets)
 
     def redactor(self, snap=None) -> Redactor:
         if snap is not None:
@@ -205,17 +218,61 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self._page(path, query, "create", views.create)
         if path == "/create/profile":
             return self._page(path, query, "create", views.create_profile)
+        match = re.fullmatch(r"/create/([^/]+)/(review|status|file)", path)
+        if match:
+            return self._send_get(match[1], match[2], path, query)
         if path.startswith("/create/"):
             did = path[len("/create/"):]
             try:
-                self.panel.drafts.load(did)
+                draft = self.panel.drafts.load(did)
             except Refusal as exc:
                 return self._page(path, query, "error", views.not_found_page, status=exc.status)
+            if draft["state"] != "draft":   # a sent draft is read-only (§17.2)
+                return self._redirect(f"/create/{did}/review")
             return self._page(path, query, "create", views.create_draft)
         if path in PAGES:
             tab, render = PAGES[path]
             return self._page(path, query, tab, render)
         return self._page(path, query, "error", views.not_found_page, status=404)
+
+    def _send_get(self, did, what, path, query):
+        """GET /create/<id>/review, /status and /file (authoring.md §17.3). Each only reads:
+        «прервано» is derived from the lock, never stored by a GET."""
+        if what == "file":
+            name = (query.get("name") or [""])[0]
+            try:
+                found = self.panel.sender.crop_file(did, name)
+                fh = open(found, "rb") if found else None
+            except (OSError, Refusal):
+                fh = None
+            if fh is None:
+                return self._plain(404, "not found")
+            with fh:
+                size = os.fstat(fh.fileno()).st_size
+                self.send_response(200)
+                self.send_header("Content-Type", "image/jpeg")
+                self.send_header("Content-Length", str(size))
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                if self.command != "HEAD":
+                    shutil.copyfileobj(fh, self.wfile, 64 * 1024)
+            return None
+        try:
+            draft = self.panel.drafts.load(did)
+        except Refusal as exc:
+            if what == "status":
+                return self._json(exc.status, {"error": exc.message})
+            return self._page(path, query, "error", views.not_found_page, status=exc.status)
+        if what == "status":
+            try:
+                view = self.panel.sender.view(draft)
+            except Exception as exc:  # noqa: BLE001 - the last resort, as for a page
+                print(f"panel: status: {self.panel.redactor().redact(type(exc).__name__ + ': ' + str(exc))}",
+                      file=self.panel.holder.log, flush=True)
+                return self._json(500, {"error": "Ошибка панели — повторите"})
+            view.pop("failed", None)
+            return self._json(200, view)
+        return self._page(path, query, "create", views.create_review)
 
     def _static(self, name: str):
         ctype = STATIC.get(name)
@@ -360,9 +417,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if not hmac.compare_digest(token.encode(), self.panel.csrf.encode()):
                 self._drain(length)   # a stale page after a restart reads the reason
                 return self._json(403, {"error": S.UP_FORBIDDEN})
-            if route.kind == IMAGE:
+            if route.kind == IMAGE and route.action != "image":
                 return self._upload(query, length)
-            return self._create_write(route, length, ctype)
+            return self._create_write(route, length, ctype, query)
         data = self.rfile.read(length)
         try:
             form = urllib.parse.parse_qs(data.decode("utf-8"), keep_blank_values=True,
@@ -374,6 +431,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self._plain(403, "forbidden: missing or wrong csrf")
         if route.handler == "profile":
             return self._profile_write(form, query)
+        if route.handler == "send":
+            return self._send_write(route.action, route.draft, form, query)
         return self._write(route.handler, route.action, form, query)
 
     def _profile_write(self, form, query):
@@ -394,8 +453,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self._last_resort("/create/profile", query, exc)
         return self._redirect("/create/profile?saved=1")
 
-    def _create_write(self, route, length, ctype):
+    def _create_write(self, route, length, ctype, query=None):
         panel, op, did = self.panel, route.action, route.handler
+        query = query or {}
         try:
             raw = self.rfile.read(length)
             if len(raw) != length:
@@ -415,7 +475,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 draft = panel.drafts.create(panel.paths.stock, data.get("folder"), data.get("photo"),
                                             bool(panel.ai.env().get("GEMINI_API_KEY", "").strip()))
                 return self._json(200, {"id": draft["id"], "url": "/create/" + draft["id"]})
-            panel.drafts.load(did)
+            if panel.drafts.load(did)["state"] != "draft":
+                raise Refusal(drafts.SENT)   # a sent draft is read-only (§17.2)
+            if op == "image":
+                return self._json(200, panel.sender.store_crop(
+                    did, (query.get("network") or [""])[0], (query.get("fx") or [""])[0],
+                    (query.get("fy") or [""])[0], raw))
+            if op == "focus":
+                return self._json(200, panel.sender.set_focus(did, data))
             if op == "topic":
                 value = text(data.get("topic"), 2000, "тема")
                 draft = panel.drafts.update(did, lambda d: d.update(topic=value))
@@ -462,6 +529,43 @@ class Handler(http.server.BaseHTTPRequestHandler):
             message = panel.redactor().redact(f"{type(exc).__name__}: {exc}")
             print(f"panel: create: {message}", file=panel.holder.log, flush=True)
             return self._json(500, {"error": "Ошибка панели — повторите"})
+
+    def _send_write(self, op: str, did: str, form: dict, query: dict):
+        """The D′ forms (authoring.md §17.3): publish, retry, queue, delete. A refusal renders
+        the review page with its status and the reason on top."""
+        panel = self.panel
+        review = f"/create/{did}/review"
+
+        def f(name):
+            return (form.get(name) or [""])[0]
+        try:
+            if op == "publish":
+                panel.sender.publish(did, f("seen"))
+                return self._redirect(review)
+            if op == "retry":
+                panel.sender.retry(did)
+                return self._redirect(review)
+            if op == "delete":
+                panel.sender.delete(did)
+                return self._redirect("/create")
+            location, refused_rule = panel.sender.queue(did, f("folder"), f("rule") == "1",
+                                                        f("seen"), panel.write_lock)
+            if refused_rule:
+                return self._page("/rules", query, "rules", views.rules, status=409,
+                                  refusal=refused_rule)
+            return self._redirect(location)
+        except send.Problems as exc:
+            refusal = {"status": exc.status, "message": exc.message, "lines": exc.lines}
+        except Refusal as exc:
+            refusal = {"status": exc.status, "message": exc.message, "lines": []}
+        except Exception as exc:  # noqa: BLE001 - the last-resort path: 500, redacted
+            return self._last_resort(review, query, exc)
+        try:
+            panel.drafts.load(did)
+        except Refusal as exc:
+            return self._page(review, query, "error", views.not_found_page, status=exc.status)
+        return self._page(review, query, "create", views.create_review, status=refusal["status"],
+                          refusal=refusal)
 
     def _refuse(self, status: int, text: str, as_json: bool = False):
         """A refusal before the body is read: the unread body would be taken for the next
@@ -562,15 +666,20 @@ class Handler(http.server.BaseHTTPRequestHandler):
                           refusal=refusal)
 
 
-def make_server(paths, clock, machine_tz: str, port: int = 0, log=None, ai_transport=None) -> Server:
-    """Bind 127.0.0.1:port (0 picks a free port; read it back from `.port`)."""
-    return Server(("127.0.0.1", port), Panel(paths, clock, machine_tz, log, ai_transport))
+def make_server(paths, clock, machine_tz: str, port: int = 0, log=None, ai_transport=None,
+                publish=None, targets=None) -> Server:
+    """Bind 127.0.0.1:port (0 picks a free port; read it back from `.port`). `publish` is
+    the poster entry point (default `factory.runner.poster_main`), `targets` the target ids
+    of a publish (default the main profile); both are for tests and LC4 (D24)."""
+    return Server(("127.0.0.1", port), Panel(paths, clock, machine_tz, log, ai_transport,
+                                             publish, targets))
 
 
 def serve(app, port: int) -> int:
-    """`python3 -m factory panel`: serve until Ctrl+C."""
+    """`python3 -m factory panel`: serve until Ctrl+C. Ctrl+C waits for a running publish
+    (authoring.md §10.3 step 5), so the poster's record row of each target is written."""
     try:
-        server = make_server(app.paths, app.clock, app.machine_tz, port)
+        server = make_server(app.paths, app.clock, app.machine_tz, port, publish=app.publish)
     except OSError as exc:
         if exc.errno == errno.EADDRINUSE:
             app.out("error: port in use, pass --port", err=True)
@@ -582,5 +691,8 @@ def serve(app, port: int) -> int:
     except KeyboardInterrupt:
         pass
     finally:
+        if server.panel.sender.busy():
+            app.out("panel: ждём окончания публикации…")
+            server.panel.sender.join()
         server.server_close()
     return 0

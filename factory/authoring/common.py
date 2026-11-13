@@ -7,6 +7,7 @@ import json
 import os
 import secrets
 import stat
+import struct
 import unicodedata
 
 
@@ -75,3 +76,33 @@ def text(value, limit, label):
     if len(value) > limit:
         raise Refusal(f"{label}: не больше {limit} знаков")
     return value
+
+
+def jpeg_exif(data):
+    """Marker walk over at most 64 KB of JPEG headers (authoring.md §8.4); entropy-coded
+    bytes are never searched. "exif" when an APP1 segment starting with "Exif\\0\\0" comes
+    before the scan, "ok" at the scan or the end marker, "bad" for anything else. Shared by
+    the Gemini view-copy check (B′) and the crop route (D′)."""
+    pos = 2
+    while pos < min(len(data), 65536):
+        if data[pos] != 0xff:
+            return "bad"
+        while pos < len(data) and data[pos] == 0xff:
+            pos += 1
+        if pos >= len(data):
+            break
+        marker = data[pos]
+        pos += 1
+        if marker in (0xda, 0xd9):
+            return "ok"
+        if marker in range(0xd0, 0xd9) or marker == 0x01:
+            continue
+        if pos + 2 > len(data):
+            break
+        length = struct.unpack(">H", data[pos:pos + 2])[0]
+        if length < 2 or pos + length > len(data) or pos + length > 65536:
+            break
+        if marker == 0xe1 and data[pos + 2:pos + 8] == b"Exif\x00\x00":
+            return "exif"
+        pos += length
+    return "bad"

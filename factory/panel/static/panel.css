@@ -592,3 +592,65 @@ dialog.day::backdrop { background: rgb(0 0 0 / .7); }
 /* 900-999: one column under the sticky bar; the scroll to «Тексты» leaves no sliver of the button above it */
 @media (min-width: 900px) and (max-width: 999px) { .create-texts { scroll-margin-top: -24px; } }
 .recent-hint { margin: -6px 0 10px; }
+
+/* Отправка (design authoring.md §17.4): one column, at most 1 240 px, the action block first */
+.send-go-row { margin: 0 0 12px; }
+.send-go-row[hidden] { display: none; }
+.send-go-row.send-go-wait { visibility: hidden; }
+.draft-links { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
+.draft-links .linkbtn { font-size: 13px; }
+.send { max-width: 1240px; margin: 0 auto; }
+.main-create .send section { margin-bottom: 20px; }
+.send-action { background: var(--surface); border: 1px solid var(--head); border-radius: 12px;
+  padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+.send-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
+.send-head h2 { font-size: 16px; margin-right: auto; }
+.send-crops[hidden] { display: none; }
+.send-crops .btn, .send-refusal .btn { margin-left: 4px; }
+.send-problems, .send-refused { display: flex; flex-direction: column; gap: 6px; }
+.send-problems ul, .send-refused ul, .send-refusal ul { display: flex; flex-direction: column; gap: 4px;
+  padding-left: 18px; list-style: disc; color: var(--text); }
+.send-refusal { margin-bottom: 16px; }
+.send-buttons { display: flex; flex-wrap: wrap; gap: 8px 12px; }
+.send-buttons .btn { min-height: 36px; padding: 0 16px; font-size: 14px; }
+.send-queue { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
+.main-create .send-folder { display: inline-flex; flex-direction: row; align-items: center; gap: 8px; margin: 0;
+  color: var(--text); font-size: 13px; }
+.send-folder select { min-height: 32px; padding: 0 8px; background: var(--surface-2);
+  border: 1px solid var(--head); border-radius: 6px; max-width: 100%; }
+.send-rule { flex: 1 1 320px; min-width: 0; color: var(--muted); }
+.main-create .send-offer { display: inline-flex; flex-direction: row; align-items: center; gap: 8px; margin: 0;
+  flex: 1 1 320px; color: var(--text); font-size: 13px;
+  min-height: 32px; cursor: pointer; }
+.send-offer input { width: 18px; height: 18px; margin: 0; flex: none; accent-color: var(--green); }
+.send-status { display: flex; flex-direction: column; gap: 10px; }
+.send-status-line { font-size: 15px; }
+.send-rows { display: flex; flex-direction: column; gap: 6px; }
+.send-rows .st { font-size: 13px; }
+.send-row-name { color: var(--text); }
+.send-source { display: flex; flex-direction: column; gap: 6px; }
+.send-photo { position: relative; display: block; width: 100%; max-width: 480px; height: 160px; padding: 0;
+  background: var(--surface); border: 1px solid var(--head); border-radius: 8px; cursor: crosshair; }
+.send-photo img { display: block; width: 100%; height: 100%; object-fit: contain; }
+.send-ring { position: absolute; width: 24px; height: 24px; margin: -12px 0 0 -12px; border-radius: 50%;
+  border: 2px solid var(--green); box-shadow: 0 0 0 2px var(--on-green); pointer-events: none; }
+.send-ring[hidden] { display: none; }
+.send-cards h2 { margin-bottom: 12px; }
+.send-grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr));
+  align-items: start; }
+.send-card { display: flex; flex-direction: column; gap: 8px; padding: 12px; min-width: 0;
+  border: 1px solid var(--head); border-radius: 8px; background: var(--app); }
+.send-card h3 { font-size: 13px; }
+.send-crop { height: 240px; display: flex; align-items: center; justify-content: center;
+  background: var(--surface); border-radius: 6px; overflow: hidden; }
+.send-crop img { width: 100%; height: 100%; object-fit: contain; }
+.send-text { white-space: break-spaces; overflow-wrap: anywhere; }   /* pre-wrap, but a space at a line end wraps instead of hanging out of the box */
+.send-size { color: var(--muted); }
+.send-bottom { margin-bottom: 24px; }
+dialog.dlg { background: var(--surface); color: var(--text); border: 1px solid var(--head);
+  border-radius: 12px; padding: 20px; width: min(440px, calc(100vw - 32px)); max-height: calc(100vh - 32px); }
+dialog.dlg::backdrop { background: rgb(0 0 0 / .7); }
+dialog.dlg h2 { font-size: 16px; margin-bottom: 8px; }
+dialog.dlg p { margin-bottom: 16px; color: var(--muted); }
+.dlg-buttons { display: flex; flex-wrap: wrap; gap: 8px 12px; }
+.dlg-buttons .btn { min-height: 36px; padding: 0 16px; font-size: 14px; }
