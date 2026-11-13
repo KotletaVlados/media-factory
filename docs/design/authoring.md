@@ -88,7 +88,7 @@ Facts read from `main` at `82b8311` on 2026-11-12.
 - `views.py`: `page` (`:114`) draws the tab bar from `strings.TABS` (`strings.py:13`) and
   takes `sub` and `sub_right` for the row under the top bar. `files` (`:435`) draws the
   lanes «Фото-посты» and «Текстовые посты» with folder cards (`_folder_card`, `:397`).
-  `_folder_view` (`:475`) adds, for a photo-lane folder, the «Фото · N» section
+  `_folder_view` (`:475`) adds, for a photo-lane folder, the «Фото» section
   (`_photos_section`, `:522`): two upload buttons, a newest-first grid of 60 per step, and
   the chips «в очереди» and «опубликовано».
 - `static/author.js` (slice A) holds `makeCopies(blob)` (`:44`, exported as
@@ -247,7 +247,7 @@ Slice A is built as designed in the first revision (`d19ed5f`, fixes in `fea48ca
 
 ### 6.1 Flow
 
-1. In the folder view of a photo-lane folder, the «Фото · N» section offers «Загрузить
+1. In the folder view of a photo-lane folder, the «Фото» section offers «Загрузить
    папку» (`webkitdirectory`) and «Добавить фото» (`multiple`,
    `accept="image/jpeg,image/png,image/webp"`).
 2. `author.js` sorts the files and skips non-images and HEIC with a reason. For each file it
@@ -294,7 +294,7 @@ image). It is about 0.4 MB, far inside the 20 MB request limit.
 ### 6.7 Files tab as built
 
 Photo-lane cards show the first three thumbs, "+N" and "N пакетов · M фото". The folder
-view has the «Фото · N» section with 60 photos per step and «показать ещё», and the chips
+view has the «Фото» section (the photo count stands once, in the sub row «N фото») with 60 photos per step and «показать ещё», and the chips
 «в очереди» and «опубликовано» from stock packages. The first revision also planned a
 text-post button, a drafts strip and a «Пост» button on each tile for lane B. In this
 revision the drafts list lives on «Создать» (§8.2) and the tile button moves to slice M
@@ -399,8 +399,9 @@ From top to bottom, in one column at every width (max 960 px wide, centred from 
    outside it are cancelled (B3).
 2. **Profile line**: «Профиль автора · заполнен» or «Профиль автора не заполнен — темы и
    тексты будут общими», linking to `/create/profile`.
-3. **«Недавние фото · нажмите на фото, чтобы начать пост»** (when any photo exists): the 8 newest index rows across all
-   photo-lane folders, by `ts`, as 72 px thumbs (96 px from 900 px) in a wrapping row. Each
+3. **«Недавние фото»**, with the line «Нажмите на фото, чтобы начать пост» on its own row
+   under the heading, so no word of it wraps alone (when any photo exists): the 8 newest
+   index rows across all photo-lane folders, by `ts`, as 72 px thumbs (96 px from 900 px) in a wrapping row. Each
    is a `<button>` whose name is «Пост из фото <name>».
 4. **«Черновики · N»** (when any exist): the 10 newest by `updated`. Each row has a 48 px
    thumb, the topic (one line with an ellipsis, the full text in `title`) or «без темы»,
@@ -425,15 +426,23 @@ Flow:
 ### 8.3 The draft page and «Темы»
 
 `GET /create/<id>`. Layout: one column below 1 000 px, in the order photo, «Тема»,
-«Тексты». From 1 000 px there are two columns, `minmax(0, 5fr) minmax(0, 7fr)`: photo and
-«Тема» on the left, «Тексты» on the right, starting at the top of the page (the heading is
-on the first screen). The loading lines of «Тема» and «Тексты» sit in their heading rows, so
-no blank band separates a heading from its content. Before «Развернуть», the right column shows
-«Тексты появятся после «Развернуть»».
+«Тексты». From 1 000 px there are two columns: photo and «Тема» on the left, «Тексты» on
+the right, starting at the top of the page (the heading is on the first screen). From
+1 000 to 1 279 px the columns are `minmax(0, 1fr) minmax(0, 1fr)`, from 1 280 px
+`minmax(0, 5fr) minmax(0, 7fr)`; the cards stand in two or more columns
+(`repeat(auto-fill, minmax(220px, 1fr))`), so the left column holds the topic box and
+«Развернуть» on a 700 px screen (measured at 1 000 × 700, 1 280 × 800, 1 440 × 900 and
+1 920 × 1 080). The loading line of «Тема» (topics, voice) sits in its heading row, and
+the loading line of «Тексты» («Gemini пишет тексты…», for «Развернуть» and «Перегенерировать»)
+sits in the «Тексты» heading row, so no blank band separates a heading from its content.
+Before «Развернуть», the right column shows «Тексты появятся после «Развернуть»»; while the
+texts are written it gives way to the loading line. Below 1 000 px a click on «Развернуть»
+scrolls «Тексты» to the top, where its loading line is; a failed request scrolls the error
+banner into view.
 
 - **Photo**: the view copy from `/photo?…&v=view`, `object-fit: contain`, at most 280 px
-  tall below 1 000 px and 20vh (120–220 px) from 1 000 px, so that «Тема» starts on the first
-  screen next to the texts, inside a fixed box (no layout shift).
+  tall below 1 000 px and 12vh (80–180 px) from 1 000 px, so that «Тема» starts on the first
+  screen next to the texts and the box and «Развернуть» stay on a 700 px screen, inside a fixed box (no layout shift).
 - **«Тема»** section:
   - **Automatic topics**: when `topics_auto` is `pending`, `create.js` posts
     `/create/<id>/topics` with `{"auto": true}` on load. The server flips `topics_auto` to
@@ -441,14 +450,20 @@ no blank band separates a heading from its content. Before «Развернут�
     the draft's current topics and sends nothing. While waiting, the section reads
     «Gemini подбирает темы…» (`role="status"`) and the topic buttons are disabled.
   - **Cards**: 3–5 `<button>` cards, each with the title (bold) and the angle (one line,
-    wrapping). A tap copies «<title> — <angle>» into the topic box, saves it, and marks
-    that card with the visible word «выбрано» and `aria-pressed="true"`.
+    wrapping). A tap copies «<title> — <angle>» into the topic box, saves it, marks
+    that card with the visible word «выбрано» and `aria-pressed="true"`, and scrolls the
+    box and «Развернуть» into view when they are not (`scrollIntoView({block: "nearest"})`
+    on the row of «Развернуть», with a 16 px margin; no scroll when they already are on the
+    screen). At 390 × 844 the tap therefore brings both onto the screen; from 1 000 px they
+    are on the first screen before any tap.
+  - **Heading row**: «Тема», «Ещё темы · до $0.02» and «Голос · до $0.02» stand in one row
+    (wrapping on a narrow page); the loading line and the voice line follow in the same row.
   - **«Ещё темы · до $0.02»** asks again (replacing the cards). When `topics` is empty it
     reads «Предложить темы · до $0.02».
   - **Topic box**: label «Тема поста — выберите карточку или напишите свою», a textarea of
     up to 2 000 characters (a counter appears from 1 800). It autosaves 800 ms after
     typing stops through `POST /create/<id>/topic`, showing «сохранено».
-  - **«Голос · до $0.02»** above the cards, beside the topics button (§8.5); the bound is
+  - **«Голос · до $0.02»** beside the topics button, above the cards (§8.5); the bound is
     part of the button's text, and the timer shows once, in the button.
   - **«Развернуть · до $0.05»**: the primary (green) button, in one fixed place directly
     under the topic box, with the hint «выберите тему или впишите свою» beside it; disabled
@@ -822,8 +837,11 @@ with a modal confirmation, only in state `draft`) comes with D.
   `unknown`, 0 when `failed`, over rows whose reservation month is the current UTC month
   (the X ledger's rule). A reservation left by a killed panel counts, which errs on the
   safe side.
-- **Refusal text:** «Бюджет ИИ на ноябрь исчерпан: этот запрос — до $0.05. Новые запросы —
+- **Refusal text:** «Бюджет ИИ на ноябрь исчерпан: «Развернуть» стоит до $0.05. Новые запросы —
   с 1 декабря, раньше — после того, как вы поднимете месячный лимит в файле .env.» The
+  refused action stands by its button name («Темы», «Голос», «Развернуть», «Перегенерировать»); «до $0.05» is
+  bound by no-break spaces, so the price never splits across lines. The page shows the
+  sentence of its main action once («Темы» on `/create`, «Развернуть» on a draft). The
   amounts stand once, in the sub row («ИИ · ноябрь $9.99 из $10.00 · лимит»). Nothing is sent. Routes answer 409 `{"error": <text>}`.
 
 ### 11.2 Bounds (reserved before each call, shown on each button)
@@ -1051,7 +1069,7 @@ carry spec item 1, 4–7 item 2, 8–12 item 3, 13 item 4, 14 item 5, 15–16 it
    «Охваты», «Подписчики», «Диалоги · выкл». On `/create`, «Создать» carries
    `aria-current="page"`. No tab reads «Файлы».
 2. **Медиатека keeps slice A.** `/files` and `/files?folder=<f>` render everything slice A
-   renders: lanes, cards with thumbs and photo counts, the «Фото · N» section with both
+   renders: lanes, cards with thumbs and photo counts, the «Фото» section with both
    upload buttons, the newest-first grid, «показать ещё», and the chips. Their heading is
    «Медиатека». Every existing test passes, except the two that pin what the
    specification changes: `test_root_redirects_to_connection` (now `/create`) and the
@@ -1158,7 +1176,7 @@ carry spec item 1, 4–7 item 2, 8–12 item 3, 13 item 4, 14 item 5, 15–16 it
       its limit.
 16. **Cap.** With the month at $9.99 and the cap at $10.00:
     - every spending control (topics, expand, regenerate, voice) shows «Бюджет ИИ на
-      ноябрь исчерпан: этот запрос — до $0.0N. Новые запросы — с 1 декабря, раньше —
+      ноябрь исчерпан: «<действие>» стоит до $0.0N. Новые запросы — с 1 декабря, раньше —
       после того, как вы поднимете месячный лимит в файле .env.» instead of acting;
     - a forced POST to each route answers 409 with that text, and the fake transport saw
       zero requests;
@@ -1222,10 +1240,10 @@ Two fixtures carry the states. FakeGemini runs in process in both.
 | `create-empty` | Empty fixture with the key, no photos, no drafts, no profile | «Бросьте фото сюда», «Выбрать фото», «Профиль автора не заполнен — темы и тексты будут общими», «ИИ · ноябрь $0.00 из $10.00» |
 | `create-start` | «create» at `/create` | «Бросьте фото сюда», «Недавние фото», «Черновики · 5» |
 | `create-topics-loading` | «create-live»: the width's draft with `topics_auto: "pending"`; FakeGemini holds the request until teardown | «Gemini подбирает темы…» and the dimmed, disabled «Ещё темы · до $0.02» |
-| `create-topics` | «create»: a draft with 5 topics, the second chosen | the five card titles, «выбрано»; «Развернуть · до $0.05» stands directly under the topic box (below the first screen on a narrow page, reached by scrolling) |
+| `create-topics` | «create»: a draft with 5 topics, the second chosen | the five card titles, «выбрано»; «Развернуть · до $0.05» stands directly under the topic box: on the first screen from 1 000 px (probe: 1 000 × 700 and 1 280 × 800), and after a card tap on a narrow page, which scrolls it into view (probe in `create-behaviour`, every width) |
 | `create-own-topic` | «create»: a draft with a typed topic, no topics, `topics_auto: "done"` | the typed topic in the box, «Предложить темы · до $0.02», «Развернуть · до $0.05» enabled |
 | `create-voice` | «create-live»: the width's own-topic draft; probe: oscillator stream, «Голос» clicked, 1.2 s live | «Стоп · 0:01» (the timer shows once, in the button) |
-| `create-expand-loading` | «create-live»: the width's topics draft; probe clicks «Развернуть»; FakeGemini holds | «Gemini пишет тексты…», a dimmed, disabled «Развернуть · до $0.05» |
+| `create-expand-loading` | «create-live»: the width's topics draft; probe clicks «Развернуть»; FakeGemini holds | «Gemini пишет тексты…» in the «Тексты» heading row (none in «Тема»), a dimmed, disabled «Развернуть · до $0.05» |
 | `create-drop` (functional, not framed) | «create-live» at `/create`; probe passes a generated JPEG named `drop-<width>.jpg` to the drop handler | probe JSON: three upload posts, one `/create/new`, the navigation URL, and one new index row with that name |
 | `create-texts` (*anchor*) | A draft with four texts within limits | «X · англ.», «LinkedIn · англ.», «Instagram · укр.», «Facebook · укр.», each count line (the 390 frame is scrolled until each card is whole) |
 | `create-over-limit` (*anchor*) | A draft whose X text is 312 weighted characters | «длиннее лимита: 312 / 280 — сократите», the whole X text |
@@ -1234,7 +1252,7 @@ Two fixtures carry the states. FakeGemini runs in process in both.
 | `create-nokey` | «create» fixture whose env file has no `GEMINI_API_KEY`, the `create-topics` draft and `/create` | «нет GEMINI_API_KEY в .env — темы, тексты и голос недоступны»; the drop zone still active |
 | `create-profile` | `/create/profile?saved=1` with every field filled | «Профиль автора», «Профиль сохранён», the eight labels (one column below 600 px: the first two on the first screen, the rest whole when scrolled to) |
 | `files-mediateka` | «create» fixture at `/files` | tab «Медиатека» current, the card «Мои фото» with «12 фото» |
-| `files-mine` | `/files?folder=my-photos` | «Фото · 12», the chip «черновик» on a drafted photo |
+| `files-mine` | `/files?folder=my-photos` | «Фото» (the count «12 фото» stands once, in the sub row), the chip «черновик» on a drafted photo |
 
 The existing states (`connection` … `files-photos-upload`) run as today and show the new tab
 bar. The critic also checks that:

@@ -546,6 +546,18 @@
         out.problems.push("defining text off screen: " + selector + " " + Math.round(r.top) + ".." + Math.round(r.bottom));
       }
     }
+    // the element's text (or its box, for the textarea) lies whole between the sticky bar and the window's bottom
+    function onScreen(label, selector) {
+      var el = document.querySelector(selector);
+      if (!el) { out.problems.push(label + ": missing " + selector); return; }
+      var range = document.createRange(); range.selectNodeContents(el);
+      var r = el.tagName === "TEXTAREA" ? el.getBoundingClientRect() : range.getBoundingClientRect();
+      var box = el.getBoundingClientRect();
+      if (r.top < stickyBottom() - 1 || r.bottom > innerHeight + 1 || box.bottom > innerHeight + 1) {
+        out.problems.push(label + ": " + selector + " is at " + Math.round(box.top) + ".." + Math.round(box.bottom) +
+                          " in a " + innerHeight + " px window (scrollY " + Math.round(scrollY) + ")");
+      }
+    }
     function scroll(selector) { var el = document.querySelector(selector); if (el) { el.scrollIntoView({block: "start"}); } }
     function looks(selector) {
       document.querySelectorAll(selector).forEach(function (el) {
@@ -581,8 +593,13 @@
       } else if (state === "create-expand-loading") {
         document.querySelector('[data-op="expand"]').click();
         await until(function () { return root.getAttribute("aria-busy") === "true"; }, "expand loading");
-        see(".ai-status", "Gemini пишет тексты…");
-        // the button sits under the topic box, below the first screen on a narrow page
+        // the loading line stands in «Тексты», which is on screen (the click scrolls to it on a narrow page);
+        // «Тема» keeps no loading line and the «появятся после» box gives way to it
+        see(".texts-heading .text-ai-status", "Gemini пишет тексты…");
+        see(".texts-heading h2", "Тексты");
+        if (document.querySelector(".ai-status").textContent !== "") { out.problems.push("the loading line is also in «Тема»"); }
+        var before = document.querySelector(".text-cards .empty");
+        if (before && !before.hidden) { out.problems.push("«Тексты» still says " + before.textContent + " while writing"); }
         if (document.querySelector('[data-op="expand"]').textContent !== "Развернуть · до $0.05") { out.problems.push("expand label"); }
         looks('[data-op="topics"], [data-op="expand"]');
       } else if (state === "create-voice") {
@@ -651,6 +668,10 @@
                "tapped card is not the only chosen one");
         expect(topicBox.value === tappedText && /^.+ — .+$/.test(tappedText), "tapped card did not fill the topic box");
         see('.topic-card[aria-pressed="true"] .chosen', "выбрано");
+        // after the tap the box and «Развернуть» are on the screen, whatever the width (the tap scrolls when it must)
+        await new Promise(function (ok) { requestAnimationFrame(function () { requestAnimationFrame(ok); }); });
+        onScreen("after a card tap", "#topic"); onScreen("after a card tap", '[data-op="expand"]');
+        window.scrollTo(0, 0);   // the later steps read the first screen
         // the tap saves by itself: no input event, no flush from here
         await until(function () { return document.querySelector(".topic-save").textContent === Tb.saved; }, "tapped topic saved");
         var page = await serverPage();
@@ -830,7 +851,9 @@
           mine.setAttribute("data-probe-mine", ""); see("[data-probe-mine]", "Мои фото");
         }
       } else if (state === "files-mine") {
-        see("#photos-h", "Фото · 12");
+        see("#photos-h", "Фото");
+        // the count stands once on this surface: in the sub row, not in the heading
+        if (/12/.test(document.querySelector("#photos-h").textContent)) { out.problems.push("the photo count is repeated in the heading"); }
         if (!document.querySelector(".pgrid").textContent.includes("черновик")) { out.problems.push("missing draft chip"); }
       }
       if (state === "files-mine") {
@@ -843,7 +866,7 @@
         var go = document.querySelector('[data-op="expand"]'), goBox = go.getBoundingClientRect();
         if (!go.classList.contains("green")) { out.problems.push("«Развернуть» is not the primary button"); }
         if (goBox.top < box.bottom - 1 || Math.abs(goBox.left - box.left) > 1) { out.problems.push("«Развернуть» is not directly under the topic box"); }
-        var head = document.querySelector(".topic-heading").getBoundingClientRect(), first = document.querySelector(".create-actions").getBoundingClientRect();
+        var head = document.querySelector(".topic-heading").getBoundingClientRect(), first = document.querySelector(".topic-cards").getBoundingClientRect();
         if (first.top - head.bottom > 16) { out.problems.push("a blank band under the «Тема» heading: " + Math.round(first.top - head.bottom) + " px"); }
         if (innerWidth >= 1000) {
           var photo = document.querySelector(".create-photo").getBoundingClientRect();
@@ -852,10 +875,13 @@
           if (tb.left < photo.right || tb.bottom > innerHeight) { out.problems.push("«Тексты» is not in the right column on the first screen"); }
           if (Math.abs(col.right - document.querySelector(".create-columns").getBoundingClientRect().right) > 1) { out.problems.push("the texts column is not the full right column"); }
           out.defining.push({selector: ".texts-heading h2", text: "Тексты", top: Math.round(tb.top), bottom: Math.round(tb.bottom)});
+          // the left column fits the topic box and «Развернуть» on the screen, with no scroll
+          if (state === "create-topics") { onScreen("first screen", '[data-op="expand"]'); onScreen("first screen", "#topic"); }
         }
       }
       // §16.2: states that are not anchor states are judged on the first screen, unscrolled
-      if (anchored.indexOf(state) < 0 && scrollY !== 0) {
+      // (the expand click scrolls a one-column page to «Тексты», where its loading line is)
+      if (anchored.indexOf(state) < 0 && scrollY !== 0 && !(state === "create-expand-loading" && innerWidth < 1000)) {
         out.problems.push("first screen measured after a scroll: scrollY " + Math.round(scrollY));
       }
     } catch (err) { out.problems.push(err.message); }

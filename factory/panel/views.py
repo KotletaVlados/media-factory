@@ -523,7 +523,7 @@ PHOTO_PAGE = 60
 
 
 def _photos_section(ctx: Ctx, name: str, photos: list) -> str:
-    """"Фото · N" above the package list of a photo-lane folder (authoring.md §6.1, §6.7):
+    """"Фото" above the package list of a photo-lane folder (authoring.md §6.1, §6.7):
     two upload buttons for author.js, a status line, and a grid of thumbs, newest first, 60
     per step ("показать ещё" links to the next step and works without JS)."""
     snap = ctx.snap
@@ -557,8 +557,7 @@ def _photos_section(ctx: Ctx, name: str, photos: list) -> str:
     accept = ",".join(fphotos.IMAGE_TYPES)
     return (f'<section class="photos" aria-labelledby="photos-h" data-photos="{esc(name)}" '
             f'data-csrf="{esc(ctx.csrf)}" data-strings="{data}">'
-            f'<div class="photos-head"><h2 id="photos-h">{esc(S.PHOTOS_H)} · '
-            f'<span class="mono">{S.group(total)}</span></h2>'
+            f'<div class="photos-head"><h2 id="photos-h">{esc(S.PHOTOS_H)}</h2>'
             f'<div class="photos-actions">'
             f'<button class="btn" type="button" data-pick="dir" disabled>{esc(S.UPLOAD_DIR)}</button>'
             f'<button class="btn" type="button" data-pick="files" disabled>{esc(S.UPLOAD_FILES)}</button>'
@@ -1062,11 +1061,12 @@ def _create_data(ctx, why, bounds, **extra):
     return esc(json.dumps(values, ensure_ascii=False))
 
 
-def _create_notice(why):
-    # One visible reason per state. Each spending control also carries its own title.
+def _create_notice(why, main="expand"):
+    # One visible reason per state, worded for the screen's main action (the start page spends
+    # on topics, a draft on «Развернуть»). Each spending control also carries its own title.
     reasons = list(dict.fromkeys(v for v in why.values() if v))
     if reasons and all(r.startswith("Бюджет ИИ") for r in reasons):
-        reasons = [why["expand"] or reasons[0]]
+        reasons = [why[main] or reasons[0]]
     return "".join(f'<p class="create-notice k-bad" role="alert">{esc(v)}</p>' for v in reasons)
 
 
@@ -1092,7 +1092,7 @@ def create(ctx: Ctx) -> str:
             f'data-folder="{esc(p["folder"])}" aria-label="Пост из фото {esc(p["name"])}">'
             f'<img src="{esc(photo_url(p["folder"], p["id"], "thumb"))}" alt="{esc(p["name"])}"></button>'
             for p in recent[:8])
-        recent_html = (f'<section><h2>Недавние фото <span class="muted small">{esc(S.CREATE_RECENT_HINT)}</span></h2>'
+        recent_html = (f'<section><h2>Недавние фото</h2><p class="recent-hint muted small">{esc(S.CREATE_RECENT_HINT)}</p>'
                        f'<div class="recent-photos">{buttons}</div></section>')
     summaries = ctx.author.drafts.summaries()
     drafts_html = ""
@@ -1110,7 +1110,7 @@ def create(ctx: Ctx) -> str:
         f' · Gemini предложит темы (<span class="nowrap">{esc(bounds["topics"])}</span>)')
     profile_label = S.CREATE_PROFILE_FILLED if any(profile.value(author, n) for n, *_ in profile.FIELDS) else S.CREATE_PROFILE_EMPTY
     body = (f'<div class="create-start" data-create="{_create_data(ctx, why, bounds)}">'
-            f'{_create_notice(why)}<label class="create-drop" id="create-drop">'
+            f'{_create_notice(why, "topics")}<label class="create-drop" id="create-drop">'
             f'<strong>{esc(S.CREATE_DROP)}</strong><span class="btn">{esc(S.CREATE_PICK)}</span>'
             f'<span class="small muted drop-hint">{esc(S.CREATE_FORMATS)}{hint_topics}</span>'
             f'<input id="create-file" type="file" accept="image/jpeg,image/png,image/webp" class="create-file">'
@@ -1179,15 +1179,15 @@ def create_draft(ctx: Ctx) -> str:
             f'<div class="create-columns">'
             f'<div class="create-photo"><img src="{esc(photo_url(draft["folder"], draft["photo"], "view"))}" alt="Фото для поста"></div>'
             f'<section class="create-topic"><div class="topic-heading"><h2>Тема</h2>'
-            f'<p class="ai-status small" role="status"></p></div>'
             f'<div class="create-actions">'
             f'{_spend_button("topics", topic_button + " · " + bounds["topics"], why["topics"], **topics_hidden)}'
             f'{_spend_button("voice", S.CREATE_JS["voice"] + " · " + bounds["voice"], why["voice"], aria_pressed="false")}'
-            f'<span class="voice-status small" role="status"></span></div>'
+            f'</div><p class="ai-status small" role="status"></p>'
+            f'<p class="voice-status small" role="status"></p></div>'
             f'<div class="topic-cards">{"".join(topics)}</div>'
             f'<div class="topic-label"><label for="topic">Тема поста — выберите карточку или напишите свою</label>'
             f'<span class="topic-count small mono" hidden></span><span class="topic-save small" role="status"></span></div>'
-            f'<textarea id="topic" rows="3">{esc(draft["topic"])}</textarea>'
+            f'<textarea id="topic" rows="2">{esc(draft["topic"])}</textarea>'
             f'<div class="expand-row">'
             f'{_spend_button("expand", expand + " · " + bounds["expand"], why["expand"] or (S.CREATE_JS["empty_topic"] if not draft["topic"].strip() else ""), cls="btn green")}'
             f'<p class="topic-hint muted small"{" hidden" if draft["topic"].strip() else ""}>{esc(S.CREATE_JS["empty_topic"])}</p></div>'

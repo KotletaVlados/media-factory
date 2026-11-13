@@ -139,9 +139,12 @@
       b.setAttribute("aria-pressed", String(chosen)); $(".chosen", b).textContent = chosen ? T.chosen : "";
     });
   }
+  // After a tap the box and «Развернуть» are the next thing to read: bring them into view
+  // (no scroll when they already are; the sticky bar and the margins keep them clear of the edges).
+  function revealExpand() { $(".expand-row").scrollIntoView({block: "nearest"}); }
   function bindTopic(b) {
     b.addEventListener("click", async () => {
-      topic.value = b.dataset.topic; resize(topic); markChosen(); setBusy(busy);
+      topic.value = b.dataset.topic; resize(topic); markChosen(); setBusy(busy); revealExpand();
       try { await saveTopic(); } catch (_) { /* the saver keeps the text and reason */ }
     });
   }
@@ -217,7 +220,11 @@
     if (busy) { return; }
     if (C.why[op]) { error(C.why[op]); return; }
     setBusy(true);
-    const line = op === "regenerate" ? $(".text-ai-status") : $(".ai-status");
+    // The loading line stands where the result will: «Тексты» for texts, «Тема» for topics and voice.
+    const line = op === "regenerate" || op === "expand" ? $(".text-ai-status") : $(".ai-status");
+    const placeholder = op === "expand" ? $(".text-cards .empty") : null;
+    if (placeholder) { placeholder.hidden = true; }
+    if (op === "expand") { document.getElementById("texts").scrollIntoView({block: "start"}); }
     const message = op === "topics" ? T.topics_loading : op === "voice" ? T.transcribing : T.expand_loading;
     report(line, message);
     const writing = op === "expand" ? all(".text-editor") : op === "regenerate" ?
@@ -242,7 +249,6 @@
         resize(topic); markChosen();
         voiceBlob = null; report($(".voice-status"), T.saved);
       }
-      if (op === "expand") { document.getElementById("texts").scrollIntoView({block: "start"}); }
       return result;
     } catch (err) {
       activeError = op;
@@ -250,8 +256,13 @@
       error(err.message, op === "voice" ? null : () => ai(op, op === "topics" ? {} : data, audio, mime), op);
       // the banner's «Повторить» is the one button for a failed topics request
       if (op === "topics") { $("[data-op=topics]").hidden = true; }
+      // «Развернуть» scrolled to «Тексты» when it started: the reason is read where it is shown
+      if (op === "expand") { $(".create-error").scrollIntoView({block: "nearest"}); }
       if (op === "voice") { showVoiceRetry(); }
-    } finally { writing.forEach(el => { el.readOnly = false; }); report(line, ""); setBusy(false); }
+    } finally {
+      writing.forEach(el => { el.readOnly = false; }); report(line, ""); setBusy(false);
+      if (placeholder) { placeholder.hidden = false; }
+    }
   }
   $("[data-op=topics]").addEventListener("click", () => ai("topics"));
   $("[data-op=expand]").addEventListener("click", () => ai("expand"));
