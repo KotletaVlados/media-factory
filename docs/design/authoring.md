@@ -1,14 +1,21 @@
 # Authoring posts in the panel: «Создать», topics, Gemini texts, photos, send
 
-Design document. Status: slice A is built (merged at `82b8311`). Slice B′ is pinned in §16
-and ready to build. C, D and M follow (§15). First written on 2026-11-11 against `f09433c`.
-Revised on 2026-11-12 against `main` at `82b8311` for slice B′. The revision follows the
-operator's decisions of 2026-11-12 (texts by Gemini, the «Создать» entry, «Медиатека») and
-the seed-to-result research report of 2026-11-12, which is kept outside the repository.
+Design document. Status: slices A and B′ are built (`main` at `eb75f0a`). Slice D′ (send,
+with plain per-network crops) is pinned in §17 and ready to build. C and M follow (§15).
+
+History:
+
+- First written on 2026-11-11 against `f09433c`.
+- Revised on 2026-11-12 against `main` at `82b8311` for slice B′. That revision follows the
+  operator's decisions of 2026-11-12 (texts by Gemini, the «Создать» entry, «Медиатека»)
+  and the seed-to-result research report of 2026-11-12, which is kept outside the
+  repository.
+- Revised on 2026-11-13 against `main` at `eb75f0a` for slice D′, after the operator's
+  decisions of 2026-11-13 (send before images; a plain crop for each network).
 
 Vendor and browser documentation was read on the dates given in §4, and each external fact
 cites its page. Legend: **C** means confirmed on the cited official page; **O** means
-observed on this machine; **U** means unconfirmed, and §17 names the cheapest check for
+observed on this machine; **U** means unconfirmed, and §18 names the cheapest check for
 each.
 
 ## 1. Originating requirement
@@ -45,6 +52,8 @@ Decisions in force (the operator's forms and answers):
 | 2026-11-12 18:04 UTC | Texts are written by **Gemini**, not Claude. The project has no Anthropic key and takes no Anthropic dependency |
 | 2026-11-12 ~18:43 UTC | Build the photo phase by the research plan: «Создать» is the first tab, then drop a photo, then 3–5 topic suggestions from Gemini (or an own topic typed or dictated), then «Развернуть» gives four per-network texts, then (D) review and publish or queue. Rename «Файлы» to «Медиатека»: all photos with status marks; schedule-queue folders move deeper and are created automatically. Use the existing Gemini key; the operator has billing on or will turn it on |
 | Earlier | X and LinkedIn texts in English, Instagram and Facebook in Ukrainian; panel UI in Russian; X capped at USD 5 per month (poster ledger); the operator reviews texts before anything is published; code templates for photos (quote, frame, per-network crop) |
+| 2026-11-13 ~01:35 UTC | Build slice D (send) before C (images), so the first real post leaves the panel sooner |
+| 2026-11-13 07:01 UTC | D plus a simple automatic crop for each network, without effects, so the first post comes as fast as possible; templates and «highlight me» come later in C (§17) |
 
 ### 1.1 Validation against the requirement
 
@@ -56,12 +65,12 @@ Decisions in force (the operator's forms and answers):
 | X short, LinkedIn business, Instagram one, Facebook another, for each audience | One text per network with its own language, length and angle (§8.4). «Профиль автора» names the audience of each network and goes into every request (§8.7) |
 | Minimum of movements | Three actions to four texts: drop a photo, tap a topic card, «Развернуть». Topics arrive without a click (§8.3) |
 | Type or dictate | Topic box plus «Голос», with Gemini transcription (§8.5) |
-| Maybe process the photo, maybe not | Slice C: per-network crops always; highlight on request (§9) |
-| One button sends everything | Slice D: review, then publish now or queue (§10) |
+| Maybe process the photo, maybe not | Slice D′: one plain crop per network, automatic, centred or moved by one tap (§17). Slice C: templates and highlight on request (§9) |
+| One button sends everything | Slice D′: review every variant, then publish now or queue, three movements after the texts (§10, §17) |
 | USD 10 a month for AI, then ask | One ledger, reservation before every call, refusal in Russian, month shown on «Создать» (§11) |
-| Video the same way, later | A separate task; not designed here (§19) |
+| Video the same way, later | A separate task; not designed here (§20) |
 
-Every row is built in slices B′, C, D and M (§15). Cut scope is in §19.
+Every row is built in slices B′, D′, C and M (§15). Cut scope is in §20.
 
 ## 2. What exists today
 
@@ -136,7 +145,7 @@ has no active `ANTHROPIC_API_KEY` line and no `AI_MONTHLY_CAP_USD` line.
 | D4 | AI calls run in the request thread with a 120 s deadline and at most two at a time. Publishing (D) runs in a background thread | One job queue for everything | An AI call ends within seconds and the page waits; a publish can take over 5 minutes |
 | D5 | Gemini through the Interactions API with `"store": false` | `generateContent` (legacy, still supported, G9) | The current guides for structured output, audio and image editing use Interactions (G1, G4). Interactions stores requests for 55 days on the paid tier unless `store` is false (G9) |
 | D6 | Texts and topics with Gemini structured output: `response_format` of type `text`, `mime_type` `application/json` and a JSON `schema` | Free text parsed by hand; function calling | The schema is checked by the vendor, `minItems`/`maxItems` are enforced (G4), and the JSON is the text of the `model_output` step (G6) |
-| D7 | Texts and topics with `gemini-3.8-flash` at `thinking_level: "low"` | `gemini-4-hydrogen`; `gemini-3.5-flash-lite` | 3.8 Flash is the model the research report names. It is stable, takes images, supports structured output and costs $0.75 / $3.75 per MTok through 2026-12-31 and $1.50 / $7.50 after (G2, G3). Google's overview recommends Hydrogen for new projects, but it costs $1.50 / $7.50 now and thinks at `high` by default (G2, G3, G5). Flash-Lite is cheaper but Google describes it for throughput, not writing. The model is one constant in `prompts.py` (§19 names the trigger to switch) |
+| D7 | Texts and topics with `gemini-3.8-flash` at `thinking_level: "low"` | `gemini-4-hydrogen`; `gemini-3.5-flash-lite` | 3.8 Flash is the model the research report names. It is stable, takes images, supports structured output and costs $0.75 / $3.75 per MTok through 2026-12-31 and $1.50 / $7.50 after (G2, G3). Google's overview recommends Hydrogen for new projects, but it costs $1.50 / $7.50 now and thinks at `high` by default (G2, G3, G5). Flash-Lite is cheaper but Google describes it for throughput, not writing. The model is one constant in `prompts.py` (§20 names the trigger to switch) |
 | D8 | Transcription with `gemini-3.5-flash-lite` and inline audio | `gemini-3.5-transcribe` | Inline WebM and OGG audio are documented for general models (G8). The transcribe model's examples upload through the Files API first, which costs two requests and a clean-up |
 | D9 | Authoring pages need JavaScript; with JS off they say so | A no-JS path for each step | Drop, recording and canvas exist only in JS. «Профиль автора» is a plain form and works without JS |
 | D10 | The AI month is shown in the row under the top bar on every «Создать» page, not in the top bar | A top-bar item (first revision) | The top bar already gains the «Создать» tab and the longer «Медиатека» label. Measured in §11.5: the bar keeps its heights except at 1 414–1 513 px, where it moves to two rows as it already does at 1 280. The AI spend happens only on «Создать», so the fact sits there once |
@@ -146,7 +155,7 @@ has no active `ANTHROPIC_API_KEY` line and no `AI_MONTHLY_CAP_USD` line.
 | D14 | Voice audio stays in the page. The server holds it in memory for one call and never writes it to disk | Storing `voice-<n>.webm` for a retry (first revision) | No recording of the operator's voice on disk. The page keeps the blob for «Повторить расшифровку» |
 | D15 | Draft writes are per field, under a short per-draft lock; the last write wins | A whole-file revision on every write | An AI result that arrives while the operator types would make the next autosave stale. The panel is local and used by one operator |
 | D16 | «Перегенерировать» sends the topic, the profile, the photo, that network's current text and the wish | All four texts as context (first revision) | The reservation bound stays small and fixed. Consistency across networks comes from the shared topic and profile |
-| D17 | «Профиль автора» is one form page saved to `content/profile.json` | Profile in the env file; a profile that learns from edits | The content folder is ignored by git and holds the operator's own data. Learning from edits is deferred (§19) |
+| D17 | «Профиль автора» is one form page saved to `content/profile.json` | Profile in the env file; a profile that learns from edits | The content folder is ignored by git and holds the operator's own data. Learning from edits is deferred (§20) |
 
 ## 4. Vendor and platform facts
 
@@ -198,16 +207,21 @@ factory/authoring/            standard library only
   prices.py     (B′) dated price table with source URL and read date
   prompts.py    (B′) model constants, instructions, schemas, per-network targets
   gemini.py     (B′) request build, reply parse, usage -> price; (C) image edit
-  send.py       (D) review checks, package writing, publish thread
+  send.py       (D′) crop contract, review checks, package writing, publish thread,
+                status, queue and the offered rule, delete
 factory/panel/
   server.py     JSON and audio route kinds; /create routes; AI transport injection;
-                drafts cache and AI-month cache (one entry each)
-  views.py      create, create_draft, create_profile; «черновик» chip
+                drafts cache and AI-month cache (one entry each);
+                (D′) review, status, file, image, focus, publish, retry, queue, delete;
+                publish-function and targets injection; Ctrl+C waits for a publish
+  views.py      create, create_draft, create_profile; «черновик» chip; (D′) create_review
   model.py      photo_uses includes drafts (given by the server, §8.8)
   strings.py    tabs and every new Russian string
-  static/author.js    (A) + MFAuthor.uploadFile(folder, csrf, file) for «Создать»
+  static/author.js    (A) + MFAuthor.uploadFile(folder, csrf, file) for «Создать»;
+                      (D′) MFAuthor.makeCrop(bitmap, spec, focus)
   static/create.js    (B′) drop zone, topics, voice, expand, editors, regenerate
-  static/panel.css    create styles
+  static/send.js      (D′) crops, focus, dialogs, status polling on the review page
+  static/panel.css    create and review styles
 tests/test_author_{drafts,profile,budget,gemini,create}.py,
 tests/panel_fixture.py (create fixture, FakeGemini), tools/visual_check.py
 KEYS.md, README.md
@@ -222,9 +236,9 @@ The poster stays unchanged. The factory core (`stock`, `ruleset`, `planner`, `ru
 |---|---|---|---|
 | Uploaded photos (A) | `content/stock/<folder>/photos/…`; the default folder is `content/stock/my-photos/` | dirs 0700, files 0600 | no (`content/` is ignored) |
 | Author profile (B′) | `content/profile.json` | 0600 | no |
-| Drafts | `content/drafts/<id>/draft.json` (B′); `img/<style>.jpg`, `out/<network>.jpg` (C) | dirs 0700, files 0600 | no |
-| Queued package (D) | `content/stock/<folder>/<NNN>-<id>.json`, `media/<id>/<network>.jpg` | same | no |
-| Published-now package (D) | `content/packages/<id>.json`, `content/packages/media/<id>/…` | same | no |
+| Drafts | `content/drafts/<id>/draft.json` (B′); `out/<network>.jpg` (D′); `img/<style>.jpg` (C); `content/drafts/.publish.lock` (D′) | dirs 0700, files 0600 | no |
+| Queued package (D′) | `content/stock/<folder>/<NNN>-<id>.json`, `media/<id>/<network>.jpg` | same | no |
+| Published-now package (D′) | `content/packages/<id>.json`, `content/packages/media/<id>/…` | same | no |
 | AI ledger (B′) | `<factory state>/ai-ledger.jsonl`, `ai-ledger.lock` | 0600 | no (outside every checkout) |
 
 `content/` follows `MF_CONTENT_DIR`; the factory state follows `MF_FACTORY_STATE_DIR`. No
@@ -236,9 +250,9 @@ voice recording is ever written (D14).
 |---|---|---|
 | `stock/<f>/photos/**`, `stock/my-photos/folder.json` | panel upload only | panel; the stock loader reads `folder.json` |
 | `content/profile.json` | panel «Профиль автора» form | panel (every Gemini text request) |
-| `content/drafts/**` | panel only | panel; C and D later |
+| `content/drafts/**` | panel only | panel; C and D′ |
 | `ai-ledger.jsonl` | panel AI routes | panel («Создать» sub row, refusals) |
-| packages, poster `posts.jsonl`, `x-ledger.jsonl` | unchanged by B′ | unchanged |
+| packages, poster `posts.jsonl`, `x-ledger.jsonl` | unchanged by B′. D′: the panel writes packages and media (publish now, queue) and `rules.json` (the offered rule); the poster, called by the panel, writes `posts.jsonl` and `x-ledger.jsonl` | the poster, the factory, the panel |
 
 ## 6. Photos (slice A, built)
 
@@ -298,7 +312,7 @@ view has the «Фото» section (the photo count stands once, in the sub row �
 «в очереди» and «опубликовано» from stock packages. The first revision also planned a
 text-post button, a drafts strip and a «Пост» button on each tile for lane B. In this
 revision the drafts list lives on «Создать» (§8.2) and the tile button moves to slice M
-(§15). Text-only posts are deferred (§19).
+(§15). Text-only posts are deferred (§20).
 
 ## 7. Drafts
 
@@ -333,7 +347,7 @@ B′ writes these fields:
   poster's id pattern `[a-z0-9][a-z0-9._-]{0,79}` and later becomes the package id. An
   existing id retries with new hex.
 - `folder` and `photo` name an indexed photo. A draft always has a photo in B′; text-only
-  posts are deferred (§19).
+  posts are deferred (§20).
 - `topics_auto` is `pending` (a new draft with a key, before its automatic request),
   `done` (the automatic request was reserved, whatever its outcome) or `manual` (no key
   when the draft was created).
@@ -345,8 +359,9 @@ B′ writes these fields:
 - `error`: `null` or `{"op": "topics|expand|regenerate|voice", "network": …, "text":
   "<Russian>", "ts": …}`. It is set by a failed AI call and cleared by the next success of
   the same op.
-- `state`: always `draft` in B′. D adds `publishing`, `published`, `partial` and `queued`,
-  plus `publish`. C adds `base`, `styles`, and per variant `image`, `template` and `quote`.
+- `state`: always `draft` in B′. D′ adds `publishing`, `partial` and `published`, plus
+  `publish`, `focus` and `refused` (§17.2). A queued draft is removed, so `queued` is never
+  stored. C adds `base`, `styles`, and per variant `image`, `template` and `quote`.
 
 ### 7.2 Lifecycle and locks
 
@@ -360,7 +375,8 @@ B′ writes these fields:
 - An AI call takes `.ai.lock` with `LOCK_EX | LOCK_NB` for its whole duration. A second
   call on the same draft gets 409 «уже выполняется». A panel-wide semaphore admits at most
   two AI calls at once; a third gets 409 «ИИ занят двумя запросами — подождите».
-- Deleting drafts and removing them after a queue or publish come with D.
+- Deleting drafts, and removing a draft after a queue, come with D′. A published draft
+  stays read-only until it is deleted (D23, §17).
 
 ### 7.3 Draft list cache
 
@@ -664,7 +680,7 @@ buttons and keeps their width.
   meanwhile, the rename fails, the prepared folder is removed, and the existing folder is
   used. A `my-photos` of another lane gets the usual 409 «папка «my-photos» не из полосы
   фото-постов». The folder then behaves like any photo folder: a card in «Фото-посты», «0
-  пакетов · N фото», «никто не берёт · расход 0» until a rule reads it (D offers one).
+  пакетов · N фото», «никто не берёт · расход 0» until a rule reads it (D′ offers one when a post is queued, §17).
 - **Chip «черновик»**: `photo_uses` also marks a photo «черновик» when a draft names it and
   no stock package does («в очереди» and «опубликовано» win). The draft summaries come
   from the server's draft cache (§7.3), passed in by the view; `model.build` does not read
@@ -676,12 +692,18 @@ buttons and keeps their width.
 
 ## 9. Photo: templates and highlight (slice C)
 
-Unchanged from the first revision except where noted.
+Unchanged from the first revision except where noted. Slice D′ builds, ahead of C, the
+**default crop** column of the table below (as plain crops of the original, with exact
+integer sizes), the focus tap, `MFAuthor.makeCrop`, the `POST /create/<id>/image` route
+and `out/<network>.jpg`. It builds them automatically on the review page, not behind a
+«Сохранить картинки» button (§17.1, D18–D20). C keeps the rest of this section and reuses
+D′'s crop function, route and files.
 
 ### 9.1 Code templates (per network, in the browser)
 
 Every published image is drawn by `author.js` on a canvas from the chosen **base** (the
-original, or one Gemini result, §9.3) and saved as JPEG.
+original, or one Gemini result, §9.3) and saved as JPEG. In D′ the base is always the
+original.
 
 | Network | Default crop | Choices | Output |
 |---|---|---|---|
@@ -699,12 +721,12 @@ original, or one Gemini result, §9.3) and saved as JPEG.
   lines of 86 % width. The line comes from the variant's `quote`. B′ does not generate
   quotes: C adds a `quote` string per network to the expand schema of §8.4, and the
   operator can type one for older drafts.
-- **Save:** «Сохранить картинки» posts each network's JPEG to `POST
-  /compose/<id>/image?network=N`, renamed `POST /create/<id>/image` in C (body kind
-  `image`, at most 8 MB, JPEG). Quality starts at 0.9 and steps down to 0.8 and 0.7 above
-  the network's byte limit. The server sniffs the image, refuses an APP1 `Exif` segment
-  (the marker walk B′ already has, §8.4), runs `check_image`, and stores
-  `out/<network>.jpg`.
+- **Save:** each network's JPEG goes to `POST /create/<id>/image?network=N` (built in D′,
+  §17.3: body kind `image`, at most 8 MB, JPEG). Quality starts at 0.9 and steps down to
+  0.8 and 0.7 above the network's byte limit. The server sniffs the image, refuses an APP1
+  `Exif` segment (the marker walk B′ already has, §8.4), runs `check_image`, and stores
+  `out/<network>.jpg`. In C, a change of ratio, frame, quote or base redraws and re-posts
+  the affected networks; D′ redraws only on a focus tap.
 
 ### 9.2 Gemini highlight styles
 
@@ -745,12 +767,16 @@ style result, each labelled. Under them is a row of chips «Оригинал · 
 sets `base`, and the per-network previews (§9.1) redraw from it. The original is always
 kept.
 
-## 10. Send (slice D)
+## 10. Send (slice D′)
 
-Unchanged from the first revision except: the review page is `GET /create/<id>/review`,
-reached from the draft page by «Проверить и отправить →»; the package `theme` is the
-draft's `topic`; and the networks are the four of §7.1 that the poster's main profile has
-targets for.
+Unchanged from the first revision except for the points below. §17 pins the build, and
+where §17 and this section differ, §17 governs.
+
+- The review page is `GET /create/<id>/review`, reached from the draft page by
+  «Проверить и отправить →».
+- The package `theme` is the draft's `topic`.
+- The networks are the four of §7.1 that the poster's main profile has targets for.
+- The images are D′'s plain crops (§17.1).
 
 ### 10.1 Review
 
@@ -762,11 +788,12 @@ For each target, the review shows:
   `check_image(sniff(...))`, missing variables (names only), LinkedIn token problems, and
   for X `xapi.estimate` and the X month against `X_MONTHLY_CAP_USD`.
 
-A missing `out/<network>.jpg` is the problem «картинка для <сеть> не сохранена». Any problem
-disables both buttons and is listed with `role="alert"`.
+A missing `out/<network>.jpg` is shown once, in the crop line «Готовлю картинки: …»
+(§17.4), and keeps both buttons disabled. Any problem disables both buttons and is listed
+with `role="alert"`.
 
-- **Опубликовать сейчас**: a native modal `<dialog>` asks «Опубликовать в N сетей сейчас?
-  Это нельзя отменить.» (§10.3).
+- **Опубликовать сейчас**: a native modal `<dialog>` asks «Опубликовать в N сети сейчас?
+  Это нельзя отменить.», with N in its Russian plural (§10.3, §17.4).
 - **В очередь**: a folder select. It defaults to the draft's folder, which is `my-photos`
   for posts started from «Создать». For the chosen folder it shows the rule that reads it
   and its next slot in words. When no rule reads the folder, it offers to create one
@@ -791,30 +818,39 @@ failure removes what was written.
 
 ### 10.3 Publish now
 
-1. Under the draft lock: write `content/packages/<id>.json` with `O_EXCL` and its media.
-   The draft becomes `publishing` with `publish.started` and the targets.
-2. One background thread at a time calls `poster.cli.main(["--env-file", ENV, "publish",
-   PATH, "--targets", "t1,t2"])` in this process, with output captured and redacted.
+1. Under the publish lock and the draft lock: write `content/packages/<id>.json`
+   exclusively (a dot-file put in place with `os.link`) and its media. The draft becomes
+   `publishing` with its first attempt and the targets.
+2. One background thread at a time calls `poster.cli.main(["--env-file", ENV,
+   "--state-dir", STATE, "publish", PATH, "--targets", "t1,t2", "--library", LIB])` in
+   this process, with output captured and redacted.
 3. The review page polls `GET /create/<id>/status` every 3 s. The answer comes from the
-   poster record: `published` with its link, `failed` with the reduced error, `unknown —
-   проверьте аккаунт`, or «ждём…».
+   poster record after the attempt's offset: `published` with its link, `failed` with the
+   reduced error, «неизвестно — проверьте аккаунт», or «ждём…».
 4. When the thread ends:
-   - every target `published`: the draft is removed;
-   - any `failed`: the draft becomes `partial` with «Повторить упавшие»;
-   - exit 2: the draft goes back to `draft` with the poster's problems.
+   - every target `published`: the draft becomes `published` and stays, read-only, until
+     it is deleted (D23);
+   - any `failed` or `unknown`: the draft becomes `partial`, with «Повторить упавшие» for
+     the failed ones;
+   - exit 2: the package is removed, and the draft goes back to `draft` with the poster's
+     problems.
 5. Ctrl+C waits for a running publish. An interrupted one shows «прервано — проверьте
-   аккаунт» and an attention item.
+   аккаунт» on its review page and in «Черновики» (an attention-bell item is deferred,
+   §20).
 
 ### 10.4 Add to the queue
 
-Under the panel's `write_lock`: the next `NNN`, `stock/<folder>/<NNN>-<id>.json` with
-`O_EXCL` and `media/<id>/`, then `factory.stock.reload_entry` with no problems allowed. The
-draft is removed; the page redirects to `/files?folder=<folder>#pkg-<id>`.
+Under the panel's `write_lock`, the server takes the next `NNN` and writes
+`stock/<folder>/<NNN>-<id>.json` exclusively, together with `media/<id>/`. It then loads the
+package with `poster.package.load`, and no problems are allowed. The draft is removed, and
+the page redirects to `/files?folder=<folder>#pkg-<id>`. The offered rule is created in the
+same request when its checkbox is on (D25, §17.5 item 15).
 
 ### 10.5 The rest of the panel
 
 New packages appear wherever the factory shows packages. «Удалить черновик» (a form POST
-with a modal confirmation, only in state `draft`) comes with D.
+with a modal confirmation) comes with D′. It is allowed in every state except a running
+publish (§17.5 item 16).
 
 ## 11. AI budget guard
 
@@ -979,9 +1015,10 @@ and `audio`; non-form kinds dispatch to their handler after the CSRF header chec
 | `/create/profile` | form | 16 KB | form | B′ |
 | `/create/new`, `/create/<id>/topics`, `/topic`, `/expand`, `/regenerate`, `/text` | json | 64 KB | `application/json` | B′ |
 | `/create/<id>/voice` | audio | 1 MB | `audio/webm`, `audio/ogg` | B′ |
-| `/create/<id>/image` | image | 8 MB | `image/jpeg` | C |
+| `/create/<id>/image` | image | 8 MB | `image/jpeg` | D′ (C reuses it) |
+| `/create/<id>/focus` | json | 64 KB | `application/json` | D′ |
 | `/create/<id>/highlight`, `/settings` | json | 64 KB | `application/json` | C |
-| `/create/<id>/publish`, `/queue`, `/delete` | form | 16 KB | form | D |
+| `/create/<id>/publish`, `/retry`, `/queue`, `/delete` | form | 16 KB | form | D′ |
 
 JSON bodies must decode as a UTF-8 JSON object (else 400 «неверный запрос»). JSON replies
 use the existing `_json` helper; errors are `{"error": "<Russian>"}` with 400, 403, 404,
@@ -991,8 +1028,8 @@ text), so the sub row updates without a reload.
 ### 14.2 GET routes
 
 - B′: `/` (302 to `/create`), `/create`, `/create/<id>`, `/create/profile`.
-- C: `/create/<id>/file?name=…`.
-- D: `/create/<id>/review`, `/create/<id>/status`.
+- D′: `/create/<id>/review`, `/create/<id>/status`, and `/create/<id>/file?name=<network>`
+  (the crops). C extends `name` to its style images.
 
 ### 14.3 Rendering rules for the new pages
 
@@ -1012,34 +1049,51 @@ The rules of `factory.md` §14 apply. In addition:
 
 ## 15. Slices (build lanes)
 
-Order **A (built) → B′ → C → D**. M can follow B′ at any time. B′ adds the ledger with the
-first paid call. C adds images; D sends. Photo posts need C before D, because Instagram
-refuses a 3:4 phone photo (aspect 0.75, `rules.py:26`).
+Order: **A (built) → B′ (built) → D′ → C**. M can follow at any time.
+
+- B′ added the ledger with the first paid call.
+- **D′ comes before C** (operator's decisions of 2026-11-13), so the first real post leaves
+  the panel sooner. The first revision put C first because Instagram refuses a 3:4 phone
+  photo (aspect 0.75, `rules.py:26`). D′ removes that dependency by carrying the plain
+  default crop of each network itself.
+- C then adds the optional image work on top of D′'s crops.
+
+The slices:
 
 - **A: photos in Files.** Built (§6).
-- **B′: «Создать» → topics → Gemini texts.** Pinned in §16.
-- **C: images.** Builds the canvas templates (§9.1), `/create/<id>/image`, the Nano Banana
-  edit (§9.2), the side-by-side strip (§9.3) and the `quote` field in the expand schema.
-  Acceptance, as in the first revision:
-  1. A 3024 × 4032 fixture renders to Instagram 1080 × 1350, Facebook and LinkedIn 1536 ×
-     2048, and X 1600 × 900, all JPEG; each passes `check_image`, and none has APP1 Exif.
-  2. Frame and quote fit inside the image, with at most 4 quote lines (measured with a
+- **B′: «Создать» → topics → Gemini texts.** Built; pinned in §16.
+- **D′: review, plain crops and send.** Pinned in §17. It builds §10 and, from §9.1, only
+  the default crop of each network:
+  - the crops: Instagram 4:5, Facebook and LinkedIn at the original ratio, X 16:9;
+    automatic, centred, with an optional focus tap;
+  - `/create/<id>/image`, `out/<network>.jpg`, the review page and `send.py`;
+  - the publish thread and status, the queue with the offered rule, «Удалить черновик» and
+    the Ctrl+C wait.
+
+  C's first-revision acceptance item 1 (sizes from a 3 024 × 4 032 fixture) moves here as
+  §17.5 item 1.
+  - Live check: LC4, after the merge (§17.9).
+- **C: images.** C keeps everything of §9 that D′ does not build:
+  - the ratio choices beyond the default (Instagram 1:1 and 1.91:1; Facebook 4:5, 1:1 and
+    16:9; LinkedIn 1.91:1 and 1:1; X original and 1:1);
+  - the frame and the quote templates (§9.1) and the `quote` field in the expand schema;
+  - the Nano Banana highlight styles (§9.2), the `img/<style>.jpg` files and
+    `/create/<id>/highlight` and `/settings`;
+  - the side-by-side strip and «Взять за основу» (§9.3), which makes a style result the
+    base that D′'s crop function draws from.
+
+  C reuses D′'s `MFAuthor.makeCrop`, `POST /create/<id>/image`, `out/<network>.jpg` and
+  the review page unchanged. The review page simply shows whatever crops are stored.
+  Acceptance, as in the first revision without its item 1:
+  1. Frame and quote fit inside the image, with at most 4 quote lines (measured with a
      `Range`).
-  3. A fake Gemini image is stored as `img/blur.jpg` and shown beside the original, with one
+  2. A fake Gemini image is stored as `img/blur.jpg` and shown beside the original, with one
      reservation and one `ok` row. A text-only answer shows «Gemini не вернул картинку».
-  4. Choosing a style as the base redraws every preview.
+  3. Choosing a style as the base redraws every preview and re-posts every crop.
+  4. Each ratio choice gives the exact integer size of its ratio, and passes
+     `check_image`.
   - Live check: LC3. The operator provides one photo of themselves and a verdict on the
     face.
-- **D: review and send.** Builds §10: the review page, `send.py`, the publish thread and
-  status, queue writing with the offered rule, «Удалить черновик», the interrupted-publish
-  attention item and the Ctrl+C wait. Acceptance as in the first revision:
-  1. Review lists every check, and a missing variable disables both buttons.
-  2. A partial publish shows links and errors, and «Повторить упавшие» works.
-  3. A second publish click while one runs gets 409.
-  4. The queue writes `NNN-<id>.json` that `factory check` and `factory plan` accept.
-  5. A queued package's images open through `/img`.
-  6. A crash during a publish shows «прервано — проверьте аккаунт».
-  - Live check: LC4.
 - **M: «Медиатека» layout** (cut from B′, §16.5). On `/files`:
   - a section «Все фото» on top: the newest photos across photo-lane folders, 60 per step,
     each with its chip and a «Пост» button posting `/create/new`;
@@ -1217,7 +1271,7 @@ carry spec item 1, 4–7 item 2, 8–12 item 3, 13 item 4, 14 item 5, 15–16 it
 19. **Checks.** `python3 -I -B -m unittest discover -s tests -t .` passes, and so does
     `python3 tools/visual_check.py --out DIR` with every state of §16.2 at all seven
     widths. `git status --short --ignored` in the worktree shows nothing new after both.
-20. **Live check.** LC1 (§17) ran with at most 6 real Gemini calls, a non-personal test
+20. **Live check.** LC1 (§18) ran with at most 6 real Gemini calls, a non-personal test
     image and clip, and a cumulative reserved bound under $0.10. Each call is in the
     ledger, and the lane's report lists every call.
 
@@ -1324,14 +1378,592 @@ specification are whole in §16.1.
 | Cut | Goes to | Why it can wait |
 |---|---|---|
 | «Медиатека» as "all photos on top, queue folders deeper", and a «Пост» button on each tile | Slice M (§15) | Spec item 1 asks for the rename, everything slice A shows, and a folder the operator never makes. Those are in B′. The re-layout changes the visual check's ellipsis states and every Files test, so it reviews better on its own |
-| Both-language variants (`en+uk`), per-network on/off switches | §19 | The languages are fixed by the decisions; no one asked for switches |
+| Both-language variants (`en+uk`), per-network on/off switches | §20 | The languages are fixed by the decisions; no one asked for switches |
 | The `quote` line for the quote-on-photo template | C (§9.1) | Only C draws it |
 | «Удалить черновик», removing drafts after send | D (§10.5) | B′ caps drafts at 500 and lists the 10 newest |
 | AI month in the top bar | Replaced by the «Создать» sub row (D10) | Measured and simpler |
-| Profile that learns from repeated edits | §19 | Not in the acceptance; needs a design for what counts as a repeated edit |
-| Text-only posts (no photo) | §19 | The operator asked to start with photos; Instagram needs an image |
+| Profile that learns from repeated edits | §20 | Not in the acceptance; needs a design for what counts as a repeated edit |
+| Text-only posts (no photo) | §20 | The operator asked to start with photos; Instagram needs an image |
 
-## 17. Unconfirmed facts and live checks
+## 17. Slice D′: pinned acceptance (the lane is judged against this section)
+
+Slice D′ is slice D of §10 plus one plain crop per network. It follows the operator's
+decisions of 2026-11-13: send before images, so that the first real post leaves the panel
+sooner, and with it a simple automatic crop for each network, without effects. Templates
+and «highlight me» stay in C. The requirement it serves is the one of §1: press one button
+that sends everything, with the fewest movements ("drop in a seed, get a finished result").
+After the texts, the operator makes three movements: «Проверить и отправить →»,
+«Опубликовать сейчас», «Да, опубликовать». The crops are made by themselves.
+
+Read against `main` at `eb75f0a` on 2026-11-13. Every function named here exists at that
+commit unless marked *new*.
+
+**Builds:**
+
+- Python: `factory/authoring/send.py` (*new*: crop contract, review checks, package
+  writing, publish thread, status, queue and the offered rule, delete). `drafts.py` gains the
+  states and fields of §17.2. `gemini.py`'s Exif walk moves to a shared helper with
+  unchanged behaviour.
+- Panel: the routes of §17.3. `views.create_review` (*new*). The draft page gains
+  «Проверить и отправить →» and «Удалить черновик». `/create` gains the stage words of
+  §17.2. `model.photo_uses` gains «опубликовано» for published drafts. The folder view's
+  package rows gain `id="pkg-<id>"`. `serve` waits for a running publish on Ctrl+C.
+- Browser: `author.js` gains `MFAuthor.makeCrop(bitmap, spec, focus)` next to `copy`.
+  `static/send.js` (*new*) runs the review page: crops, focus, dialogs and status polling.
+  `panel.css` gains the review styles.
+- Tests, fixture fakes and visual-check states (§17.6, §17.8). README section «Отправка из
+  панели».
+
+### 17.1 Decisions
+
+| # | Decision | Rejected options | Why |
+|---|---|---|---|
+| D18 | The crops are drawn in the browser on `<canvas>` from the **original** (`/photo?v=orig`, decoded with `createImageBitmap(blob, {imageOrientation: "from-image"})`), saved as JPEG and posted to the server. The server only checks and stores the bytes | Crops on the server; crops from the view copy | The standard library has no image codec (D1; §2 Machine). The view copy is at most 1 600 px on its long side (§6.6), so it cannot give 2 048. Canvas JPEGs carry no camera metadata (slice A, B2) |
+| D19 | Sizes. **Instagram** 4:5 as exactly 4k × 5k with k = min(270, ⌊W/4⌋, ⌊H/5⌋), so 1 080 × 1 350 at most. **Facebook** and **LinkedIn** keep the original ratio, with the long side min(2 048, the original's long side). **X** 16:9 as exactly 16k × 9k with k = min(100, ⌊W/16⌋, ⌊H/9⌋), so 1 600 × 900 at most. Nothing is upscaled. JPEG quality is 0.9, then 0.8 and 0.7 while the file is above min(the network's byte limit, 8 MB) | Rounded sizes such as `round(w × 5 / 4)`; the ratio choices of §9.1 | Integer multiples keep Instagram at exactly 0.8, the edge of `IG_MIN_ASPECT` (`rules.py:26`), so rounding can never land at 0.7996. Measured on 2026-11-13 (O): `check_image` passes 1 080 × 1 350 on every network, and 1 536 × 2 048 and 1 600 × 900 everywhere except Instagram's ratio check for 1 536 × 2 048 (aspect 0.750 refused). A 3 024 × 4 032 fixture JPEG (`panel_fixture.make_photo`) takes 0.87 s to generate. The ratio choices stay in C |
+| D20 | **Centre crop by default.** One tap on the source photo on the review page sets `focus` (fx, fy in 0..1). Only the cropped networks (Instagram, X) are redrawn. The window is the largest one of the ratio, centred on the focus and clamped inside the photo | Face detection; Gemini; drag-to-crop | The standard library has no face detection, and Gemini is outside D′ (no paid call, decision of 2026-11-13). Without the tap, a portrait centre crop to 16:9 can cut a head; the tap is the smallest fix, and it is optional. Drag-to-crop stays deferred (§20) |
+| D21 | `send.review` runs the poster's own functions in the order of `cmd_publish` (`poster/cli.py:210-252`) on the snapshot's env, record and X month, and words each problem in Russian. A parity test against `poster publish --dry-run` keeps the two equal (§17.8). At publish time the poster's own pre-flight runs again and is the authority | Run `--dry-run` for each page and parse its English lines | Parsing would tie Russian words to English sentences, and the dry run also prints every request. The snapshot already holds the env, the record and the X month, rebuilt only when their files change (`model.state_key`), so a review page reads no extra store |
+| D22 | Publishing runs in one background thread per content folder, guarded by `flock(content/drafts/.publish.lock, LOCK_EX \| LOCK_NB)`. It calls the injectable publish function, by default `factory.runner.poster_main`, which is `poster.cli.main` in this process. Progress is read from the poster record after a byte offset stored at the start. The outcome is written into the draft when the thread ends | A subprocess; an in-memory flag | The runner already calls the poster in-process (`runner.py:47`), and tests inject a fake transport the same way. A lock file is released by the kernel when the process dies, so after a crash or restart the panel can tell «прервано» from «идёт» without any GET writing |
+| D23 | When every target is published, the draft stays, in state `published` and read-only, until «Удалить черновик» | Removing the draft at once (first revision, §10.3) | A removed draft would turn the page that shows the links into a 404 on reload. The «Медиатека» chip can read «опубликовано» for its photo. 500 drafts is far away, and deletion now exists |
+| D24 | The targets are `config.PROFILES["kotleta"]` in poster order (`fb:kotleta`, `ig:kotleta`, `linkedin`, `x`). `make_server(..., publish=None, targets=None)` takes both for tests and for LC4. Nothing in the env file or the UI changes them | Per-network switches; an env setting | Every decision names all four networks. A constructor parameter is enough for the fakes and for LC4's one-Page run (§17.9) |
+| D25 | «В очередь» with no active rule reading the folder carries a checkbox, checked by default: «Публиковать из «<папка>» по правилу: пн, ср, пт в 10:00». One click queues the package, then creates the rule and starts it through `checks.activation_problems`. A refused start saves the rule as a draft and shows why on «Правила» | A second click after queuing; a rule created without the checks | It costs one movement fewer. The checks are exactly what `factory rule start` runs, and the refusal display already exists (`views.rules(ctx, refusal=…)`) |
+| D26 | Any problem disables both buttons, including a LinkedIn token and the X month, even for «В очередь» | Queue despite publish-time problems (the runner skips X by itself) | The pinned specification says so. The looser queue is deferred (§20) |
+
+### 17.2 Draft states and fields
+
+`draft.json` keeps every field of §7.1. `drafts.validate` accepts these additions:
+
+```json
+{
+  "state": "draft | publishing | partial | published",
+  "focus": [0.5, 0.35],
+  "refused": {"lines": ["x: X budget: …"], "ts": "2026-11-13T10:05:00Z"},
+  "publish": {
+    "package": "packages/2026-11-13-my-photos-3f2a.json",
+    "targets": ["fb:kotleta", "ig:kotleta", "linkedin", "x"],
+    "attempts": [{"started": "…Z", "ended": "…Z", "targets": ["fb:kotleta", "…"],
+                  "offset": 18234, "exit": 1,
+                  "outcome": {"fb:kotleta": {"status": "published", "url": "https://…"},
+                              "linkedin": {"status": "failed", "error": "HTTP 401 …"}}}]
+  }
+}
+```
+
+- `focus` is optional; when absent it means (0.5, 0.5). Each value is a number from 0 to 1,
+  stored with 3 decimals.
+- `refused` is present only after the poster refused a first attempt (exit 2). It is cleared
+  by the next publish or queue.
+- `publish` exists from the first «Да, опубликовать» on. There are at most 20 attempts. A
+  status is one of `published`, `failed`, `unknown` and `interrupted`. `url` and `error` are
+  at most 500 characters, stored redacted.
+- The files are `out/<network>.jpg` (0600, in `out/`, 0700). `out/` must be a real
+  directory, not a symlink.
+- **Interrupted** is a display state, never a stored `state`. A draft shows as
+  interrupted in two cases:
+  - it is in `publishing`, this panel's publisher thread is not working on it, and the
+    publish lock can be taken (the panel or its process died). The probe takes the lock
+    and releases it at once, and it runs only for such a draft. GETs never write;
+  - its last attempt's outcome holds an `interrupted` target, because the publish function
+    raised in this process. The thread then stored `partial` with that outcome.
+
+  Its targets without a record row after the attempt's offset read «прервано — проверьте
+  аккаунт». A later retry or delete POST, which holds the lock, first stores the outcome
+  read from the record.
+- **Stage words** on «Создать» → «Черновики» (§8.2): `публикуется`, `частично`,
+  `опубликован` and `прервано` (in `--red`), next to B′'s words.
+- **Chip** in «Медиатека»: a draft in `published` gives «опубликовано», and any other draft
+  gives «черновик»; stock packages still win (§8.8).
+- **Read-only once sent.** `GET /create/<id>` of a draft not in `draft` answers 303 to its
+  review page. The topic, text, AI, image and focus POSTs answer 409 «черновик уже
+  отправлен».
+- B′'s refusal at 500 drafts reads «черновиков уже 500 — удалите ненужные».
+
+### 17.3 Routes
+
+The header checks of §14.1 and `do_POST` apply unchanged to every new POST: Host 421;
+route 404; Origin 403 (foreign, or absent for non-form kinds); Content-Length 411/400/413;
+Content-Type 415; CSRF (a form field, or the header before any body byte). Form refusals
+render the review page with 409 and the refusal at the top, the way `_write` renders Rules.
+
+| Route | Kind, limit | Does |
+|---|---|---|
+| `GET /create/<id>/review[?folder=F]` | page | The review (§17.4). `folder` picks the queue folder shown; the default is the draft's folder |
+| `GET /create/<id>/status` | JSON, `no-store`, redacted | `{"state", "interrupted", "done", "total", "line", "targets": [{"target", "network", "status", "text", "url"?}]}`. `status` is `published`, `failed`, `unknown`, `waiting` or `interrupted`. It reads `draft.json`, plus the record tail after the offset only while the draft is `publishing` |
+| `GET /create/<id>/file?name=<network>` | image, `no-store` | Streams `out/<network>.jpg` after a sniff (JPEG only), like `/photo`. Any other name is 404 |
+| `POST /create/<id>/image?network=N&fx=…&fy=…` | image, 8 MB, `image/jpeg` | Checks the crop and stores it (§17.5 item 3) |
+| `POST /create/<id>/focus` | JSON, 64 KB | `{fx, fy}`. Under `.lock`: saves `focus` and deletes `out/instagram.jpg` and `out/x.jpg` |
+| `POST /create/<id>/publish` | form, 16 KB: `seen` | Publish now (§17.5 items 8–9) |
+| `POST /create/<id>/retry` | form, 16 KB | Re-runs the poster for the failed targets of the last attempt |
+| `POST /create/<id>/queue` | form, 16 KB: `folder`, `rule`, `seen` | Queue, and optionally the rule (§17.5 items 13–15) |
+| `POST /create/<id>/delete` | form, 16 KB | Deletes the draft (§17.5 item 16) |
+
+The GET dispatcher matches `/create/<id>/(review|status|file)` before the draft-page
+catch-all (`server.py:208`), which today would read `<id>/review` as an id and answer 404.
+
+**Security.** Each promise below names the server-side check that keeps it; §17.8 tries
+the hostile input.
+
+| Threat | Server-side check | Hostile test |
+|---|---|---|
+| A foreign site publishes, queues or deletes from the operator's browser | The `csrf` form field (the page's token, which a foreign origin cannot read), a foreign `Origin` refused (403), Host checked (421). Image and focus need `Origin` and the `X-CSRF-Token` header before any body byte | Each new POST with `Origin: http://evil.example`, without the token, and with a wrong `Host`: 403/421; nothing written, and the fake poster is not called |
+| A double post | The publish lock (one at a time); the package is put in place with `os.link`, which fails on an existing name; retry only for `failed` targets; `unknown` and interrupted targets are never retried by the panel; the poster refuses an `unknown` target itself | Two concurrent publishes: one 409. Retry after a partial: no request for published targets. A second `/publish` on a sent draft: 409 |
+| Path traversal | Draft ids by §7.1 (`Store.path`); `name` in `/file` only one of four network names; `out/` and the draft folder must be real directories; the queue folder through `photos.folder_path` and the snapshot's photo-lane folders | `/create/<id>/file?name=../../.env`, `folder=../x`, an `out/` symlinked to a scratch folder: 404/409; nothing read or written outside |
+| A GET changes state | «Прервано» is derived; status and review only read | Hashes of `content/` before and after a series of GETs on every state |
+| Key values in pages, JSON, logs, drafts, packages | The poster's `Out` redacts its output; the panel redacts again before storing a line and in `_json`/`_page`; the record's `error` is redacted by the poster | A canary token echoed by a fake vendor error: in no page, status reply, log line, draft or package |
+| Publishing what the operator did not see | The review shows the full text and the crop of every target. Its publish and queue forms carry `seen`, the SHA-256 of the targets' texts and crop bytes as rendered. Under the draft lock the server recomputes it and refuses a mismatch with 409 «черновик изменился после проверки — проверьте ещё раз». The package is written from those same files | A text edited or a focus tapped in a second tab after the review was rendered: 409, nothing written. Otherwise the package texts and images are byte-identical to the review's |
+
+### 17.4 The review page
+
+`GET /create/<id>/review`, tab «Создать». The row under the top bar reads, on the left,
+«Отправка · черновик от 13 нояб., 10:04», and on the right the AI month (§11.5, as on every
+«Создать» page). The page is one column at every width, at most 1 240 px wide and centred,
+in this order:
+
+1. **The action block**, always first, so that its words are on the first screen at every
+   width:
+   - the heading row: «Проверка перед отправкой» and, in state `draft`, «← Изменить
+     тексты» (a link to `/create/<id>`);
+   - **the crop line** (`role="status"`), shown only while a crop is missing:
+     «Готовлю картинки: Instagram, X…». It is one line, not one problem per network. On
+     failure it becomes `role="alert"` «Не удалось подготовить картинку для Instagram:
+     <причина>», with «Повторить»;
+   - in state `draft`:
+     - either «Проблем нет · 4 сети» (`k-ok`), or `role="alert"` «Отправить нельзя —
+       исправьте:» with one line per problem, each starting with the network name;
+     - the poster's earlier refusal, when stored: «Постер отказал до отправки — ничего не
+       опубликовано:» with its lines;
+     - the row «Опубликовать сейчас» (green, primary) and «В очередь». Both are disabled
+       while any problem is listed or any crop is missing; they stay dimmed and keep their
+       width;
+     - the queue line: «Папка: <select>» (photo-lane folders without problems). Next to it
+       is either the rule line «Правило «city-main»: пн, ср, пт в 10:00 · ближайшая
+       публикация из папки: пт, 13 нояб., 10:00 · перед этим постом в очереди 3», or the
+       checkbox of D25. With JavaScript, changing the select loads `?folder=<f>`;
+   - in the other states, the **status block**: the heading line (`role="status"`), one
+     row per target, and the actions of that state:
+
+     | State | Heading line | Rows | Actions |
+     |---|---|---|---|
+     | `publishing`, live | «Публикуется… 1 из 4 · не закрывайте панель» | «Facebook · fb:kotleta — опубликовано · открыть в Facebook», «Instagram · ig:kotleta — ждём…» | none |
+     | `partial` | «Опубликовано в 2 из 4 сетей» | links; «ошибка: <ошибка>»; «неизвестно — проверьте аккаунт» | «Повторить упавшие: LinkedIn, X» (dialog), «Удалить черновик» |
+     | `published` | «Опубликовано во всех 4 сетях» («Опубликовано в Facebook» for a single target) | four links | «Удалить черновик» |
+     | interrupted | «Публикация прервана — проверьте аккаунт» | the rows from the record, «прервано — проверьте аккаунт» for the rest | «Повторить упавшие» only for rows marked `failed`; «Удалить черновик» |
+
+2. **The source photo**, in state `draft` only: the view copy in a box 160 px tall
+   (`object-fit: contain`), a 24 px ring at the focus, and the hint «Нажмите на фото, чтобы
+   сдвинуть центр кадра (Instagram и X)». A tap maps the point through the contained box
+   to (fx, fy), posts `/focus`, and reloads.
+3. **«Что уйдёт в сети»**: one card per target in poster order, in a grid of
+   `repeat(auto-fill, minmax(min(100%, 280px), 1fr))`. Each card holds:
+   - the head «Facebook · fb:kotleta · укр.»;
+   - the crop from `/create/<id>/file?name=<network>`, in a box 240 px tall
+     (`object-fit: contain`, no layout shift);
+   - the size line in mono, «1 536 × 2 048 · 0.3 МБ»;
+   - the full text (`white-space: pre-wrap`, `overflow-wrap: anywhere`; nothing is
+     clipped);
+   - the count line from `gemini.present` (empty when the text is over its limit, because
+     that fact stands once, in the problem list);
+   - on X: «этот пост в X: $0.215 · после него ноябрь $0.645 из $5.00»;
+   - on LinkedIn, when the token has under 7 days left, the non-blocking note «токен
+     LinkedIn истекает через 3 дн. — войдите заново: python3 -m poster login linkedin».
+4. **«Удалить черновик»** at the bottom in states `draft`, `partial`, `published` and
+   interrupted.
+
+**Dialogs.** Each is a native `<dialog>` opened with `showModal()`, so the page behind is
+inert. Each holds its own POST form with the `csrf` field:
+
+| Opened by | Text | Buttons |
+|---|---|---|
+| «Опубликовать сейчас» | «Опубликовать в 4 сети сейчас?» / «Facebook, Instagram, LinkedIn и X. Это нельзя отменить.» (the count by `strings.plural`) | «Да, опубликовать» (green), «Отмена» |
+| «Повторить упавшие» | «Повторить публикацию в LinkedIn и X?» | «Да, повторить», «Отмена» |
+| «Удалить черновик» | «Удалить черновик?» / «Тексты и картинки черновика пропадут. Фото останется в «Медиатеке», опубликованные посты — в сетях.» | «Да, удалить», «Отмена» |
+
+**The problems, in Russian, from the poster's own checks** (D21). Each line starts with
+«Facebook:», «Instagram:», «LinkedIn:» or «X:».
+
+| Poster step (`cmd_publish`) | Line |
+|---|---|
+| no variant for a target | «нет текста — нажмите «Развернуть»» (stricter than the poster, which skips the target) |
+| record latest is `unknown` | «прошлая попытка закончилась неизвестно — проверьте аккаунт» |
+| `t.missing(env)` | «нет FB_PAGE_KOTLETA_TOKEN в .env» (names only, joined with «, ») |
+| `check_text` errors | the `problems` of `gemini.present` (one counting rule; «текст пуст» included) |
+| `check_image(network, sniff(out))` errors | «картинка 1 536 × 2 048 не подходит: соотношение сторон 0.750 вне 0.8–1.91», «…: нужен JPEG», «…: больше 5 МБ», «…: больше 36 152 320 пикселей», «…: не читаются размеры» |
+| `linkedin.token_problems` errors | «токен истёк или истекает в ближайшие 10 минут — войдите заново: python3 -m poster login linkedin»; «LINKEDIN_TOKEN_EXPIRES_AT не читается — войдите заново: …» |
+| `xapi.estimate` + the X month against `X_MONTHLY_CAP_USD` | «этот пост стоит $0.215, за ноябрь уже $4.900 из $5.00 — не помещается в лимит» |
+| `config.load_settings` error | «.env: <message>» (the poster's message names a variable, never a value) |
+
+A missing crop is not on this list; it is the crop line. A missing crop on a forced POST
+answers 409 «картинки ещё не готовы».
+
+### 17.5 Acceptance list
+
+Each item is observable by a test, a probe or a screenshot named in §17.6–§17.8. The
+specification's items map as follows:
+
+| Specification item | Acceptance items |
+|---|---|
+| 1 (crops) | 1–3 |
+| 2 (review) | 4–6 |
+| 3 (publish now) | 7–12 and 17 |
+| 4 (queue) | 13–15 |
+| 5 (delete) | 16 |
+| 6 (checks) | 18 |
+| 7 (keys) | 19 |
+| Fences | 20 |
+
+1. **Crop sizes.**
+   - For a draft whose original is a 3 024 × 4 032 JPEG, the review page makes and posts four
+     JPEGs and stores them as `content/drafts/<id>/out/<network>.jpg` (0600). Instagram is
+     1 080 × 1 350, Facebook and LinkedIn are 1 536 × 2 048, and X is 1 600 × 900.
+   - Each file sniffs as JPEG, `poster.rules.check_image(network, sniff(path))` returns no
+     error, and the marker walk finds no APP1 `Exif` segment.
+   - An EXIF-6 original stored 4 032 × 3 024 gives the same portrait sizes.
+   - A 320 × 240 original gives 192 × 240, 320 × 240, 320 × 240 and 320 × 180 (nothing is
+     upscaled).
+   - `MFAuthor.makeCrop`'s window for X on 3 024 × 4 032 at the centre is (0, 1 166, 3 024,
+     1 701), and the probe reports it.
+2. **Focus.**
+   - A probe tap at (0.5, 0.2) of the source photo stores `focus: [0.5, 0.2]`, deletes the
+     Instagram and X crops, and reloads. The page makes them again: the X window is now
+     (0, 0, 3 024, 1 701), and its file differs from the centre crop (SHA-256). The
+     Facebook and LinkedIn files are untouched (same mtime).
+   - A crop posted with the old `fx`/`fy` answers 409 «кадр изменился — обновите страницу»,
+     and nothing is stored.
+3. **The crop route.** `POST /create/<id>/image` runs the header checks of §17.3, then
+   answers 409 with nothing written when:
+   - the body is not a JPEG by sniffing;
+   - it carries an APP1 `Exif` segment;
+   - `check_image` refuses it;
+   - its ratio is not the network's: Instagram exactly 4:5, X exactly 16:9, Facebook and
+     LinkedIn within 1 % of the view copy's ratio from the photo index;
+   - its size is over 1 080 × 1 350 or 1 600 × 900, or its long side is over 2 048 or below
+     the view copy's long side;
+   - the draft is not in `draft`.
+
+   An accepted crop is written to `out/.up-<random>` and moved into place with
+   `os.replace` under `.lock`. Making crops sends nothing outside the machine: the fake
+   transports see no request, and the AI ledger and the X ledger are byte-identical before
+   and after.
+4. **Review page.**
+   - The draft page shows «Проверить и отправить →» once a text exists for every target's
+     network. It stands on its own row directly under the «Тексты» heading row, outside
+     that flex row, and is hidden while «Gemini пишет тексты…» shows. So it is on the first
+     screen with `#texts` at 390 px and in the right column from 1 000 px. It leads to
+     `/create/<id>/review`.
+   - The review has the heading «Проверка перед отправкой». For each target in poster order
+     it shows the network name, the target id, the language word, the full text (equal to
+     the draft text, nothing clipped), the crop with its size line, and the count line from
+     `gemini.present`.
+   - The X card reads «этот пост в X: $<estimate> · после него <месяц> $<month + estimate>
+     из $<cap>», from `xapi.estimate(text, True, settings)` and the snapshot's X month.
+5. **Checks exactly as the poster.**
+   - `send.review` runs, per target, the steps of `cmd_publish` in its order, and words them
+     as in §17.4.
+   - A parity test over the matrix of §17.8 builds, for each case, the package `send` would
+     write and runs `poster.cli.main([... "publish", P, "--targets", T, "--dry-run"])` on the
+     same env and state. The review lists a problem for a target exactly when the dry run
+     names that target in its refusal lines, and it is clean exactly when the dry run exits
+     0.
+   - `send` is stricter on purpose in two cases, which the test asserts apart:
+     - a missing crop: the review blocks it, while the dry run blocks only Instagram's
+       (Facebook, LinkedIn and X would go out as text-only posts);
+     - a missing text: the review blocks it, while the dry run skips the target.
+6. **Problems block.**
+   - Any problem disables both buttons and is listed under «Отправить нельзя — исправьте:»
+     (`role="alert"`). The block is whole on the first screen at all ten widths.
+   - Missing variables are shown by name only.
+   - A forced `POST /publish` or `/queue` with a problem answers 409 with the same list.
+     Nothing is written: no package, no media, no record row, no ledger row. The fake
+     poster and the fake transport saw nothing.
+7. **Confirmation.**
+   - «Опубликовать сейчас» opens the dialog of §17.4.
+   - While it is open, Tab cycles only inside it, and a click outside it reaches nothing
+     behind: probe on `document.activeElement` and a click on «В очередь» behind it, with no
+     form submitted.
+   - «Отмена» and Escape close it, and nothing is posted.
+8. **Package.** «Да, опубликовать» posts `/create/<id>/publish`.
+   - Under the publish lock and the draft's `.lock`, the server checks the form's `seen`
+     against the draft as it is now (§17.3, Security), then re-runs `send.review`.
+   - It writes the media and then the package:
+     - the media are `content/packages/media/<id>/<network>.jpg`, byte-identical to
+       `out/`, prepared under a dot-name and renamed into place;
+     - the package is `content/packages/<id>.json`, written as a temporary dot-file and put
+       into place with `os.link`, so an existing name refuses.
+   - The package has `schema` 1, `id` = the draft id, `theme` = the topic, one variant per
+     target `{"text", "image": "media/<id>/<network>.jpg"}`, and `meta` holding
+     `approved_by_operator` = today's local date, `source` = `"panel"` and `photo`.
+   - `poster.package.load(path, paths.library)` loads it without problems; if it does not,
+     both are removed and the answer is 409.
+   - The draft becomes `publishing` with its first attempt, and the answer is 303 to the
+     review page.
+9. **One publish at a time.**
+   - The publish function is called once, in a background thread, with exactly
+     `["--env-file", E, "--state-dir", S, "publish", P, "--targets",
+     "fb:kotleta,ig:kotleta,linkedin,x", "--library", L]`. E, S and L are the panel's own
+     `paths.env_file`, `paths.poster_state` and `paths.library`, so the poster and the
+     panel cannot resolve different folders. It also gets the panel's clock. Output is
+     captured, and only redacted lines are stored.
+   - While a held fake runs, a second «Да, опубликовать» on the same draft or on another
+     draft answers 409 «публикация уже идёт — дождитесь конца». Nothing new is written,
+     and the fake was still called only once.
+10. **Status.**
+    - In `publishing`, `send.js` polls `GET /create/<id>/status` every 3 s and updates the
+      rows in place.
+    - Rows read «опубликовано · открыть в <сеть>» (the record's URL, `target="_blank"
+      rel="noopener"`), «ошибка: <redacted error>», «неизвестно — проверьте аккаунт» or
+      «ждём…».
+    - When `state` leaves `publishing`, the page reloads once.
+    - A status read uses only the record bytes after the attempt's `offset`. A test fills
+      the record before the offset with unparseable lines, and the status stays correct.
+11. **Outcomes.**
+    - **Exit 0:** the draft is `published`, with «Опубликовано во всех 4 сетях» and four
+      links.
+    - **Exit 1:** the draft is `partial`, with «Опубликовано в 2 из 4 сетей», the links,
+      the errors and «Повторить упавшие: LinkedIn, X». Its dialog posts `/retry`, which
+      calls the poster with `--targets linkedin,x` on the same package file. The draft is
+      then `published`, and the scripted transport saw no second Facebook or Instagram
+      request. An `unknown` target is never retried by the panel.
+    - **Exit 2 on a first attempt:** the package and media are removed, the draft is back in
+      `draft`, and it shows «Постер отказал до отправки — ничего не опубликовано:» with
+      the poster's lines. An exit 2 on a retry keeps `partial` and shows the lines the same
+      way.
+12. **Crash.**
+    - (a) The publish function raises after writing a record row for Facebook. Facebook
+      keeps its link, the other targets read «прервано — проверьте аккаунт», and the heading
+      reads «Публикация прервана — проверьте аккаунт». The panel log gets one redacted line.
+    - (b) A fixture draft is left in `publishing` with no live publisher and a free lock,
+      as after a killed panel. After a panel start its review reads the same, and
+      «Черновики» on `/create` shows «прервано». No GET writes (hashes of `content/` before
+      and after).
+    - (c) On Ctrl+C during a held publish, `serve` prints «panel: ждём окончания
+      публикации…» and returns only after the thread has ended. A test raises
+      `KeyboardInterrupt` from `serve_forever` and releases the fake after 0.2 s.
+13. **Queue.**
+    - «В очередь» posts `/create/<id>/queue` with `folder` (a photo-lane folder from the
+      snapshot, checked again on the server; default the draft's folder).
+    - Under `panel.write_lock` and `.lock`, the server checks `seen` as for publishing,
+      re-runs `send.review` and writes:
+      - `stock/<folder>/media/<id>/<network>.jpg`;
+      - `stock/<folder>/<NNN>-<id>.json`, by the same link method. `NNN` is 1 + the
+        largest three-digit prefix in the folder, and the server refuses at 999.
+    - It loads the file with `poster.package.load`, removes the draft, and answers 303 to
+      `/files?folder=<folder>#pkg-<id>`.
+    - That page shows the package row (`id="pkg-<id>"`) with the chip «в очереди» on its
+      photo. For each variant, `GET
+      /img?folder=<folder>&file=<NNN>-<id>.json&ref=media/<id>/<network>.jpg` answers 200
+      `image/jpeg`.
+    - `python3 -m factory check` prints no problem line naming the file, and its problem
+      lines equal those before the queue.
+    - A duplicate id against the stock or `content/packages/` answers 409, and nothing is
+      written.
+14. **Existing rule.** With `?folder=city` on the data fixture (`city-main`, active, Mon,
+    Wed, Fri 10:00 Europe/Berlin, `NOW` Wed 2026-11-11 10:40), the queue line reads
+    «Правило «city-main»: пн, ср, пт в 10:00 · ближайшая публикация из папки: пт, 13 нояб.,
+    10:00 · перед этим постом в очереди N». N is the folder's `ready` count from the
+    snapshot plan. No checkbox is shown.
+15. **The offered rule.** With no active rule reading the folder, the checkbox of D25 is
+    shown and checked. Queuing with it creates a rule:
+    - its id is the folder name, or `<folder>-2` … `<folder>-9` if taken;
+    - its fields are `folder`, the four targets, `mon`, `wed`, `fri`, `10:00`, the machine
+      zone, `status` `active` and `active_since` now;
+    - it is checked by `checks.activation_problems` on inputs loaded after the package is
+      written, and written by `fruleset.write` against the loaded revision.
+
+    Then:
+    - **Passes** (a fixture without `city-main`): `rules.json` holds the active rule, and
+      `python3 -m factory plan --rule my-photos --days 14` lists `<NNN>-<id>.json` in a slot.
+    - **Refused** (the data fixture: `city-main` at the same hours breaks the minimum gap):
+      the package stays queued, the rule is saved as `draft`, and the answer is the Rules
+      page with 409. On the new rule's row it shows «Пост в очереди «Мои фото». Правило
+      сохранено черновиком, но не запущено:» and the checks' lines.
+    - **Unchecked:** `rules.json` is byte-identical.
+16. **Delete.**
+    - «Удалить черновик» (draft page and review page) opens its dialog. «Да, удалить» posts
+      `/create/<id>/delete`. Under `.lock` the folder is renamed to a dot-name and removed,
+      and the answer is 303 to `/create`.
+    - The photo is still listed in «Недавние фото» and «Медиатека».
+    - `content/packages/`, the stock and the poster record are byte-identical.
+    - Deleting answers 409 «идёт публикация» while a publish runs. It is allowed in
+      `draft`, `partial`, `published` and interrupted.
+17. **Sent drafts across the panel.**
+    - `GET /create/<id>` of a sent draft answers 303 to its review.
+    - Every edit POST answers 409 «черновик уже отправлен».
+    - «Черновики» shows the stage words of §17.2.
+    - The photo of a published draft carries «опубликовано» in «Медиатека».
+18. **Checks.** `python3 -I -B -m unittest discover -s tests -t .` passes. `python3
+    tools/visual_check.py --out DIR` passes with every state of §16.2 and §17.6 at all ten
+    widths. `git status --short --ignored` in the worktree shows nothing new after both.
+19. **Keys.** Canary values (`tests/base.py` `CANARIES`) never appear in any page, JSON
+    reply, status row, captured panel log, draft, package, crop file name, or test output.
+    This includes a fake vendor error body that echoes a token: the poster records it
+    redacted, and the panel redacts again before storing or answering.
+20. **No real publishing, no spend.**
+    - Every test and the visual check run the poster through `poster.cli.main` with a
+      `FakeTransport`, or through a fake publish function. `tests/base.py`'s network guard
+      sees no non-loopback connection.
+    - The X ledger rows written in tests live in each test's scratch state folder.
+    - No Gemini request is made by D′ code.
+
+### 17.6 UI states and widths for the visual critic
+
+Every state runs in `tools/visual_check.py` at the ten widths (390, 900, 1000, 1100, 1200,
+1279, 1280, 1440, 1600, 1920), with the probe's existing checks: cut text, sideways scroll,
+overlaps, targets under 24 × 24, an alert below the first screen, and contrast. The
+probe's check of the defining text gains the dialog: its title and buttons are whole and
+inside the viewport, and focus is inside it.
+
+The visual critic frames each state at **390, 900, 1440 and 1920**: 390 is the named phone
+width, 1440 the named desktop, 900 a width between them, and 1920 the widest. Each state is
+defined by visible text that must be whole on the first screen at every width (measured
+with a `Range`). The cards are judged scrolled until each is whole.
+
+Four fixtures carry the states. They are separate from B′'s, so B′'s states and counts stay
+as they are. All use the data fixture's env and record:
+
+- **«send»** (static): `my-photos` with one 3 024 × 4 032 photo and 12 small ones, and these
+  drafts:
+  - `ready`: four texts, and crops stored by the fixture at the D19 sizes, so the static
+    frames do not wait on the canvas;
+  - `publishing`: published to Facebook, held. At fixture start the visual check reads
+    `csrf` and `seen` from its rendered review page and posts `/publish` once, against a
+    `FakePoster` that writes the Facebook row and waits on an `Event` released at
+    teardown;
+  - `partial`: Facebook and Instagram published with URLs; LinkedIn failed «HTTP 401 …»;
+    X failed;
+  - `published`;
+  - `queue-me` and `rule-me`. Setup queues `queue-me` with the rule checkbox off (the
+    `queued` frame), then `rule-me` with it on (the `rule-refused` frame). The refused rule
+    is saved as a draft, so `review` still offers a rule.
+- **«send-problems»**: an env without `FB_PAGE_KOTLETA_TOKEN` and with
+  `LINKEDIN_TOKEN_EXPIRES_AT` in the past, plus a draft whose X text is 312 weighted
+  characters.
+- **«send-crash»**: one draft left in `publishing` with a Facebook row in the record and
+  no publisher.
+- **«send-live»**: one draft per width for each state that changes a draft (crops, focus),
+  because widths run in parallel.
+
+| State | Setup | Defining text on the first screen |
+|---|---|---|
+| `send-draft` | «send», `/create/<ready>#texts` | «Проверить и отправить →» on the first screen; «Удалить черновик» whole when scrolled to (the bottom link row) |
+| `review` | «send», `/create/<ready>/review` | «Проверка перед отправкой», «Проблем нет · 4 сети», «Опубликовать сейчас», «В очередь», «Папка», «Публиковать из «Мои фото» по правилу: пн, ср, пт в 10:00» (the queue offering a rule) |
+| `review-rule` | «send», `…/review?folder=city` | «Правило «city-main»: пн, ср, пт в 10:00 · ближайшая публикация из папки: пт, 13 нояб., 10:00» (the queue with an existing rule) |
+| `review-problems` | «send-problems» | «Отправить нельзя — исправьте:», «X: длиннее лимита: 312 / 280 — сократите», «Facebook: нет FB_PAGE_KOTLETA_TOKEN в .env», «LinkedIn: токен истёк…»; both buttons dimmed and disabled |
+| `review-crops` | «send-live»; the probe holds the first `/image` fetch | «Готовлю картинки: Facebook, Instagram, LinkedIn, X…», buttons disabled. Then, released, probe JSON: four sizes, the X window and one reload |
+| `review-focus` (functional) | «send-live»; probe taps (0.5, 0.2) | probe JSON: the stored focus, new X and Instagram crops, unchanged Facebook and LinkedIn |
+| `review-confirm` | «send», `ready`; probe clicks «Опубликовать сейчас» | «Опубликовать в 4 сети сейчас?», «Это нельзя отменить.», «Да, опубликовать», «Отмена»; focus inside the dialog; nothing posted |
+| `review-publishing` | «send», `publishing` | «Публикуется… 1 из 4 · не закрывайте панель», «Facebook · fb:kotleta — опубликовано», «Instagram · ig:kotleta — ждём…» |
+| `review-partial` | «send», `partial` | «Опубликовано в 2 из 4 сетей», «LinkedIn · linkedin — ошибка: HTTP 401 …», «Повторить упавшие: LinkedIn, X» |
+| `review-published` | «send», `published` | «Опубликовано во всех 4 сетях», four «открыть в …» |
+| `review-interrupted` | «send-crash» | «Публикация прервана — проверьте аккаунт», «Instagram · ig:kotleta — прервано — проверьте аккаунт» |
+| `review-delete` | «send», `published`; probe clicks «Удалить черновик» | «Удалить черновик?», «Да, удалить», «Отмена»; nothing posted |
+| `queued` | «send» after setup queued `queue-me` to `my-photos` | `/files?folder=my-photos#pkg-<id>`: the row `<NNN>-<id>.json` with «в очереди» and its image from `/img` |
+| `rule-refused` | «send»: setup posts `/queue` for `rule-me` with the rule (helper `post_page`) | Rules page, 409: «Пост в очереди «Мои фото». Правило сохранено черновиком, но не запущено:» and the gap line |
+| `send-start` | «send», `/create` | «Черновики · N» with «публикуется», «частично», «опубликован» |
+
+The critic also checks that:
+
+- the sticky bar never covers the defining text from 900 px up;
+- disabled buttons keep their width and look disabled;
+- statuses differ by words, never by colour alone;
+- the 240 px crop boxes do not shift the layout when an image arrives;
+- no dialog leaves the viewport at 390 × 844.
+
+### 17.7 Not touched
+
+- `poster/**`: no change at all. The panel calls `cli.main`, `package.load`, `rules`,
+  `config`, `linkedin.token_problems`, `xapi.estimate` and `state` as they are.
+- The factory core: `factory/{stock,ruleset,planner,runner,journal,checks,attention,cli,
+  inputs,paths}.py` and `factory/panel/actions.py`. D′ calls `checks.activation_problems`,
+  `fruleset.parse_rule`/`write`, `finputs.load`, `fstock` and `runner.poster_main`.
+- The bell and its attention items (an item for an interrupted publish is deferred, §20).
+- B′'s Gemini routes, prompts, budget and ledger. `gemini.py` changes only by moving its
+  Exif walk into a shared helper, and every B′ test passes unchanged.
+- The pages Подключение, Календарь, Охваты, Подписчики and Диалоги. On Правила, only the
+  existing refusal block is reused for D25. In «Медиатека», only the row anchor and the
+  chip of §17.2 change.
+- `/img`, `/photo`, the upload route, `/files` parameters and the snapshot's `state_key`
+  and `build`.
+- The CSP: crops are same-origin images; canvas reads a same-origin blob; no `blob:` URL is
+  shown.
+- No new dependency, no vendor call, no Anthropic code, no Gemini call.
+- C's features: ratio choices, frame, quote, highlight, side by side, base switch.
+- The operator's running panel on port 8770 and the primary checkout. Tests and the visual
+  check use port 0 and scratch fixtures. No real publishing: LC4 runs after the merge
+  (§17.9).
+
+### 17.8 Test plan and mocks
+
+No test opens a non-loopback socket (`tests/base.py` guard). The poster's network is always
+mocked: either `poster.cli.main(argv, transport=FakeTransport([...]), sleep=lambda s:
+None, ...)`, the way `tests/test_factory_tick.py:261` does it, or a fake publish function.
+Scripted four-target replies reuse the shapes of `tests/test_cli.py`
+(`test_partial_failure_four_lines_exit_1_and_x_last`, `ig_success()`).
+
+| File | Covers (items) | Mocks |
+|---|---|---|
+| `tests/test_author_send.py` (*new*) | Routes over `http.client` on port 0, with header checks and hostile input (`Origin: http://evil.example`, a missing token, `name=../../.env`, `folder=../x`, an `out/` symlinked to a scratch folder: 403/404/409, nothing written outside). Crop checks with `make_photo` bytes at the D19 sizes and wrong ones, Exif from `make_exif6`, the old focus (3). Review lines (4–6). Package, thread, 409, status offset, outcomes, retry, exit 2, crash and restart, Ctrl+C (8–12). Queue with `factory.cli.main(["check"])` and `(["plan", "--rule", …])` in process, `/img`, the rule passed, refused and unchecked (13–15). Delete (16). Sent drafts (17). A `seen` mismatch after an edit in a second tab (8, 13). Canaries (19). Ledgers unchanged by crops (3, 20) | `server.make_server(..., publish=FakePoster(...), targets=None)`; `FakeTransport` |
+| `tests/test_author_send.py` `ParityTest` | Item 5. Cases: clean; X 281 weighted; X two cashtags; Instagram 2 201 units; 31 hashtags; 21 mentions; LinkedIn 3 001 after escaping; empty Facebook text (both block; the poster names no target); missing `FB_PAGE_KOTLETA_TOKEN`; missing `X_ACCESS_SECRET`; LinkedIn expired; LinkedIn expiry unreadable; X month at $4.90 of $5.00; a 3:4 Instagram file placed in `out/`; a PNG placed in `out/`; a record row `unknown` for `ig:kotleta`. The intended stricter cases (missing crop, missing text) are asserted separately | `--dry-run` uses `DryRunTransport`; nothing is sent |
+| `tests/test_author_drafts.py` | The new states and fields, the limits of §17.2, and the stage words | Temp content folder |
+| `tests/panel_fixture.py` | `build_send(root, *, problems=False, crash=False, live_widths=())`, and `FakePoster(script, hold=None, raise_after=None)`. The latter calls `poster.cli.main` with a scripted `FakeTransport`, optionally waits on `hold`, or raises after a given record row | — |
+| `tools/visual_check.py` | The states of §17.6. `start()` gains `publish=` and `targets=` | The in-process `FakePoster` |
+
+The project's checks run as `AGENTS.md` and `README.md` give them, one at a time through the
+gate wrapper.
+
+### 17.9 LC4, after the merge (not in this lane)
+
+LC4 checks the panel's publish path end to end with the real poster. It runs only after the
+merge, and only with the operator's go-ahead. It is free: it uses Facebook only, and the
+post is deleted at once.
+
+- **Page:** the main profile's Facebook Page (`fb:kotleta`). The operator chose that Page
+  for the factory's live schedule test, with the post deleted within minutes and the other
+  networks untouched. The go-ahead question repeats the choice.
+- **Inputs:** a generated, non-personal image (`panel_fixture.make_photo(3024, 4032, …)`)
+  and a typed one-line Ukrainian text. No Gemini call is made.
+- **Setup:**
+  - an in-process panel on port 0, with `targets=("fb:kotleta",)` and the default publish
+    function (the real poster and the real transport);
+  - the repository's env file, read in place, never copied or printed;
+  - `MF_CONTENT_DIR` in the stage's scratch folder;
+  - the operator's default poster state, so the record stays honest (X is not targeted, so
+    the X ledger is untouched).
+- **Steps:**
+  1. Upload the image through `/files/photos` into `my-photos`, with its thumb and view
+     copies made by the probe as in LC1. Then `POST /create/new` and `/create/<id>/text`
+     for Facebook.
+  2. Open `/create/<id>/review` in the cached headless Chrome through a DevTools session,
+     as the visual check's live states do, until the crop line is gone. So the crop comes
+     from the browser's canvas.
+  3. Read the problems block: it must say «Проблем нет · 1 сеть».
+  4. `POST /create/<id>/publish` with the `csrf` and `seen` fields of that page.
+  5. Poll `/status` until `published` (at most 3 minutes).
+  6. Read the URL and post id from the record, then run `python3 -m poster delete --target
+     fb:kotleta --post-id <id>`.
+- **Report:**
+  - the draft id, the HTTP statuses, the record rows (`published`, then `deleted`) and how
+    many minutes the post was visible;
+  - the review and published screenshots at 390 and 1440;
+  - the AI ledger's row count before and after, which must be equal. The draft page, whose
+    script would send the automatic topics request, is never opened.
+
+  No key, Page id or token appears. If the delete fails, the report says so at once and
+  the operator deletes the post by hand.
+
+After LC4 passes, the operator's first real post from the panel goes to all four networks.
+That post is their own action through the review page, not a check.
+
+### 17.10 What was cut from D′, and where it went
+
+| Cut | Goes to | Why it can wait |
+|---|---|---|
+| Ratio choices, frame, quote, Gemini highlight, side by side, base switch | C (§9, §15) | Decision of 2026-11-13: plain crops now, templates and highlight later |
+| An attention-bell item for an interrupted publish | §20 | «прервано» shows on the review page and in «Черновики» on `/create`, the panel's first page |
+| Re-publishing an interrupted target from the panel | §20 | It risks a double post; the poster's `--force-target` exists for the rare case |
+| Per-network switches; queuing despite publish-time problems | §20 | The specification blocks both buttons on any problem (D26) |
+| Editing texts after a partial publish | §20 | A sent draft is read-only; the operator retries or deletes |
+| Choosing the offered rule's days and hours on the review page | Правила | The rule is saved and editable there |
+
+## 18. Unconfirmed facts and live checks
 
 Every live check needs the operator's OK. B′'s LC1 is pre-approved by the pinned
 specification within its limits.
@@ -1340,8 +1972,8 @@ specification within its limits.
 |---|---|---|---|
 | LC1 | G12–G16; the reply shape and `usage` on the real key; the typical costs of §11.2 | Below | < $0.10, at most 6 calls |
 | LC2 | Merged into LC1 on 2026-11-12 (transcription now runs on a public-domain clip) | — | — |
-| LC3 | G17; the image block's place in the reply | One «Размыть фон» on a photo of the operator at 2K. If `aspect_ratio` is refused, drop the field. If Gemini refuses or changes the face, build the code "spotlight" of §19 | ≈ $0.06 |
-| LC4 | The panel's publish path end to end | «Опубликовать сейчас» of one photo post to a test Page only; then `python3 -m poster delete` | free |
+| LC3 | G17; the image block's place in the reply | One «Размыть фон» on a photo of the operator at 2K. If `aspect_ratio` is refused, drop the field. If Gemini refuses or changes the face, build the code "spotlight" of §20 | ≈ $0.06 |
+| LC4 | The panel's publish path end to end with the real poster (D′) | After the merge and the operator's go-ahead: one photo post from the review page to the main profile's Facebook Page only, then `python3 -m poster delete` (§17.9) | free |
 | LC5 | B6; folder upload and the microphone from Windows; transcription of the operator's own voice | The operator opens `http://localhost:8770/` after the merge, drops two phone photos on «Создать», and dictates a topic | ≈ $0.002 |
 
 **LC1 (slice B′):**
@@ -1388,7 +2020,7 @@ specification within its limits.
 If B6 fails (the panel is reached by a WSL address), voice stays off with its message and
 the rest works.
 
-## 18. Open items for the operator (non-blocking)
+## 19. Open items for the operator (non-blocking)
 
 1. **Gemini billing.** The key's Google Cloud project has, or will have, an active billing
    account (answered 2026-11-12). Until then, photos and voice fall under the unpaid
@@ -1396,11 +2028,14 @@ the rest works.
 2. **Profile.** About 5–10 lines in «Профиль автора» after B′ is merged.
 3. **Cap.** `AI_MONTHLY_CAP_USD` stays at the decided 10.00 unless the operator changes
    it.
-4. **LC3 photo and verdict** (C) and **the test Page for LC4** (D).
+4. **LC3 photo and verdict** (C), and **the go-ahead and the Page for LC4** (D′). The
+   default Page is the main profile's Facebook Page, the one the operator chose for the
+   factory's live schedule test. The post is deleted at once, and the other networks are
+   untouched (§17.9).
 
 No question here changes the design; each has a default above.
 
-## 19. Deferred — not currently justified
+## 20. Deferred — not currently justified
 
 | Item | Why deferred | Trigger to build |
 |---|---|---|
@@ -1429,8 +2064,13 @@ No question here changes the design; each has a default above.
 | No-JS authoring beyond the profile form; multipart parsing | The steps need JS (D9) | — |
 | AI key state on the Connection tab | Its state shows where it is used («Создать») | Operator asks |
 | A CLI for the AI ledger | The «Создать» sub row shows the month | The ledger needs auditing outside the panel |
+| An attention-bell item for an interrupted publish (D′) | «прервано — проверьте аккаунт» shows on the review page and in «Черновики» on `/create`, the panel's first page | An interrupted publish goes unnoticed |
+| Re-publishing an interrupted or `unknown` target from the panel (D′) | The poster may have sent it; a second post is the worse outcome. `python3 -m poster publish … --force-target T` covers the rare case | The first interrupted publish, or the operator asks |
+| Per-network switches on the review page; queuing despite publish-time problems (X month, LinkedIn token) (D′) | The specification blocks both buttons on any problem (D26); the runner already skips X over budget for queued posts | A problem on one network blocks a post the operator wants on the others |
+| Editing texts after a partial publish (D′) | A sent draft is read-only; retry and delete cover it | Operator asks |
+| Face-aware automatic crop (D′) | No detector in the standard library; Gemini is outside D′. A centre crop plus one tap covers it | Centre crops cut heads often enough that the operator taps on most posts |
 
-## 20. Sources
+## 21. Sources
 
 Google, read 2026-11-12 (`ai.google.dev` redirects to `aistudio.google.com/docs`):
 [Models](https://ai.google.dev/gemini-api/docs/models) ·
