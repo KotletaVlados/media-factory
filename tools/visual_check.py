@@ -511,7 +511,7 @@ def send_problems(state, result) -> list:
     return out
 
 
-IMAGE_STATES = ("review-styles-empty", "review-styles", "review-based", "review-template", "review-ratio",
+IMAGE_STATES = ("review-styles-empty", "review-styles", "review-based", "review-based-other", "review-template", "review-ratio",
                 "review-highlight-loading", "review-highlight", "review-highlight-text", "review-highlight-402",
                 "create-error-402", "review-base", "review-styles-budget", "review-styles-nokey")
 # the live states and the draft each changes (panel_fixture.IMAGE_LIVE)
@@ -1116,6 +1116,7 @@ def main(argv=None) -> int:
         "review-styles-empty": ("images", f"/create/{images.image_ids['plain']}/review#photo"),
         "review-styles": ("images", f"/create/{images.image_ids['styled']}/review?style=blur#photo"),
         "review-based": ("images", f"/create/{images.image_ids['based']}/review#photo"),
+        "review-based-other": ("images", f"/create/{images.image_ids['based']}/review?style=glow#photo"),
         "review-styles-budget": ("images-budget", f"/create/{images_budget.image_ids['plain']}/review#photo"),
         "review-styles-nokey": ("images-nokey", f"/create/{images_nokey.image_ids['styled']}/review?style=blur#photo"),
     }

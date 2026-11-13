@@ -1416,6 +1416,17 @@
       });
       if (!document.querySelector('.photo-tile:nth-child(2) [data-focus]')) { out.problems.push("the base tile is not the focus tile"); }
       tiles();
+    } else if (sendState === "review-based-other") {
+      // the base (blur) is shown with another result (glow): the base keeps its tile, its name and the focus ring
+      await images();
+      expectUnder("Размыть фон", "основа");
+      expectUnder("Свечение", "Взять за основу");
+      see("#photo .photo-chips .chip", "Оригинал");
+      var rest = document.querySelector("#photo").innerText.replace(/\u00a0/g, " ");
+      if (rest.split("Взять за основу").length - 1 !== 1) { out.problems.push("«Взять за основу» shows more than once"); }
+      if (!document.querySelector('.photo-tile:nth-child(1) [data-focus]')) { out.problems.push("the base tile is not the focus tile"); }
+      if (document.querySelectorAll("#photo [data-focus]").length !== 1) { out.problems.push("not exactly one focus tile"); }
+      tiles();
     } else if (sendState === "review-template") {
       // the crop line is running: the photo takes no tap (a focus POST here would reload
       // the page under the crops) and says so like the other C controls
@@ -1593,11 +1604,13 @@
       out.month = [kept().month, month];
       if (month === kept().month) { out.problems.push("the month did not change after the call: " + month); }
     } else if (sendState === "review-highlight-text-after") {
-      ["Gemini не вернул картинку", "Ответ Gemini: «I can describe the photo, but I cannot edit it.»", "Повторить · до $0.09"]
+      ["«Размыть фон»: Gemini не вернул картинку", "Ответ Gemini: «I can describe the photo, but I cannot edit it.»", "Повторить · до $0.09"]
         .forEach(function (t) { see("#photo .photo-error p, #photo .photo-error button", t); });
+      if (document.querySelectorAll('#photo [data-style="blur"]').length !== 1) { out.problems.push("two buttons start the failed style's call"); }
     } else if (sendState === "review-highlight-402-after") {
-      see("#photo .photo-error p", LINE402.replace("{what}", "картинку"));
+      see("#photo .photo-error p", "«Размыть фон»: " + LINE402.replace("{what}", "картинку"));
       see("#photo .photo-error button", "Повторить · до $0.09");
+      if (document.querySelectorAll('#photo [data-style="blur"]').length !== 1) { out.problems.push("two buttons start the failed style's call"); }
       noRaw();
     } else if (sendState === "create-error-402") {
       document.querySelector('[data-op="expand"]').click();

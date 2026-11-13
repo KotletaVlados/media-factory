@@ -1097,6 +1097,7 @@ def build_images(root: str, *, key=True, ledger_usd=None, live_widths=()) -> Fix
             store.update(did, lambda d: d.update(look=json.loads(json.dumps(TPL_LOOK))))
             continue                     # no crops: the page makes them
         if kind == "based":
+            write_style(fx, did, "glow")   # a second result: ?style=glow shows it beside the base (§18.4)
             store.update(did, lambda d: d.update(base="blur"))
             write_crops(fx, did, STYLED_SIZES, seed=40)
             continue
