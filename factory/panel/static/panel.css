@@ -652,7 +652,8 @@ dialog.day::backdrop { background: rgb(0 0 0 / .7); }
 .photo-mark { color: var(--green); }
 .photo-chips { display: flex; flex-wrap: wrap; gap: 8px; }
 .photo-chips .chip { max-width: 100%; white-space: normal; cursor: pointer; font: inherit; }
-.photo-chips .chip:disabled { opacity: .45; cursor: default; }
+.photo-chips .chip:disabled, .photo-chips a.chip[data-busy] { opacity: .45; cursor: default; }
+.photo-chips a.chip[data-busy] { pointer-events: none; }
 .main-create .photo-who { display: flex; flex-direction: column; gap: 4px; margin: 0; max-width: 480px; }
 .photo-who input { min-height: 32px; }
 .photo-who input::placeholder { color: var(--muted); }

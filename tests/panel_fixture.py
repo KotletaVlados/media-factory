@@ -1085,6 +1085,12 @@ def build_images(root: str, *, key=True, ledger_usd=None, live_widths=()) -> Fix
             continue
         if kind in ("styled", "base", "based"):
             write_style(fx, did)
+        if kind == "hold":
+            # three saved styles, «Размыть фон» the newest and so the one shown: the other two
+            # are links, which the loading state must block as it blocks the buttons
+            for rank, style in enumerate(("outline", "glow", "blur")):
+                path = write_style(fx, did, style)
+                os.utime(path, ns=(10**18 + rank * 10**9,) * 2)
         if kind in ("styled", "tpl"):
             store.update(did, lambda d: d.update(quotes=dict(STYLE_QUOTES)))
         if kind == "tpl":

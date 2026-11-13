@@ -41,6 +41,7 @@ MAX_IMAGE = 8 * 1024 * 1024
 NO_IMAGE = "Gemini не вернул картинку"
 NOT_JPEG = "Gemini вернул картинку не в JPEG — повторите"
 TOO_BIG = "Gemini вернул слишком большую картинку — повторите"
+HAS_EXIF = "Gemini вернул картинку с EXIF — повторите"
 
 
 class NoImage(Refusal):

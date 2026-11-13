@@ -606,6 +606,11 @@ class Sender:
             info = rules.sniff(tmp)
             if info.format != "jpeg" or not (info.width and info.height):
                 raise Refusal(gemini.NOT_JPEG, 502)
+            kind = jpeg_exif(data)   # the same marker walk as the view copy and the crops
+            if kind == "exif":
+                raise Refusal(gemini.HAS_EXIF, 502)
+            if kind != "ok":
+                raise Refusal(gemini.NOT_JPEG, 502)
             with self.store.locked(did):
                 draft = self.store.load(did)
                 if draft["state"] != "draft":
@@ -613,6 +618,9 @@ class Sender:
                 os.replace(tmp, os.path.join(folder, f"{style}.jpg"))
                 tmp = None
                 draft.pop("highlight_error", None)
+                # a new revision of this style: every look token and in-flight crop drawn
+                # from the old bytes is stale (D30), whether or not it is the base now
+                draft["style_rev"] = dict(draft.get("style_rev") or {}, **{style: secrets.token_hex(4)})
                 if draft.get("base", "orig") == style:
                     out = self.out_dir(did)
                     for n in NETWORKS:

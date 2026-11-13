@@ -2112,6 +2112,14 @@ optional:
 - `quotes.<network>` is one line of at most 140 characters, NFC, with no line break.
   Expand writes all four (§18.5 item 4); `/settings` writes one. Text edits and regenerate
   never touch it.
+- `style_rev.<style>` is 8 hex, written under `.lock` each time `img/<style>.jpg` is
+  replaced. While that style is the base it joins the look digest, so a crop token or an
+  in-flight crop drawn from the previous bytes answers 409 after a same-style regeneration,
+  and the replaced base deletes every crop. A draft without it, and the original as base,
+  keep the five-part digest.
+- A generated style passes the same marker walk as the view copy and the crops
+  (`jpeg_exif`): an Exif APP1 or an unreadable header answers 502, stored as
+  `highlight_error`, and replaces nothing.
 - `who` is at most 120 characters, saved with each highlight call and sent in its prompt.
 - `highlight_error` is cleared by the next highlight success. `text` and `model_text` are
   redacted, at most 500 and 300 characters.
@@ -2286,6 +2294,9 @@ specification's items map as follows:
      страницу».
    - Unknown keys or values answer 400, and a sent draft answers 409. In each case nothing
      is written.
+   - While a crop, settings or highlight request runs, the saved-style links are as inert as
+     the buttons: dimmed, out of the tab order (`aria-disabled`), no navigation; their width
+     is unchanged and they come back afterwards.
 3. **Frame and quote fit, measured with a `Range`** (spec item 1). The `review-template`
    probe covers the four networks' template crops and runs `layoutTemplate` on every size of
    item 1's first column. It uses four quotes: a short Russian one, 140 Russian
