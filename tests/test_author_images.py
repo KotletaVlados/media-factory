@@ -420,7 +420,7 @@ class HighlightTest(ImagesCase):
         self.assertIn(f'<img src="{self.base}/file?name=blur" alt="Размыть фон">', body)
         self.assertIn("Оригинал", body)
         self.assertIn('data-base="blur" data-c>Взять за основу</button>', body)
-        self.assertIn("Создать заново · до $0.09", body)
+        self.assertIn("Заново · до $0.09", body)
         self.assertNotIn("Размыть фон — создать", body)
         self.assertIn("Свечение — создать · до $0.09", body)
         self.assertIn('value="мужчина в синей куртке"', body)
