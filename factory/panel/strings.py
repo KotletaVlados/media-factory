@@ -456,7 +456,7 @@ SEND_OFFER_NONE = "Правило для этой папки не предлож
 SEND_CROPS = "Готовлю картинки: {names}…"
 SEND_CROP_FAILED = "Не удалось подготовить картинку для {name}: {reason}"
 SEND_REPEAT = "Повторить"
-SEND_FOCUS_HINT = "Нажмите на фото, чтобы сдвинуть центр кадра (Instagram и X)"
+SEND_FOCUS_HINT = "Нажмите на фото-основу, чтобы сдвинуть центр кадра ({names})"   # D35: the cropped targets
 SEND_FOCUS_LABEL = "Сдвинуть центр кадра"
 SEND_CARDS = "Что уйдёт в сети"
 SEND_CARDS_SENT = "Что ушло в сети"
@@ -488,9 +488,35 @@ DLG_DELETE_TEXT = ("Тексты и картинки черновика проп
 DLG_DELETE_YES = "Да, удалить"
 DLG_CANCEL = "Отмена"
 QUEUED_RULE_REFUSED = "Пост в очереди «{title}». Правило сохранено черновиком, но не запущено:"
+# ---------------------------------------------------------------- Картинки: шаблоны и стили (authoring.md §18.4)
+PHOTO_TITLE = "Фото"
+PHOTO_ORIG = "Оригинал"
+PHOTO_STYLES = {"blur": "Размыть фон", "glow": "Свечение", "outline": "Контур"}
+PHOTO_BASE = "основа"
+PHOTO_TAKE = "Взять за основу"
+PHOTO_EMPTY = "Здесь появится фото со стилем — выберите стиль ниже"
+PHOTO_CREATE = "{style} — создать · {bound}"
+PHOTO_AGAIN = "Создать заново · {bound}"
+PHOTO_RETRY = "Повторить · {bound}"
+PHOTO_WHO = "Кто главный на фото (необязательно)"
+PHOTO_WHO_HINT = "например: мужчина в синей куртке"
+PHOTO_RUNNING = "Gemini рисует «{style}»… до 3 минут"
+PHOTO_MODEL_SAID = "Ответ Gemini: «{text}»"
+PHOTO_TILE_LABEL = "Фото-основа «{name}»: нажмите, чтобы сдвинуть центр кадра"
+LOOK_RATIO = "Кадр"
+LOOK_FRAME = "Рамка"
+LOOK_QUOTE = "Цитата"
+LOOK_RATIOS = {"orig": "как у фото", "4:5": "4:5", "1:1": "1:1", "1.91:1": "1.91:1", "16:9": "16:9"}
+LOOK_FRAMES = {"none": "нет", "white": "белая", "black": "чёрная", "gold": "золотая"}
+LOOK_PLACES = {"none": "нет", "bottom": "внизу", "top": "вверху"}
+LOOK_QUOTE_TEXT = "Текст цитаты"
+LOOK_APPLY = "Применить"
 SEND_JS = {"crops": SEND_CROPS, "crop_failed": SEND_CROP_FAILED, "repeat": SEND_REPEAT,
            "network": "нет связи с панелью — повторите", "decode": "фото не читается браузером",
-           "row": SEND_ROW, "open": SEND_OPEN}
+           "row": SEND_ROW, "open": SEND_OPEN, "running": PHOTO_RUNNING, "styles": PHOTO_STYLES,
+           "retry": PHOTO_RETRY, "model_said": PHOTO_MODEL_SAID,
+           "quote_long": "цитата не помещается в 4 строки — сократите",
+           "too_small": "фото слишком маленькое для {ratio}", "quote_empty": "впишите цитату"}
 
 
 def names_and(names) -> str:

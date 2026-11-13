@@ -181,6 +181,9 @@ def describe_status(resp: Response) -> str:
 def vendor_message(resp: Response) -> str:
     """Reduce a vendor error body to its documented message fields (design §12)."""
     data = resp.json()
+    # Google sends its error as a one-element array of the object (seen on a 402, 2026-11-13).
+    if isinstance(data, list) and data and isinstance(data[0], dict):
+        data = data[0]
     parts: list[str] = []
     if isinstance(data, dict):
         err = data.get("error")

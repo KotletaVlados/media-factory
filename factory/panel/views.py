@@ -1332,6 +1332,109 @@ def _rule_line(ctx: Ctx, rule, folder: str) -> str:
     return line
 
 
+def _photo_tile(label: str, inner: str, under: str, cls: str = "") -> str:
+    return (f'<figure class="photo-tile{cls}"><figcaption class="photo-label">{label}</figcaption>'
+            f'{inner}<div class="photo-under">{under}</div></figure>')
+
+
+def _photo_section(ctx: Ctx, draft: dict) -> str:
+    """«Фото» on the review page (authoring.md §18.4): the original and one style result side
+    by side, the base marked «основа», the style chips, «Кто главный на фото», the notices,
+    and the focus hint naming the cropped networks (D35)."""
+    from factory.authoring import budget, drafts as fdrafts
+    a = ctx.author
+    sender = a.sender
+    did = draft["id"]
+    base = draft.get("base", "orig")
+    results = sender.styles(did)
+    why = a.ai.availability("highlight")
+    bound = f"до\u00a0${budget.button('highlight', a.clock()):.2f}"   # the price never splits from «до»
+    asked = ctx.q("style")
+    if asked in results:
+        shown = asked
+    elif base in results:
+        shown = base
+    else:
+        shown = max(results, key=lambda st: (results[st][1], st)) if results else None
+    cropped = sender.cropped(draft)
+    names = S.names_and([S.NET_NAME[n] for n in cropped]) if cropped else ""
+
+    def picture(src: str, name: str, is_base: bool) -> str:
+        img = f'<img src="{esc(src)}" alt="{esc(name)}">'
+        if is_base and cropped:
+            return (f'<button class="photo-box send-photo" type="button" data-focus '
+                    f'aria-label="{esc(S.PHOTO_TILE_LABEL.format(name=name))}">{img}'
+                    f'<span class="send-ring" aria-hidden="true" hidden></span></button>')
+        return f'<div class="photo-box">{img}</div>'
+
+    def spend(style: str, label: str, cls: str = "btn") -> str:
+        off = f' disabled title="{esc(why)}"' if why else ""
+        return (f'<button class="{cls}" type="button" data-style="{esc(style)}" data-c{off}>'
+                f'{esc(label)}</button>')
+
+    def take(target: str) -> str:
+        return f'<button class="btn" type="button" data-base="{esc(target)}" data-c>{esc(S.PHOTO_TAKE)}</button>'
+
+    mark = f'<span class="photo-mark">{esc(S.PHOTO_BASE)}</span>'
+    left = _photo_tile(esc(S.PHOTO_ORIG),
+                       picture(photo_url(draft["folder"], draft["photo"], "view"), S.PHOTO_ORIG, base == "orig"),
+                       mark if base == "orig" else take("orig"))
+    if shown:
+        name = S.PHOTO_STYLES[shown]
+        under = (mark if base == shown else take(shown)) + spend(shown, S.PHOTO_AGAIN.format(bound=bound))
+        right = _photo_tile(esc(name), picture(f"/create/{did}/file?name={shown}", name, base == shown), under)
+    else:
+        right = _photo_tile('<span aria-hidden="true">\u00a0</span>',
+                            f'<div class="photo-box photo-empty"><p class="muted small">{esc(S.PHOTO_EMPTY)}</p></div>',
+                            "", " photo-none")
+    chips = []
+    for style in fdrafts.STYLES:
+        if style == shown:
+            continue
+        if style in results:
+            chips.append(f'<a class="chip" href="?style={style}#photo">{esc(S.PHOTO_STYLES[style])}</a>')
+        else:
+            chips.append(spend(style, S.PHOTO_CREATE.format(style=S.PHOTO_STYLES[style], bound=bound), "chip"))
+    notices = f'<p class="create-notice k-bad" role="alert">{esc(why)}</p>' if why else ""
+    error = draft.get("highlight_error")
+    if error:
+        said = (f'<p>{esc(S.PHOTO_MODEL_SAID.format(text=error["model_text"]))}</p>'
+                if error.get("model_text") else "")
+        notices += (f'<div class="create-error k-bad photo-error" role="alert"><p>{esc(error["text"])}</p>{said}'
+                    f'{spend(error["style"], S.PHOTO_RETRY.format(bound=bound))}</div>')
+    hint = (f'<p class="muted small photo-hint">{esc(S.SEND_FOCUS_HINT.format(names=names))}</p>'
+            if cropped else "")
+    who = draft.get("who", "")
+    return (f'<section id="photo" class="photo" aria-labelledby="photo-h">'
+            f'<div class="photo-head"><h2 id="photo-h">{esc(S.PHOTO_TITLE)}</h2>'
+            f'<p class="photo-status small" role="status" aria-live="polite"></p></div>'
+            f'<div class="photo-tiles">{left}{right}</div>'
+            f'<div class="photo-chips">{"".join(chips)}</div>'
+            f'<label class="photo-who">{esc(S.PHOTO_WHO)}<input id="photo-who" maxlength="120" '
+            f'placeholder="{esc(S.PHOTO_WHO_HINT)}" value="{esc(who)}" data-c></label>'
+            f'{notices}{hint}</section>')
+
+
+def _look_controls(net: str, look: dict) -> str:
+    """One card's «Кадр», «Рамка» and «Цитата» (§18.4), and the quote row while a place is set."""
+    from factory.authoring import drafts as fdrafts
+
+    def select(key: str, label: str, values, words: dict) -> str:
+        options = "".join(f'<option value="{esc(v)}"{" selected" if v == look[key] else ""}>'
+                          f'{esc(words[v])}</option>' for v in values)
+        return (f'<label class="look-pair">{esc(label)}<select data-k="{key}" data-c>{options}</select></label>')
+
+    row = (select("ratio", S.LOOK_RATIO, fdrafts.CHOICES[net], S.LOOK_RATIOS)
+           + select("frame", S.LOOK_FRAME, fdrafts.FRAMES, S.LOOK_FRAMES)
+           + select("quote_at", S.LOOK_QUOTE, ("none", "bottom", "top"), S.LOOK_PLACES))
+    hidden_attr = " hidden" if look["quote_at"] == "none" else ""
+    return (f'<div class="look" data-look="{esc(net)}">'
+            f'<div class="look-row">{row}</div>'
+            f'<div class="quote-row"{hidden_attr}><label class="look-quote">{esc(S.LOOK_QUOTE_TEXT)}'
+            f'<textarea rows="1" maxlength="140" data-q data-c>{esc(look["stored"])}</textarea></label>'
+            f'<button class="btn" type="button" data-apply data-c>{esc(S.LOOK_APPLY)}</button></div></div>')
+
+
 def create_review(ctx: Ctx, refusal=None) -> str:
     """GET /create/<id>/review (authoring.md §17.4): the action block first, then the source
     photo (state `draft`), the cards of every target, and the dialogs."""
@@ -1434,13 +1537,8 @@ def create_review(ctx: Ctx, refusal=None) -> str:
                   f'{esc(view["line"])}</p>{_send_rows(view)}{refused}'
                   + (f'<div class="send-buttons">{"".join(actions)}</div>' if actions else "")
                   + '</div>')
-    source = ""
-    if state == "draft":
-        source = (f'<section class="send-source" aria-label="{esc(S.SEND_FOCUS_LABEL)}">'
-                  f'<button class="send-photo" type="button" data-focus aria-label="{esc(S.SEND_FOCUS_LABEL)}">'
-                  f'<img src="{esc(photo_url(draft["folder"], draft["photo"], "view"))}" alt="">'
-                  f'<span class="send-ring" aria-hidden="true" hidden></span></button>'
-                  f'<p class="muted small">{esc(S.SEND_FOCUS_HINT)}</p></section>')
+    source = _photo_section(ctx, draft) if state == "draft" else ""
+    looks = sender.look_view(did, draft) if state == "draft" else {}
     cards = []
     for card in rv.cards:
         net = card.target.network
@@ -1462,9 +1560,10 @@ def create_review(ctx: Ctx, refusal=None) -> str:
         extra = "".join(f'<p class="small{cls}">{esc(x)}</p>' for x, cls in
                         ((line, " mono"), (card.x_line, " mono"),
                          (card.note if state == "draft" else "", " k-warn")) if x)
+        controls = _look_controls(net, looks[net]) if state == "draft" else ""
         cards.append(f'<article class="send-card" data-network="{esc(net)}"><h3>{esc(head)}</h3>'
                      f'<div class="send-crop">{img}</div>'
-                     f'<p class="mono small send-size">{esc(size)}</p>{text}{extra}</article>')
+                     f'<p class="mono small send-size">{esc(size)}</p>{controls}{text}{extra}</article>')
     bottom = (f'<p class="send-bottom"><button class="btn" type="button" data-open="dlg-delete">'
               f'{esc(S.SEND_DELETE)}</button></p>' if state == "draft" else "")
     dialogs = _delete_dialog(ctx, did)
@@ -1476,9 +1575,14 @@ def create_review(ctx: Ctx, refusal=None) -> str:
         failed = [S.NET_NAME[config.parse_target(t).network] for t in view["failed"]]
         dialogs += _dialog("dlg-retry", S.DLG_RETRY.format(names=S.names_and(failed)), "",
                            f"/create/{did}/retry", hidden(ctx), S.DLG_RETRY_YES)
+    base = draft.get("base", "orig")
     data = {"csrf": ctx.csrf, "did": did, "state": state, "live": live,
             "missing": rv.missing if state == "draft" else [],
             "focus": sender.focus(draft), "orig": photo_url(draft["folder"], draft["photo"], "orig"),
+            # slice C (§18.4): every crop is drawn from the base, with each network's look
+            "source": (photo_url(draft["folder"], draft["photo"], "orig") if base == "orig"
+                       else f"/create/{did}/file?name={base}"),
+            "base": base, "looks": looks,
             "names": {t.network: S.NET_NAME[t.network] for t in targets}, "strings": S.SEND_JS}
     body = (f'<div class="send" data-send="{esc(json.dumps(data, ensure_ascii=False))}">{top}'
             f'<section class="send-action" aria-labelledby="send-h"><div class="send-head">'

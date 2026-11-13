@@ -7,10 +7,13 @@ from __future__ import annotations
 
 import copy
 import datetime as dt
+import hashlib
+import json
 import os
 import re
 import secrets
 import shutil
+import stat
 import threading
 from zoneinfo import ZoneInfo
 
@@ -26,6 +29,17 @@ STATUSES = ("published", "failed", "unknown", "interrupted")
 MAX_ATTEMPTS = 20
 MAX_LINE = 500
 SENT = "черновик уже отправлен"
+
+# Slice C (authoring.md §18.2): the base, each network's look, the quotes and the highlight.
+STYLES = ("blur", "glow", "outline")
+BASES = ("orig",) + STYLES
+CHOICES = {"instagram": ("4:5", "1:1", "1.91:1"), "facebook": ("orig", "4:5", "1:1", "16:9"),
+           "linkedin": ("orig", "1.91:1", "1:1"), "x": ("16:9", "orig", "1:1")}
+FRAMES = ("none", "white", "black", "gold")
+PLACES = ("none", "top", "bottom")
+QUOTE_MAX = 140
+WHO_MAX = 120
+LOOK_KEYS = ("ratio", "frame", "quote_at")
 
 
 def _ts(value):
@@ -96,6 +110,94 @@ def _validate_send(data):
                     _line(row[key])
 
 
+def quote_problem(value):
+    """Why a quote cannot be stored (§18.2), or "": one line, at most 140 characters."""
+    if not isinstance(value, str):
+        return "неверный запрос"
+    if "\n" in value or "\r" in value or "\u2028" in value or "\u2029" in value:
+        return "цитата — одна строка, без переноса"
+    if len(value) > QUOTE_MAX:
+        return f"цитата — не больше {QUOTE_MAX} знаков"
+    return ""
+
+
+def _validate_images(data):
+    """The C fields (§18.2), each optional."""
+    base = data.get("base", "orig")
+    if base not in BASES:
+        raise Refusal("неверный черновик")
+    look = data.get("look")
+    if look is not None:
+        if not isinstance(look, dict) or any(n not in CHOICES for n in look):
+            raise Refusal("неверный черновик")
+        for n, item in look.items():
+            if not isinstance(item, dict) or any(k not in LOOK_KEYS for k in item):
+                raise Refusal("неверный черновик")
+            if (item.get("ratio", CHOICES[n][0]) not in CHOICES[n] or item.get("frame", "none") not in FRAMES
+                    or item.get("quote_at", "none") not in PLACES):
+                raise Refusal("неверный черновик")
+    quotes = data.get("quotes")
+    if quotes is not None:
+        if not isinstance(quotes, dict) or any(n not in CHOICES for n in quotes):
+            raise Refusal("неверный черновик")
+        if any(quote_problem(q) for q in quotes.values()):
+            raise Refusal("неверный черновик")
+    who = data.get("who")
+    if who is not None and (not isinstance(who, str) or len(who) > WHO_MAX):
+        raise Refusal("неверный черновик")
+    error = data.get("highlight_error")
+    if error is not None:
+        if (not isinstance(error, dict) or error.get("style") not in STYLES
+                or not isinstance(error.get("text"), str) or len(error["text"]) > 500
+                or not isinstance(error.get("model_text", ""), str) or len(error.get("model_text", "")) > 300
+                or any(k not in ("style", "text", "model_text", "ts") for k in error)):
+            raise Refusal("неверный черновик")
+        _ts(error.get("ts"))
+
+
+def look(data, network):
+    """One network's look with its defaults filled (§18.2): D′'s crop when nothing is set."""
+    item = (data.get("look") or {}).get(network) or {}
+    ratio = item.get("ratio", CHOICES[network][0])
+    quote_at = item.get("quote_at", "none")
+    quote = (data.get("quotes") or {}).get(network, "") if quote_at != "none" else ""
+    return {"base": data.get("base", "orig"), "ratio": ratio, "frame": item.get("frame", "none"),
+            "quote_at": quote_at, "quote": quote}
+
+
+def look_digest(data, network):
+    """D30: 12 hex of the network's base, ratio, frame, quote place and the quote it draws."""
+    value = look(data, network)
+    raw = json.dumps([value[k] for k in ("base", "ratio", "frame", "quote_at", "quote")],
+                     ensure_ascii=False)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:12]
+
+
+def default_digest(network):
+    return look_digest({}, network)
+
+
+def drop_changed(folder, before, after, networks):
+    """Delete `out/<n>.jpg` of each network whose look digest changed between two versions of
+    a draft; the caller holds the draft's `.lock` (D30). An `out` that is not a real
+    directory holds no crop of ours: nothing is deleted through it."""
+    out = os.path.join(folder, "out")
+    try:
+        if not stat.S_ISDIR(os.lstat(out).st_mode):
+            return []
+    except FileNotFoundError:
+        return []
+    dropped = []
+    for n in networks:
+        if look_digest(before, n) != look_digest(after, n):
+            try:
+                os.unlink(os.path.join(out, f"{n}.jpg"))
+            except FileNotFoundError:
+                pass
+            dropped.append(n)
+    return dropped
+
+
 def validate(data):
     if not isinstance(data, dict) or data.get("schema") != 1 or data.get("state") not in STATES:
         raise Refusal("неверный черновик")
@@ -132,6 +234,7 @@ def validate(data):
             "topics", "expand", "regenerate", "voice") or not isinstance(error.get("text"), str)):
         raise Refusal("неверная ошибка черновика")
     _validate_send(data)
+    _validate_images(data)
     return data
 
 

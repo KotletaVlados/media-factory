@@ -90,13 +90,13 @@ def post_route(path: str, query: dict) -> Route | None:
         return Route(FORM, MAX_BODY, (FORM_TYPE,), "profile")
     if path == "/create/new":
         return Route(JSON, 64 * 1024, ("application/json",), "create", "new")
-    match = re.fullmatch(r"/create/([^/]+)/(image|focus|publish|retry|queue|delete)", path)
-    if match:   # slice D′ (authoring.md §17.3)
+    match = re.fullmatch(r"/create/([^/]+)/(image|focus|settings|highlight|publish|retry|queue|delete)", path)
+    if match:   # slice D′ (authoring.md §17.3) and slice C (§18.3)
         did, op = match[1], match[2]
         if op == "image":
             return Route(IMAGE, send.MAX_CROP, ("image/jpeg",), did, "image")
-        if op == "focus":
-            return Route(JSON, 64 * 1024, ("application/json",), did, "focus")
+        if op in ("focus", "settings", "highlight"):
+            return Route(JSON, 64 * 1024, ("application/json",), did, op)
         return Route(FORM, MAX_BODY, (FORM_TYPE,), "send", op, did)
     match = re.fullmatch(r"/create/([^/]+)/(topics|topic|expand|regenerate|text|voice)", path)
     if match:
@@ -120,7 +120,8 @@ class Panel:
         self.write_lock = threading.Lock()
         self.drafts = drafts.Store(paths.content, clock, machine_tz)
         self.ai_ledger = budget.Ledger(paths.state, clock)
-        self.ai = gemini.Service(paths, clock, self.drafts, self.ai_ledger, self.redactor, ai_transport)
+        self.ai = gemini.Service(paths, clock, self.drafts, self.ai_ledger, self.redactor, ai_transport,
+                                 self.holder.log)
         self.sender = send.Sender(paths, clock, machine_tz, self.drafts, self.holder, self.redactor,
                                   self.holder.log, publish, targets)
 
@@ -478,11 +479,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if panel.drafts.load(did)["state"] != "draft":
                 raise Refusal(drafts.SENT)   # a sent draft is read-only (§17.2)
             if op == "image":
+                look = query.get("look")
                 return self._json(200, panel.sender.store_crop(
                     did, (query.get("network") or [""])[0], (query.get("fx") or [""])[0],
-                    (query.get("fy") or [""])[0], raw))
+                    (query.get("fy") or [""])[0], raw, look[0] if look else None))
             if op == "focus":
                 return self._json(200, panel.sender.set_focus(did, data))
+            if op == "settings":
+                return self._json(200, panel.sender.set_look(did, data))
+            if op == "highlight":
+                return self._highlight(did, data)
             if op == "topic":
                 value = text(data.get("topic"), 2000, "тема")
                 draft = panel.drafts.update(did, lambda d: d.update(topic=value))
@@ -529,6 +535,31 @@ class Handler(http.server.BaseHTTPRequestHandler):
             message = panel.redactor().redact(f"{type(exc).__name__}: {exc}")
             print(f"panel: create: {message}", file=panel.holder.log, flush=True)
             return self._json(500, {"error": "Ошибка панели — повторите"})
+
+    def _highlight(self, did, data):
+        """POST /create/<id>/highlight (§18.3): one Gemini image call. A vendor, reply or
+        connection failure (502, 504) is stored as `highlight_error` (D34), so a reload shows
+        it; the 409s (budget, key, busy, sent) are said by the page's own notices."""
+        panel = self.panel
+        if set(data) - {"style", "who"}:
+            raise Refusal("неверный запрос", 400)
+        style, who = data.get("style"), data.get("who", "")
+        try:
+            result = panel.ai.highlight(did, style, who, panel.sender)
+        except Refusal as exc:
+            if exc.status in (502, 504) and style in drafts.STYLES:
+                def error(d):
+                    d["highlight_error"] = {"style": style, "text": panel.redactor().redact(exc.message)[:500],
+                                            "ts": config.iso_utc(panel.clock())}
+                    if getattr(exc, "model_text", ""):
+                        d["highlight_error"]["model_text"] = exc.model_text[:300]
+                try:
+                    panel.drafts.update(did, error)
+                except Refusal:
+                    pass   # sent or gone meanwhile: the reply still says why
+            raise
+        result["month"] = panel.ai_ledger.display(panel.ai.env())
+        return self._json(200, result)
 
     def _send_write(self, op: str, did: str, form: dict, query: dict):
         """The D′ forms (authoring.md §17.3): publish, retry, queue, delete. A refusal renders
