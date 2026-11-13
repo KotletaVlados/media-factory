@@ -910,7 +910,7 @@ def set_sent(fx: Fixture, did: str, state: str, outcome: dict, package=True) -> 
     store.update(did, mutate, sent_ok=True)
 
 
-def build_send(root: str, *, problems=False, crash=False, live_widths=()) -> Fixture:
+def build_send(root: str, *, problems=False, crash=False, live_widths=(), go_widths=()) -> Fixture:
     """The «send» fixtures of authoring.md §17.6, on top of `build_data` (its env, record and
     `city-main`): `my-photos` with one 3 024 x 4 032 photo and 12 small ones.
 
@@ -920,7 +920,9 @@ def build_send(root: str, *, problems=False, crash=False, live_widths=()) -> Fix
     - `problems`: an env without FB_PAGE_KOTLETA_TOKEN, LINKEDIN_TOKEN_EXPIRES_AT in the past,
       and a draft `problems` whose X text is 312 weighted characters;
     - `crash`: one draft `crash` left in `publishing` with a Facebook row in the record;
-    - `live_widths`: per width, a draft `crops-<w>` without crops and `focus-<w>` with them.
+    - `live_widths`: per width, a draft `crops-<w>` without crops and `focus-<w>` with them;
+    - `go_widths`: per width, drafts `publish-<w>` and `queue-<w>` for the browser-driven submits
+      of «Да, опубликовать» and «В очередь» (the real browser sends its own Origin).
     """
     from factory.authoring import drafts
     fx = build_data(root)
@@ -939,6 +941,8 @@ def build_send(root: str, *, problems=False, crash=False, live_widths=()) -> Fix
     fx.send_ids = {}
     if live_widths:
         names = [f"{state}-{w}" for w in live_widths for state in ("crops", "focus")]
+    elif go_widths:
+        names = [f"{state}-{w}" for w in go_widths for state in ("publish", "queue")]
     elif problems:
         names = ["problems"]
     elif crash:

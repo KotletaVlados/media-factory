@@ -88,7 +88,7 @@ Facts read from `main` at `82b8311` on 2026-11-12.
   kinds). JSON replies go through `_json` (`:357`): `no-store`, body redacted.
 - `end_headers` adds `SECURITY_HEADERS` (`:44`): `default-src 'self'; img-src 'self';
   style-src 'self'; script-src 'self'; frame-ancestors 'none'`, plus `nosniff` and
-  `no-referrer`. `log_message` logs nothing (`:130`).
+  `Referrer-Policy: same-origin` (Chrome sends `Origin: null` on form POSTs under `no-referrer`). `log_message` logs nothing (`:130`).
 - `GET /` redirects to `/connection` (`:175`); pages come from `PAGES` (`:50`).
 - `model.py`: one snapshot, rebuilt when `state_key` changes (`:87`; a depth-1 walk of
   `content/stock/` plus one stat per photo index). `photo_uses` (`:503`) marks photos
@@ -1315,7 +1315,25 @@ Two fixtures carry the states. FakeGemini runs in process in both.
 | `files-mine` | `/files?folder=my-photos` | «Фото» (the count «12 фото» stands once, in the sub row), the chip «черновик» on a drafted photo |
 
 The existing states (`connection` … `files-photos-upload`) run as today and show the new tab
-bar. The critic also checks that:
+bar. Visual round 1 (decisions in force for the review page):
+
+- every D′ form is posted by the browser itself: `Referrer-Policy` is `same-origin`, because
+  `no-referrer` makes Chrome send `Origin: null` on form POSTs and the Origin check refuses it.
+  The visual check submits «Да, опубликовать» and «В очередь» through Chrome at every width
+  (`submit-publish`, `submit-queue`) and fails on a refusal;
+- once a draft is sent the block heading reads «Публикация» (publishing, interrupted) or
+  «Отправлено» (partial, published) and the cards section «Что ушло в сети»; only `draft` keeps
+  «Проверка перед отправкой» and «Что уйдёт в сети»;
+- the offered rule takes the first of 10:00, 13:00, 16:00, 19:00, 07:00 that passes the slot
+  limits (§7.3 item 4) next to the active rules, and the form carries it (`rule_hour`); with none
+  free no rule is offered. A refusal at the queue words the checks' lines in Russian
+  (`send.rule_words`);
+- «Проблем нет» shows only once all crops exist; the draft page's green primary is «Проверить и
+  отправить →» as soon as every network has a text, otherwise «Развернуть»; «Да, удалить» is red;
+- card heads and status rows name the account only where there is one («Facebook · kotleta»,
+  «LinkedIn»), and «частично» in «Черновики» has the attention colour of «прервано».
+
+The critic also checks that:
 
 - the sticky bar never covers the defining text from 900 px up;
 - busy buttons keep their width and look disabled;
@@ -1844,16 +1862,16 @@ as they are. All use the data fixture's env and record:
 | State | Setup | Defining text on the first screen |
 |---|---|---|
 | `send-draft` | «send», `/create/<ready>#texts` | «Проверить и отправить →» on the first screen; «Удалить черновик» whole when scrolled to (the bottom link row) |
-| `review` | «send», `/create/<ready>/review` | «Проверка перед отправкой», «Проблем нет · 4 сети», «Опубликовать сейчас», «В очередь», «Папка», «Публиковать из «Мои фото» по правилу: пн, ср, пт в 10:00» (the queue offering a rule) |
+| `review` | «send», `/create/<ready>/review` | «Проверка перед отправкой», «Проблем нет · 4 сети», «Опубликовать сейчас», «В очередь», «Папка», «Публиковать из «Мои фото» по правилу: пн, ср, пт в 16:00» (the queue offering the first free hour, since `city-main` holds 10:00) |
 | `review-rule` | «send», `…/review?folder=city` | «Правило «city-main»: пн, ср, пт в 10:00 · ближайшая публикация из папки: пт, 13 нояб., 10:00» (the queue with an existing rule) |
 | `review-problems` | «send-problems» | «Отправить нельзя — исправьте:», «X: длиннее лимита: 312 / 280 — сократите», «Facebook: нет FB_PAGE_KOTLETA_TOKEN в .env», «LinkedIn: токен истёк…»; both buttons dimmed and disabled |
 | `review-crops` | «send-live»; the probe holds the first `/image` fetch | «Готовлю картинки: Facebook, Instagram, LinkedIn, X…», buttons disabled. Then, released, probe JSON: four sizes, the X window and one reload |
 | `review-focus` (functional) | «send-live»; probe taps (0.5, 0.2) | probe JSON: the stored focus, new X and Instagram crops, unchanged Facebook and LinkedIn |
 | `review-confirm` | «send», `ready`; probe clicks «Опубликовать сейчас» | «Опубликовать в 4 сети сейчас?», «Это нельзя отменить.», «Да, опубликовать», «Отмена»; focus inside the dialog; nothing posted |
-| `review-publishing` | «send», `publishing` | «Публикуется… 1 из 4 · не закрывайте панель», «Facebook · fb:kotleta — опубликовано», «Instagram · ig:kotleta — ждём…» |
-| `review-partial` | «send», `partial` | «Опубликовано в 2 из 4 сетей», «LinkedIn · linkedin — ошибка: HTTP 401 …», «Повторить упавшие: LinkedIn, X» |
-| `review-published` | «send», `published` | «Опубликовано во всех 4 сетях», four «открыть в …» |
-| `review-interrupted` | «send-crash» | «Публикация прервана — проверьте аккаунт», «Instagram · ig:kotleta — прервано — проверьте аккаунт» |
+| `review-publishing` | «send», `publishing` | «Публикуется… 1 из 4 · не закрывайте панель», «Публикация» (the heading), «Facebook · kotleta — опубликовано», «Instagram · kotleta — ждём…» |
+| `review-partial` | «send», `partial` | «Отправлено» (the heading), «Опубликовано в 2 из 4 сетей», «LinkedIn — ошибка: HTTP 401 …», «Повторить упавшие: LinkedIn, X» |
+| `review-published` | «send», `published` | «Отправлено» (the heading), «Опубликовано во всех 4 сетях», four «открыть в …» |
+| `review-interrupted` | «send-crash» | «Публикация прервана — проверьте аккаунт», «Публикация» (the heading), «Instagram · kotleta — прервано» (the instruction stands once, in the line) |
 | `review-delete` | «send», `published`; probe clicks «Удалить черновик» | «Удалить черновик?», «Да, удалить», «Отмена»; nothing posted |
 | `queued` | «send» after setup queued `queue-me` to `my-photos` | `/files?folder=my-photos#pkg-<id>`: the row `<NNN>-<id>.json` with «в очереди» and its image from `/img` |
 | `rule-refused` | «send»: setup posts `/queue` for `rule-me` with the rule (helper `post_page`) | Rules page, 409: «Пост в очереди «Мои фото». Правило сохранено черновиком, но не запущено:» and the gap line |

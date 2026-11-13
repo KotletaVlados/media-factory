@@ -38,7 +38,7 @@ class RoutesTest(pf.PanelCase):
             self.assertEqual(status, 200, path)
             self.assertTrue(headers["content-type"].startswith("text/html"), path)
             self.assertEqual(headers["cache-control"], "no-store", path)
-            self.assertEqual(headers["referrer-policy"], "no-referrer", path)
+            self.assertEqual(headers["referrer-policy"], "same-origin", path)
             self.assertEqual(headers["content-security-policy"],
                              "default-src 'self'; img-src 'self'; style-src 'self'; "
                              "script-src 'self'; frame-ancestors 'none'", path)

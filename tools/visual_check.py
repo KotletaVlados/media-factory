@@ -321,6 +321,29 @@ class Live:
         return {"tabs": inside, "closed": self.evaluate("!document.querySelector('dialog[open]')"),
                 "submits": self.evaluate("window.MFProbeSubmits ? window.MFProbeSubmits() : -1")}
 
+    def click(self, selector: str) -> None:
+        """A real mouse click at the centre of the element (a native form submit follows, with
+        the Origin and cookies Chrome itself sends)."""
+        # a tile that decodes after the click point is measured moves the target: wait for the images
+        self.wait_true("Array.prototype.every.call(document.images, function (i) { return i.complete; })",
+                       30, "the images")
+        box = self.evaluate("(function () { var e = document.querySelector(%s); if (!e) { return null; }"
+                            " e.scrollIntoView({block: 'center'}); var r = e.getBoundingClientRect();"
+                            " return [r.left + r.width / 2, r.top + r.height / 2]; })()" % json.dumps(selector))
+        if not box:
+            raise RuntimeError(f"nothing to click: {selector}")
+        for kind in ("mousePressed", "mouseReleased"):
+            self.send("Input.dispatchMouseEvent", {"type": kind, "x": box[0], "y": box[1],
+                                                   "button": "left", "clickCount": 1})
+
+    def wait_true(self, expression: str, timeout: float, what: str):
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if self.evaluate(f"({expression}) ? true : null"):
+                return
+            time.sleep(0.2)
+        raise RuntimeError(f"timed out waiting for {what}: {self.evaluate('location.href + \" | \" + document.body.innerText.slice(0, 200)')}")
+
     def screenshot(self, out: str) -> None:
         # every image inside the viewport has loaded (lazy tiles included) before the capture
         self.evaluate("Promise.all(Array.prototype.filter.call(document.images, function (i) {"
@@ -432,6 +455,59 @@ def send_problems(state, result) -> list:
                 or k.get("submits") != 0):
             out.append(f"keyboard in the dialog: {k} (Tab must stay inside, Escape must close, nothing posted)")
     return out
+
+
+def submit_problems(chrome, fx, srv, widths, out) -> list:
+    """The two forms an operator presses first, submitted by the browser itself at each width:
+    «Да, опубликовать» must land on the review page's status block and reach «Опубликовано во всех
+    4 сетях», and «В очередь» must land on /files#pkg-<id> with the package listed. A refusal
+    (the bare 403 of a foreign or `null` Origin) shows as the page that was reached. Serial, since
+    one publish runs at a time."""
+    problems = []
+    for w in widths:
+        h = WIDTHS.get(w, 900)
+        did = fx.send_ids[f"publish-{w}"]
+        review = f"http://127.0.0.1:{srv.port}/create/{did}/review"
+        try:
+            with Live(chrome, review, w, h) as page:
+                page.wait_true("document.querySelector('[data-open=dlg-publish]')", 30, "the review page")
+                for attempt in range(3):   # a click that lands on a shifting layout is tried again
+                    page.click("[data-open=dlg-publish]")
+                    try:
+                        page.wait_true("document.querySelector('dialog[open] [data-confirm]')", 5, "the dialog")
+                        break
+                    except RuntimeError:
+                        if attempt == 2:
+                            raise
+                time.sleep(0.6)   # the 400 ms guard against the second click of a double click
+                page.click("dialog[open] [data-confirm]")
+                page.wait_true(f"location.pathname === '/create/{did}/review' && document.querySelector('.send-status')",
+                               30, "the status block")
+                page.wait_true("document.querySelector('.send-status-line') && "
+                               "/Опубликовано во всех 4 сетях/.test(document.querySelector('.send-status-line').textContent)",
+                               30, "«Опубликовано во всех 4 сетях»")
+                page.screenshot(os.path.join(out, f"submit-publish-{w}.png"))
+        except RuntimeError as exc:
+            problems.append(f"submit-publish-{w}: {exc}")
+        did = fx.send_ids[f"queue-{w}"]
+        review = f"http://127.0.0.1:{srv.port}/create/{did}/review"
+        try:
+            with Live(chrome, review, w, h) as page:
+                page.wait_true("document.querySelector('button[form=send-queue]:not([disabled])')", 30, "the review page")
+                for attempt in range(3):
+                    page.click("button[form=send-queue]")
+                    try:
+                        page.wait_true("location.pathname === '/files'", 8, "the Files page")
+                        break
+                    except RuntimeError:
+                        if attempt == 2:
+                            raise
+                page.wait_true(f"location.pathname === '/files' && location.hash === '#pkg-{did}' && "
+                               f"document.getElementById('pkg-{did}')", 30, "the queued package on /files")
+                page.screenshot(os.path.join(out, f"submit-queue-{w}.png"))
+        except RuntimeError as exc:
+            problems.append(f"submit-queue-{w}: {exc}")
+    return problems
 
 
 def send_after(fx, widths, before: dict, fake, kinds) -> list:
@@ -703,6 +779,7 @@ def main(argv=None) -> int:
     send_bad = panel_fixture.build_send(os.path.join(fixtures_root, "send-problems"), problems=True)
     send_crash = panel_fixture.build_send(os.path.join(fixtures_root, "send-crash"), crash=True)
     send_live = panel_fixture.build_send(os.path.join(fixtures_root, "send-live"), live_widths=widths)
+    send_go = panel_fixture.build_send(os.path.join(fixtures_root, "send-go"), go_widths=widths)
     exif_pid = panel_fixture.store_photo(send_live, "my-photos", panel_fixture.make_exif6(4032, 3024, 77),
                                          panel_fixture.make_photo(360, 480, 77),
                                          panel_fixture.make_photo(1200, 1600, 77), "exif6.jpg")
@@ -736,6 +813,7 @@ def main(argv=None) -> int:
     servers["send-problems"] = start(send_bad)
     servers["send-crash"] = start(send_crash)
     servers["send-live"] = start(send_live)
+    servers["send-go"] = start(send_go)   # a FakePoster that publishes at once
     t0 = time.perf_counter()
     snap = servers["data"].panel.holder.get()
     snapshot_ms = snap.build_ms
@@ -823,7 +901,7 @@ def main(argv=None) -> int:
     refused_probe = os.path.join(pages, "rule-refused-probe.html")
     status = post_page(servers["send"], f"/create/{ids['rule-me']}/queue?probe=1",
                        dict(form_values(servers["send"], f"/create/{ids['rule-me']}/review"),
-                            folder="my-photos", rule="1"), refused_probe)
+                            folder="my-photos", rule="1", rule_hour="10:00"), refused_probe)
     with open(refused_probe, encoding="utf-8") as fh:
         shot = fh.read().replace('<script src="/static/probe.js" defer></script>', "")
     with open(refused, "w", encoding="utf-8") as fh:
@@ -847,6 +925,7 @@ def main(argv=None) -> int:
     }
     states += [(name, url(fixture, path)) for name, (fixture, path) in send_paths.items()]
     states += [("review-crops", ""), ("review-focus", "")]
+    states += [("submit-publish", ""), ("submit-queue", "")]   # driven after the pool, see submit_problems
     states.append(("rule-refused", "file://" + refused))
     probe_urls["rule-refused"] = "file://" + refused_probe
     if args.only:
@@ -907,7 +986,7 @@ def main(argv=None) -> int:
             chrome.screenshot(address, os.path.join(out, f"{state}-{w}-full.png"), w, full_h)
         return state, w, result, full_h
 
-    jobs = [(s, a, w) for s, a in states for w in widths]
+    jobs = [(s, a, w) for s, a in states for w in widths if not s.startswith("submit-")]
     with concurrent.futures.ThreadPoolExecutor(max_workers=args.jobs) as pool:
         for state, w, result, full_h in pool.map(lambda j: one(*j), jobs):
             heights[(state, w)] = full_h
@@ -990,6 +1069,11 @@ def main(argv=None) -> int:
         for problem in send_after(send_live, widths, focus_mtimes, send_fake, ran):
             failed = True
             print(f"SEND: {problem}")
+    if any(s[0].startswith("submit-") for s in states):
+        for problem in submit_problems(chrome, send_go, servers["send-go"], widths, out):
+            failed = True
+            print(f"SEND SUBMIT: {problem}")
+        servers["send-go"].panel.sender.join(30)
     send_hold.set()
     servers["send"].panel.sender.join(30)
     fake.release.set()

@@ -93,7 +93,8 @@ lane L2. If a core function proves wrong for the panel, stop and report it; do n
     snapshot, before the `realpath` and `sniff` checks;
   - every response carries `Content-Security-Policy: default-src 'self'; img-src 'self';
     style-src 'self'; script-src 'self'; frame-ancestors 'none'`, plus
-    `Referrer-Policy: no-referrer`. Pages also carry `Cache-Control: no-store`.
+    `Referrer-Policy: same-origin` (nothing leaks cross-site; `no-referrer` makes Chrome send
+    `Origin: null` on form POSTs, which the Origin check refuses). Pages also carry `Cache-Control: no-store`.
 - **Writes** (`actions.py`): the panel reuses the core and duplicates no checks.
   - The handler reads the rules with `fruleset.load`, applies the change and builds the rule
     with `fruleset.parse_rule`.

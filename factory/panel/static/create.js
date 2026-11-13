@@ -198,6 +198,8 @@
     const row = $(".send-go-row");
     if (row) {
       row.hidden = !(C.send_networks || []).every(n => D.variants[n]);
+      // the one green button is the next step: «Проверить и отправить» once texts exist, else «Развернуть»
+      $("[data-op=expand]").classList.toggle("green", row.hidden);
       row.classList.toggle("send-go-wait", busy);
     }
   }

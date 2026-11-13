@@ -398,7 +398,7 @@ CREATE_RECENT_HINT = "Нажмите на фото, чтобы начать по
 DRAFT_STAGE = {"new": "без темы", "topic": "своя тема", "topics": "темы", "texts": "тексты готовы",
                "over": "длиннее лимита", "error": "ошибка", "publishing": "публикуется",
                "partial": "частично", "published": "опубликован", "interrupted": "прервано"}
-DRAFT_STAGE_BAD = ("error", "over", "interrupted")
+DRAFT_STAGE_BAD = ("error", "over", "partial", "interrupted")
 CREATE_PROFILE_EMPTY = "Профиль автора не заполнен — темы и тексты будут общими"
 CREATE_PROFILE_FILLED = "Профиль автора · заполнен"
 CREATE_PROFILE_HINT = ("Профиль уходит в каждый запрос к Gemini вместе с фото. "
@@ -424,6 +424,8 @@ CREATE_NETWORKS = {"x": "X · англ.", "linkedin": "LinkedIn · англ.",
 
 # ---------------------------------------------------------------- Отправка (authoring.md §17)
 SEND_TITLE = "Проверка перед отправкой"
+SEND_TITLE_LIVE = "Публикация"                    # publishing and interrupted
+SEND_TITLE_SENT = "Отправлено"                   # partial and published
 SEND_EDIT = "← Изменить тексты"
 SEND_GO = "Проверить и отправить →"
 SEND_SUB = "Отправка · черновик от {date}"
@@ -440,13 +442,15 @@ SEND_RULE_NO_SLOT = "Правило «{id}»: {days} в {hours} · перед э
 SEND_RULE_ELSEWHERE = ("Правило «{id}» читает эту папку и публикует ещё в: {targets} — этого не было "
                        "на проверке. Выберите другую папку или поправьте правило.")
 SEND_RULES_UNREADABLE = "Правила не читаются — исправьте их на странице «Правила» и повторите."
-SEND_OFFER = "Публиковать из «{title}» по правилу: пн, ср, пт в 10:00"
+SEND_OFFER = "Публиковать из «{title}» по правилу: пн, ср, пт в {hour}"
+SEND_OFFER_NONE = "Правило для этой папки не предложено: все часы заняты правилами других папок. Настройте его на странице «Правила»."
 SEND_CROPS = "Готовлю картинки: {names}…"
 SEND_CROP_FAILED = "Не удалось подготовить картинку для {name}: {reason}"
 SEND_REPEAT = "Повторить"
 SEND_FOCUS_HINT = "Нажмите на фото, чтобы сдвинуть центр кадра (Instagram и X)"
 SEND_FOCUS_LABEL = "Сдвинуть центр кадра"
 SEND_CARDS = "Что уйдёт в сети"
+SEND_CARDS_SENT = "Что ушло в сети"
 SEND_DELETE = "Удалить черновик"
 SEND_LANG = {"en": "англ.", "uk": "укр."}
 SEND_SIZE = "{w} × {h} · {size}"
@@ -459,7 +463,7 @@ SEND_ALL = "Опубликовано во всех {total} сетях"
 SEND_ONE = "Опубликовано в {name}"
 SEND_INTERRUPTED = "Публикация прервана — проверьте аккаунт"
 SEND_ROW = {"published": "опубликовано", "failed": "ошибка: {error}", "unknown": "неизвестно — проверьте аккаунт",
-            "waiting": "ждём…", "interrupted": "прервано — проверьте аккаунт"}
+            "waiting": "ждём…", "interrupted": "прервано"}
 SEND_OPEN = "открыть в {name}"
 SEND_RETRY = "Повторить упавшие: {names}"
 DLG_PUBLISH = "Опубликовать в {n} {word} сейчас?"
