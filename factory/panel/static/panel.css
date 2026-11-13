@@ -633,10 +633,42 @@ dialog.day::backdrop { background: rgb(0 0 0 / .7); }
 .send-rows .st { font-size: 13px; }
 .send-rows a { display: inline-flex; align-items: center; min-height: 24px; }
 .send-row-name { color: var(--text); }
-.send-source { display: flex; flex-direction: column; gap: 6px; }
-.send-photo { position: relative; display: block; width: 100%; max-width: 480px; height: 160px; padding: 0;
-  background: var(--surface); border: 1px solid var(--head); border-radius: 8px; cursor: crosshair; }
-.send-photo img { display: block; width: 100%; height: 100%; object-fit: contain; }
+/* «Фото» (authoring.md §18.4): the original and one style result, two equal tiles at every width */
+.photo { display: flex; flex-direction: column; gap: 10px; }
+.photo-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 16px; }
+.photo-head h2 { font-size: 16px; }
+.photo-status:empty { display: none; }
+.photo-tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; max-width: 652px; }
+.photo-tile { margin: 0; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.photo-label { color: var(--text); font-size: 12px; min-height: 17px; overflow-wrap: anywhere; }
+.photo-box { position: relative; display: block; width: 100%; height: 160px; padding: 0; margin: 0;
+  background: var(--surface); border: 1px solid var(--head); border-radius: 8px; overflow: hidden; }
+.photo-box img { display: block; width: 100%; height: 100%; object-fit: contain; }
+.send-photo { cursor: crosshair; }
+.photo-empty { display: flex; align-items: center; justify-content: center; padding: 8px 12px;
+  text-align: center; border-style: dashed; }
+.photo-under { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; min-height: 28px; }
+.photo-under .btn { max-width: 100%; white-space: normal; }
+.photo-mark { color: var(--green); }
+.photo-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.photo-chips .chip { max-width: 100%; white-space: normal; cursor: pointer; font: inherit; }
+.photo-chips .chip:disabled { opacity: .45; cursor: default; }
+.main-create .photo-who { display: flex; flex-direction: column; gap: 4px; margin: 0; max-width: 480px; }
+.photo-who input { min-height: 32px; }
+.photo-who input::placeholder { color: var(--muted); }
+.photo .create-notice, .photo .create-error:not([hidden]) { margin: 0; }
+.look { display: flex; flex-direction: column; gap: 6px; }
+.look-row { display: flex; flex-wrap: wrap; gap: 6px 12px; }
+.main-create .look-pair { display: inline-flex; flex-direction: row; align-items: center; gap: 6px; margin: 0;
+  white-space: nowrap; }
+.look-pair select { background: var(--surface-2); }
+.quote-row { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+.quote-row[hidden] { display: none; }
+.main-create .look-quote { display: flex; flex-direction: column; gap: 4px; margin: 0; width: 100%; min-width: 0; }
+.main-create .look-quote textarea { width: 100%; min-height: 28px; padding: 4px 8px; resize: none; overflow: hidden;
+  white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.4; font-size: 12px; border-radius: 6px;
+  border: 1px solid var(--head); color: var(--text); background: var(--surface-2); }
+select[data-c]:disabled, input[data-c]:disabled, textarea[data-c]:disabled { opacity: .45; cursor: default; }
 .send-ring { position: absolute; width: 24px; height: 24px; margin: -12px 0 0 -12px; border-radius: 50%;
   border: 2px solid var(--green); box-shadow: 0 0 0 2px var(--on-green); pointer-events: none; }
 .send-ring[hidden] { display: none; }

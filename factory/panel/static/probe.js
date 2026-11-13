@@ -944,6 +944,26 @@
     }
   }
 
+  // ------------------------------------------------------------ slice C (authoring.md §18.6)
+  // Every fetch of a C state is listed with its answer; the page's own navigation after a
+  // highlight (MFSend.go) is recorded instead of done. A state that needs the page reloaded
+  // sets MFProbeNext: the visual check opens that URL in the same tab (sessionStorage keeps
+  // what the next stage compares), and only the last stage writes the probe's JSON.
+  var cState = sendState && /^(review-(styles|based|template|ratio|highlight|base)|create-error-402)/.test(sendState);
+  var cFetch = [];
+  if (cState) {
+    var innerFetch = window.fetch;
+    window.fetch = function (url, options) {
+      var item = {url: String(url), method: (options && options.method) || "GET", status: null};
+      cFetch.push(item);
+      return innerFetch(url, options).then(function (r) { item.status = r.status; return r; });
+    };
+    if (window.MFSend) {
+      window.MFSend.went = [];
+      window.MFSend.go = function (url) { window.MFSend.went.push(url); };
+    }
+  }
+
   async function sendChecks() {
     if (!sendState) { return; }
     var params = new URLSearchParams(location.search);
@@ -1153,6 +1173,8 @@
       } else if (sendState === "rule-refused") {
         see(".main > .error", "Пост в очереди «Мои фото». Правило сохранено черновиком, но не запущено:");
         see(".main > .error li", "между постами");
+      } else if (cState) {
+        await imageChecks(out, {see: see, looks: looks, until: until, sleep: sleep, words: words, did: did});
       } else if (sendState === "send-start") {
         // measured where the page opens: no scrolling, so a word below the window fails
         if (scrollY !== 0) { out.problems.push("send-start did not open at the top (scrollY " + scrollY + ")"); }
@@ -1162,9 +1184,377 @@
     } catch (err) { out.problems.push(err.message); }
   }
 
+  async function imageChecks(out, h) {
+    var see = h.see, until = h.until, sleep = h.sleep, words = h.words, did = h.did;
+    var api = window.MFSend;
+    var KEY = "mf-probe-c-" + did;
+    var CHOICES = {instagram: ["4:5", "1:1", "1.91:1"], facebook: ["orig", "4:5", "1:1", "16:9"],
+                   linkedin: ["orig", "1.91:1", "1:1"], x: ["16:9", "orig", "1:1"]};
+    // §18.5 item 1, the first column (3 024 x 4 032) and the third (a 1 536 x 2 048 style)
+    var FIRST = {"instagram 4:5": [1080, 1350], "instagram 1:1": [1080, 1080], "instagram 1.91:1": [955, 500],
+                 "facebook orig": [1536, 2048], "facebook 4:5": [1636, 2045], "facebook 1:1": [2048, 2048],
+                 "facebook 16:9": [2048, 1152], "linkedin orig": [1536, 2048], "linkedin 1.91:1": [1910, 1000],
+                 "linkedin 1:1": [2048, 2048], "x 16:9": [1600, 900], "x orig": [1200, 1600], "x 1:1": [1600, 1600]};
+    var THIRD = {facebook: [1536, 2048], instagram: [1080, 1350], linkedin: [1536, 2048], x: [1536, 864]};
+    var RAW = ["[{", '{"', '"error"', "prepayment"];
+    var LINE402 = "Не удалось получить {what} от Gemini (HTTP 402): закончились предоплаченные кредиты Gemini — пополните баланс в Google AI Studio";
+    function next(stage, hash, query) {
+      window.MFProbeNext = location.pathname + "?" + (query ? query + "&" : "") + "probe=1&probe_send=" + stage + (hash || "");
+    }
+    function keep(data) { sessionStorage.setItem(KEY, JSON.stringify(data)); }
+    function kept() { try { return JSON.parse(sessionStorage.getItem(KEY)) || {}; } catch (e) { return {}; } }
+    async function sha(path) {
+      var r = await fetch(path, {credentials: "same-origin", cache: "no-store"});
+      var d = await crypto.subtle.digest("SHA-256", await r.arrayBuffer());
+      return Array.from(new Uint8Array(d)).map(function (b) { return b.toString(16).padStart(2, "0"); }).join("");
+    }
+    async function size(path) {
+      var b = await createImageBitmap(await (await fetch(path, {cache: "no-store"})).blob());
+      var v = [b.width, b.height];
+      b.close();
+      return v;
+    }
+    // the two tiles: side by side, the same top and width, 160 px boxes
+    function tiles() {
+      var t = document.querySelectorAll(".photo-tile .photo-box");
+      if (t.length !== 2) { out.problems.push("photo tiles: " + t.length); return; }
+      var a = t[0].getBoundingClientRect(), b = t[1].getBoundingClientRect();
+      out.tiles = {a: [Math.round(a.left), Math.round(a.top), Math.round(a.width), Math.round(a.height)],
+                   b: [Math.round(b.left), Math.round(b.top), Math.round(b.width), Math.round(b.height)]};
+      if (Math.abs(a.top - b.top) > 1 || Math.abs(a.width - b.width) > 1 || b.left < a.right ||
+          Math.abs(a.height - 160) > 1 || Math.abs(b.height - 160) > 1) {
+        out.problems.push("the photo tiles are not two equal 160 px boxes side by side: " + JSON.stringify(out.tiles));
+      }
+    }
+    function underTile(label) {   // the «основа» / «Взять за основу» row under the tile named `label`
+      var tile = Array.prototype.find.call(document.querySelectorAll(".photo-tile"), function (t) {
+        return words(t.querySelector(".photo-label")) === label;
+      });
+      return tile ? words(tile.querySelector(".photo-under")) : null;
+    }
+    function expectUnder(label, text) {
+      var u = underTile(label);
+      if (u === null || u.indexOf(text) < 0) { out.problems.push("under «" + label + "»: «" + u + "», expected «" + text + "»"); }
+    }
+    function seeSelect(network, key, expected) {
+      var sel = document.querySelector('.look[data-look="' + network + '"] select[data-k="' + key + '"]');
+      if (!sel) { out.problems.push("missing select " + network + " " + key); return; }
+      var shown = sel.selectedOptions[0] ? sel.selectedOptions[0].textContent : "";
+      if (shown !== expected) { out.problems.push(network + " " + key + " shows «" + shown + "», expected «" + expected + "»"); }
+      sel.scrollIntoView({block: "nearest"});
+      var r = sel.getBoundingClientRect();
+      out.defining.push({selector: network + " " + key, text: shown, top: Math.round(r.top), bottom: Math.round(r.bottom)});
+      if (sel.scrollWidth > sel.clientWidth + 1 || r.top < 0 || r.bottom > innerHeight + 1 || r.right > innerWidth + 1) {
+        out.problems.push("select " + network + " " + key + " cut or off screen");
+      }
+    }
+    function widths(selector) {
+      return Array.prototype.map.call(document.querySelectorAll(selector), function (el) {
+        return Math.round(el.getBoundingClientRect().width);
+      });
+    }
+    function disabledLook(selector, before) {
+      var els = Array.prototype.slice.call(document.querySelectorAll(selector));
+      els.forEach(function (el, i) {
+        var cs = getComputedStyle(el), w = Math.round(el.getBoundingClientRect().width);
+        out.busy.push({text: words(el).slice(0, 40) || el.tagName, disabled: el.disabled, opacity: cs.opacity,
+                       cursor: cs.cursor, width: w});
+        if (!el.disabled || Number(cs.opacity) >= 1 || (before && Math.abs(before[i] - w) > 1)) {
+          out.problems.push("a blocked control looks enabled or changed its width: " + (words(el).slice(0, 40) || el.tagName));
+        }
+      });
+    }
+    function noRaw() {
+      var text = document.body.innerText;
+      RAW.forEach(function (r) { if (text.indexOf(r) >= 0) { out.problems.push("raw vendor text on the page: " + r); } });
+    }
+    async function images() {   // every <img> on screen has loaded
+      await until(function () {
+        return Array.prototype.every.call(document.images, function (i) { return i.complete; });
+      }, "images", 20000);
+    }
+    // the template layout, numerically and with a Range over DOM text at the same place (item 3)
+    function checkLayout(layout, W, H, label) {
+      var f = layout.inset, problems = [];
+      if (!layout.fits) { problems.push(label + ": does not fit"); return problems; }
+      if (!layout.band) { return problems; }
+      var b = layout.band, pad = layout.padding, max = Math.min(0.86 * W, W - 2 * f - 2 * pad);
+      if (layout.lines.length > 4 || !layout.lines.length) { problems.push(label + ": " + layout.lines.length + " lines"); }
+      layout.lines.forEach(function (l) { if (l.w > max + 0.01) { problems.push(label + ": line " + l.w + " > " + max); } });
+      if (b[0] < f - 0.01 || b[1] < f - 0.01 || b[0] + b[2] > W - f + 0.01 || b[1] + b[3] > H - f + 0.01) {
+        problems.push(label + ": band outside the frame " + JSON.stringify(b));
+      }
+      if (layout.size < Math.max(10, 0.025 * W)) { problems.push(label + ": font " + layout.size); }
+      var box = document.createElement("div");
+      box.style.cssText = "position:absolute;left:0;top:0;width:" + W + "px;height:" + H + "px;visibility:hidden;pointer-events:none;overflow:hidden";
+      document.body.appendChild(box);
+      var origin = box.getBoundingClientRect(), rects = 0;
+      layout.lines.forEach(function (l, i) {
+        var span = document.createElement("span");
+        span.style.cssText = "position:absolute;white-space:pre;left:" + l.x + "px;top:" + l.y + "px;font:" + layout.font +
+                             ";line-height:" + layout.lineHeight + "px";
+        span.textContent = l.text;
+        box.appendChild(span);
+        var range = document.createRange();
+        range.selectNodeContents(span.firstChild);
+        var rs = Array.prototype.filter.call(range.getClientRects(), function (r) { return r.width > 0; });
+        rects += rs.length;
+        if (rs.length !== 1) { problems.push(label + ": line " + i + " has " + rs.length + " rects"); return; }
+        var r = rs[0], x0 = r.left - origin.left, y0 = r.top - origin.top;
+        if (x0 < b[0] - 1 || x0 + r.width > b[0] + b[2] + 1 || y0 < b[1] - 1 || y0 + r.height > b[1] + b[3] + 1) {
+          problems.push(label + ": line " + i + " outside its band");
+        }
+      });
+      box.remove();
+      if (rects !== layout.lines.length) { problems.push(label + ": " + rects + " line rects for " + layout.lines.length + " lines"); }
+      return problems;
+    }
+    var did_ = did;
+    if (sendState === "review-styles-empty") {
+      ["Фото", "Оригинал", "основа", "Здесь появится фото со стилем — выберите стиль ниже",
+       "Размыть фон — создать · до $0.09", "Свечение — создать · до $0.09", "Контур — создать · до $0.09",
+       "Кто главный на фото (необязательно)"].forEach(function (t) {
+        see("#photo h2, #photo figcaption, #photo .photo-under span, #photo .photo-empty p, #photo .chip, #photo label", t);
+      });
+      tiles();
+    } else if (sendState === "review-styles") {
+      await images();
+      ["Оригинал", "основа", "Размыть фон", "Взять за основу", "Создать заново · до $0.09",
+       "Свечение — создать · до $0.09", "Контур — создать · до $0.09"].forEach(function (t) {
+        see("#photo figcaption, #photo .photo-under span, #photo .photo-under button, #photo .chip", t);
+      });
+      expectUnder("Оригинал", "основа");
+      expectUnder("Размыть фон", "Взять за основу");
+      if (/Размыть фон — создать/.test(document.querySelector("#photo").innerText)) {
+        out.problems.push("a chip repeats the shown style");
+      }
+      tiles();
+    } else if (sendState === "review-based") {
+      await images();
+      expectUnder("Размыть фон", "основа");
+      expectUnder("Оригинал", "Взять за основу");
+      ["основа", "Взять за основу", "Нажмите на фото-основу, чтобы сдвинуть центр кадра (Instagram и X)"].forEach(function (t) {
+        see("#photo .photo-under span, #photo .photo-under button, #photo .photo-hint", t);
+      });
+      if (!document.querySelector('.photo-tile:nth-child(2) [data-focus]')) { out.problems.push("the base tile is not the focus tile"); }
+      tiles();
+    } else if (sendState === "review-template") {
+      await until(function () { return api.reloads >= 1 || document.querySelector('.send-crops[role="alert"]'); },
+                  "the template crops", 90000);
+      if (api.reloads < 1) { out.problems.push("template crops: " + words(document.querySelector(".send-crops"))); }
+      out.crops = api.results.map(function (c) { return {network: c.network, width: c.width, height: c.height, layout: c.layout}; });
+      api.results.forEach(function (c) {
+        if (c.layout) { out.problems = out.problems.concat(checkLayout(c.layout, c.width, c.height, c.network)); }
+      });
+      // every size of item 1's first column, four quotes, both places, with and without a frame
+      var quotes = ["Маленькие шаги — новый взгляд.",
+                    ("Маленькие шаги каждый день открывают новый взгляд на привычный город и на работу, которую " +
+                     "делаешь каждое утро без спешки и без лишних слов вокруг").slice(0, 140),
+                    new Array(141).join("а"), "Small steps make room for a fresh perspective every day."];
+      var sweep = 0;
+      Object.keys(FIRST).forEach(function (key) {
+        var sz = FIRST[key];
+        quotes.forEach(function (q, qi) {
+          [["none", "bottom"], ["gold", "top"], ["white", "bottom"]].forEach(function (fa) {
+            var lay = window.MFAuthor.layoutTemplate(sz[0], sz[1], fa[0], q, fa[1]);
+            sweep += 1;
+            out.problems = out.problems.concat(checkLayout(lay, sz[0], sz[1], key + " q" + qi + " " + fa.join("/")));
+          });
+        });
+      });
+      out.sweep = sweep;
+      if (Array.from(quotes[1]).length !== 140) { out.problems.push("the long quote is not 140 characters"); }
+      // the frame is drawn inside the image: the pixel at (f/2, f/2) has the frame's colour
+      var src = await createImageBitmap(await canvasJpeg(400, 300, 5));
+      out.frames = {};
+      for (var colour of [["white", [255, 255, 255]], ["black", [0, 0, 0]], ["gold", [232, 196, 124]]]) {
+        var crop = await window.MFAuthor.makeCrop(src, {ratio: [1, 1], width: 300, height: 300, maxBytes: 5000000,
+                                                        frame: colour[0]}, [0.5, 0.5]);
+        var back = await createImageBitmap(crop.blob), cv = document.createElement("canvas");
+        cv.width = 300; cv.height = 300;
+        var g = cv.getContext("2d");
+        g.drawImage(back, 0, 0);
+        back.close();
+        var f = crop.layout.inset, px = Array.from(g.getImageData(Math.floor(f / 2), Math.floor(f / 2), 1, 1).data).slice(0, 3);
+        out.frames[colour[0]] = px;
+        if (px.some(function (v, i) { return Math.abs(v - colour[1][i]) > 12; })) {
+          out.problems.push(colour[0] + " frame pixel " + JSON.stringify(px));
+        }
+      }
+      src.close();
+      // at the limit: 140 characters on a 191 x 100 crop do not fit, and nothing is posted
+      var limit = window.MFAuthor.layoutTemplate(191, 100, "none", quotes[1], "bottom");
+      out.limit = {fits: limit.fits};
+      if (limit.fits) { out.problems.push("140 characters fit on 191 x 100"); }
+      var D = api.data, saved = {source: D.source, look: D.looks.instagram};
+      var posts = cFetch.filter(function (x) { return x.url.indexOf("/image?") >= 0; }).length;
+      D.source = "/photo?folder=my-photos&id=" + new URLSearchParams(location.search).get("probe_small") + "&v=orig";
+      D.looks.instagram = {ratio: "1.91:1", pair: [191, 100], frame: "none", quote: quotes[1], quote_at: "bottom",
+                           digest: saved.look.digest};
+      await api.prepare(["instagram"], D.focus);
+      var line = document.querySelector(".send-crops");
+      out.limit.line = words(line);
+      if (words(line).indexOf("Не удалось подготовить картинку для Instagram: цитата не помещается в 4 строки — сократите") !== 0) {
+        out.problems.push("the crop line at the limit: «" + words(line) + "»");
+      }
+      if (cFetch.filter(function (x) { return x.url.indexOf("/image?") >= 0; }).length !== posts) {
+        out.problems.push("a crop was posted at the limit");
+      }
+      D.source = saved.source;
+      D.looks.instagram = saved.look;
+      out.posts = cFetch.filter(function (x) { return x.url.indexOf("/image?") >= 0; }).map(function (x) { return x.status; });
+      next("review-template-after", "#send-cards-h");
+    } else if (sendState === "review-template-after") {
+      await images();
+      [["instagram", "ratio", "1:1"], ["instagram", "frame", "белая"], ["instagram", "quote_at", "внизу"],
+       ["x", "ratio", "1:1"], ["x", "frame", "чёрная"], ["x", "quote_at", "вверху"],
+       ["linkedin", "ratio", "1.91:1"], ["linkedin", "frame", "золотая"],
+       ["facebook", "ratio", "16:9"], ["facebook", "quote_at", "внизу"]].forEach(function (c) { seeSelect(c[0], c[1], c[2]); });
+      ["instagram", "x", "facebook"].forEach(function (n) {
+        var input = document.querySelector('.look[data-look="' + n + '"] [data-q]');
+        if (!input || !input.offsetWidth || !input.value) { out.problems.push("no quote input for " + n); }
+      });
+      [["instagram", "1 080 × 1 080"], ["x", "1 600 × 1 600"], ["linkedin", "1 910 × 1 000"], ["facebook", "2 048 × 1 152"]]
+        .forEach(function (c) { see('.send-card[data-network="' + c[0] + '"] .send-size', c[1], true); });
+      document.getElementById("send-cards-h").scrollIntoView();
+    } else if (sendState === "review-ratio") {
+      out.ratio = [];
+      for (var net of ["instagram", "facebook", "linkedin", "x"]) {
+        var sel = document.querySelector('.look[data-look="' + net + '"] select[data-k="ratio"]');
+        var order = CHOICES[net].filter(function (c) { return c !== sel.value; }).concat([sel.value]);
+        for (var choice of order) {
+          var r0 = api.reloads;
+          sel.value = choice;
+          sel.dispatchEvent(new Event("change", {bubbles: true}));
+          await until(function () { return api.reloads > r0 || document.querySelector('.send-crops[role="alert"]'); },
+                      "settings " + net + " " + choice, 20000);
+          api.idle();
+          var r1 = api.reloads;
+          await api.prepare([net], api.data.focus);
+          if (api.reloads === r1) { out.problems.push(net + " " + choice + ": " + words(document.querySelector(".send-crops"))); }
+          api.idle();
+          var last = api.results[api.results.length - 1] || {};
+          out.ratio.push({network: net, choice: choice, size: [last.width, last.height]});
+          var want = FIRST[net + " " + choice];
+          if (!want || last.network !== net || last.width !== want[0] || last.height !== want[1]) {
+            out.problems.push(net + " " + choice + " gave " + last.width + " x " + last.height + ", expected " + want);
+          }
+        }
+      }
+      out.posts = cFetch.filter(function (x) { return x.url.indexOf("/image?") >= 0; }).map(function (x) { return x.status; });
+      out.settings = cFetch.filter(function (x) { return x.url.indexOf("/settings") >= 0; }).map(function (x) { return x.status; });
+      if (out.posts.length !== 13 || out.posts.some(function (st) { return st !== 200; })) {
+        out.problems.push("crop posts " + JSON.stringify(out.posts) + ", expected 13 answered 200");
+      }
+    } else if (sendState === "review-highlight-loading") {
+      var sel_ = "#photo [data-c], .look [data-c]";
+      var before = widths(sel_);
+      document.querySelector('[data-style="blur"]').click();
+      await until(function () { return words(document.querySelector(".photo-status")).indexOf("Gemini рисует") >= 0; }, "running");
+      see(".photo-status", "Gemini рисует «Размыть фон»… до 3 минут");
+      disabledLook(sel_, before);
+      if (!cFetch.some(function (x) { return x.url.indexOf("/highlight") >= 0; })) { out.problems.push("no highlight POST"); }
+    } else if (sendState === "review-highlight" || sendState === "review-highlight-text" || sendState === "review-highlight-402") {
+      keep({month: words(document.getElementById("ai-month"))});
+      document.querySelector('[data-style="blur"]').click();
+      await until(function () { return api.went.length; }, "the highlight answer", 60000);
+      out.went = api.went;
+      out.calls = cFetch.filter(function (x) { return x.url.indexOf("/highlight") >= 0; }).map(function (x) { return x.status; });
+      if (sendState === "review-highlight") {
+        next("review-highlight-after", "#photo", "style=blur");
+      } else {
+        next(sendState + "-after", "#photo");
+      }
+    } else if (sendState === "review-highlight-after") {
+      await images();
+      ["Оригинал", "Размыть фон", "Взять за основу", "Создать заново · до $0.09"].forEach(function (t) {
+        see("#photo figcaption, #photo .photo-under button", t);
+      });
+      var right = document.querySelector('.photo-tile:nth-child(2) img'), left = document.querySelector('.photo-tile:nth-child(1) img');
+      out.loaded = [left && left.naturalWidth, right && right.naturalWidth, right && right.naturalHeight];
+      if (!left || !left.naturalWidth || !right || right.naturalWidth !== 1536 || right.naturalHeight !== 2048) {
+        out.problems.push("tile images " + JSON.stringify(out.loaded));
+      }
+      tiles();
+      var month = words(document.getElementById("ai-month"));
+      out.month = [kept().month, month];
+      if (month === kept().month) { out.problems.push("the month did not change after the call: " + month); }
+    } else if (sendState === "review-highlight-text-after") {
+      ["Gemini не вернул картинку", "Ответ Gemini: «I can describe the photo, but I cannot edit it.»", "Повторить · до $0.09"]
+        .forEach(function (t) { see("#photo .photo-error p, #photo .photo-error button", t); });
+    } else if (sendState === "review-highlight-402-after") {
+      see("#photo .photo-error p", LINE402.replace("{what}", "картинку"));
+      see("#photo .photo-error button", "Повторить · до $0.09");
+      noRaw();
+    } else if (sendState === "create-error-402") {
+      document.querySelector('[data-op="expand"]').click();
+      await until(function () { var e = document.querySelector(".create-error"); return e && !e.hidden && /HTTP 402/.test(e.textContent); },
+                  "the 402 line", 30000);
+      see(".create-error p", LINE402.replace("{what}", "тексты"));
+      see(".create-error button", "Повторить · до $0.05");
+      noRaw();
+    } else if (sendState === "review-base") {
+      var names = ["facebook", "instagram", "linkedin", "x"], before_ = {};
+      for (var n of names) { before_[n] = await sha("/create/" + did_ + "/file?name=" + n); }
+      keep({before: before_});
+      var under = document.querySelector('[data-base="blur"]');
+      if (!under) { out.problems.push("no «Взять за основу» under «Размыть фон»"); } else { under.click(); }
+      await until(function () { return api.reloads >= 1; }, "the base saved", 20000);
+      out.settings = cFetch.filter(function (x) { return x.url.indexOf("/settings") >= 0; }).map(function (x) { return x.status; });
+      next("review-base-make", "#photo");
+    } else if (sendState === "review-base-make") {
+      await until(function () { return api.reloads >= 1 || document.querySelector('.send-crops[role="alert"]'); },
+                  "four crops from the base", 90000);
+      out.source = api.data.source;
+      out.made = api.results.map(function (c) { return [c.network, c.width, c.height]; });
+      out.posts = cFetch.filter(function (x) { return x.url.indexOf("/image?") >= 0; }).map(function (x) { return x.status; });
+      if (!/\/file\?name=blur$/.test(out.source) || out.posts.length !== 4 || out.posts.some(function (st) { return st !== 200; })) {
+        out.problems.push("crops from the base: source " + out.source + ", posts " + JSON.stringify(out.posts));
+      }
+      next("review-base-after", "#photo");
+    } else if (sendState === "review-base-after") {
+      await images();
+      var was = kept().before || {};
+      out.after = {};
+      for (var m of ["facebook", "instagram", "linkedin", "x"]) {
+        var hash = await sha("/create/" + did_ + "/file?name=" + m), sz = await size("/create/" + did_ + "/file?name=" + m);
+        out.after[m] = sz;
+        if (!was[m] || hash === was[m]) { out.problems.push(m + " crop unchanged after the base switch"); }
+        if (sz[0] !== THIRD[m][0] || sz[1] !== THIRD[m][1]) { out.problems.push(m + " is " + sz + ", expected " + THIRD[m]); }
+        var img = document.querySelector('.send-card[data-network="' + m + '"] img');
+        if (!img || img.naturalWidth !== THIRD[m][0]) { out.problems.push("the " + m + " card does not show the new crop"); }
+      }
+      see(".send-ok", "Проблем нет · 4 сети", true);
+      document.getElementById("photo").scrollIntoView();
+      await sleep(50);
+      expectUnder("Размыть фон", "основа");
+      see("#photo .photo-under span", "основа");
+      tiles();
+    } else if (sendState === "review-styles-budget") {
+      var refusal = "Бюджет ИИ на ноябрь исчерпан: «Стиль фото» стоит до $0.09.";
+      see("#photo .create-notice", refusal);
+      var count = document.body.innerText.replace(/\u00a0/g, " ").split(refusal).length - 1;
+      if (count !== 1) { out.problems.push("the budget refusal shows " + count + " times"); }
+      disabledLook("#photo .chip[data-style]");
+      var monthEl = document.getElementById("ai-month");
+      if (!monthEl || words(monthEl) !== "ИИ · ноябрь $9.99 из $10.00 · лимит" || !monthEl.classList.contains("k-bad")) {
+        out.problems.push("the month reads «" + (monthEl && words(monthEl)) + "»");
+      }
+      tiles();
+    } else if (sendState === "review-styles-nokey") {
+      see("#photo .create-notice", "нет GEMINI_API_KEY в .env — стили фото недоступны");
+      disabledLook("#photo .chip[data-style], #photo [data-style].btn");
+      var take = document.querySelector('[data-base]');
+      if (!take || take.disabled) { out.problems.push("«Взять за основу» is disabled without a key"); }
+      tiles();
+    }
+  }
+
   // after the load event, so the browser has already scrolled to a #fragment
   function later() {
-    authorChecks().then(function () { return sendChecks(); }).then(function () { setTimeout(run, 100); }, function (err) {
+    authorChecks().then(function () { return sendChecks(); }).then(function () {
+      if (!window.MFProbeNext) { setTimeout(run, 100); }   // a staged state writes JSON on its last stage
+    }, function (err) {
       window.MFProbeAuthor = {problems: [err.message]}; setTimeout(run, 100);
     });
   }

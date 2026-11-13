@@ -655,6 +655,40 @@ def gemini_reply(value, *, status="completed", path="steps", usage=None):
     return resp(obj=data)
 
 
+# Slice C (authoring.md §18.8). Synthetic shapes, not vendor observations: the image block and
+# the 402 array body follow §9.2 and the line the live test of 2026-11-13 showed; G17 is open.
+STYLE_QUOTES = {"x": "Small steps, fresh angles.", "linkedin": "A pause is part of the work.",
+          "instagram": "Маленькі кроки — нові кути.", "facebook": "Іноді досить зупинитися й озирнутися."}
+GEMINI_402 = [{"error": {"code": 402, "message": "Your prepayment credits are depleted.",
+                         "status": "RESOURCE_EXHAUSTED"}}]
+MODEL_TEXT = "I can describe the photo, but I cannot edit it."
+IMAGE_USAGE = {"total_input_tokens": 3000, "total_output_tokens": 1800, "total_thought_tokens": 0,
+               "total_tokens": 4800}
+_STYLE: dict = {}
+
+
+def style_jpeg() -> bytes:
+    """The fixed-seed 1 536 x 2 048 JPEG FakeGemini answers for a style (made once)."""
+    if "jpeg" not in _STYLE:
+        _STYLE["jpeg"] = make_photo(1536, 2048, 5150)
+    return _STYLE["jpeg"]
+
+
+def image_reply(data: bytes | None = None, text: str | None = None, *, status="completed",
+                mime="image/jpeg", usage=None):
+    """A synthetic Interactions reply to an image request: an optional text block, then the
+    image block, inside one model_output step."""
+    import base64
+    from tests.base import resp
+    content = []
+    if text is not None:
+        content.append({"type": "text", "text": text})
+    if data is not None:
+        content.append({"type": "image", "mime_type": mime, "data": base64.b64encode(data).decode("ascii")})
+    return resp(obj={"status": status, "usage": usage or IMAGE_USAGE,
+                     "steps": [{"type": "model_output", "content": content}]})
+
+
 class FakeGemini:
     """No sockets. Calls identified from their schema/audio; private display metadata only
     picks held/error drafts. Every fixture response is synthetic, not a vendor observation."""
@@ -666,18 +700,29 @@ class FakeGemini:
         self.fail = set()
         self.fail_voice_once = set()   # drafts whose next voice call answers 503, then recovers
         self.fail_topics_once = set()  # drafts whose next topics call answers 503, then recovers
+        self.images = {}               # slice C: draft -> "jpeg" (default), "text" or "png"
+        self.e402 = set()              # drafts whose every call answers 402 with the array body
 
     def send(self, req):
         from tests.base import resp
         self.requests.append(req)
         self.entered.set()
         did = req.fields.get("draft")
-        if did in self.hold and not self.release.wait(120):
+        if did in self.hold and not self.release.wait(4 * 3600 if req.fields.get("op") == "highlight" else 120):
             from poster.http import TransportError
             raise TransportError("fixture deadline")
         if did in self.fail:
             return resp(503, {"error": {"message": "temporarily unavailable"}})
+        if did in self.e402:
+            return resp(402, GEMINI_402)
         body = json.loads(req.body)
+        if body.get("response_format", {}).get("type") == "image":
+            kind = self.images.get(did, "jpeg")
+            if kind == "text":
+                return image_reply(text=MODEL_TEXT)
+            if kind == "png":
+                return image_reply(make_png(64, 64, 3), mime="image/png")
+            return image_reply(style_jpeg())
         schema = body.get("response_format", {}).get("schema", {}).get("properties", {})
         if did in self.fail_voice_once and not schema:
             self.fail_voice_once.discard(did)
@@ -979,4 +1024,79 @@ def build_send(root: str, *, problems=False, crash=False, live_widths=(), go_wid
             "ts": config.iso_utc(fx.now), "package": did, "target": "fb:kotleta",
             "network": "facebook", "status": "published", "post_id": f"{PAGE_ID}_9",
             "url": f"https://www.facebook.com/{PAGE_ID}_9"}])
+    return fx
+
+
+# ---------------------------------------------------------------- Картинки (authoring.md §18.6, §18.8)
+
+STYLED_SIZES = {"facebook": (1536, 2048), "instagram": (1080, 1350), "linkedin": (1536, 2048),
+                "x": (1536, 864)}     # the crops of a 1 536 x 2 048 style base (§18.5 item 1)
+TPL_LOOK = {"instagram": {"ratio": "1:1", "frame": "white", "quote_at": "bottom"},
+            "x": {"ratio": "1:1", "frame": "black", "quote_at": "top"},
+            "linkedin": {"ratio": "1.91:1", "frame": "gold"},
+            "facebook": {"ratio": "16:9", "quote_at": "bottom"}}
+IMAGE_LIVE = ("tpl", "ratio", "hold", "hl", "text", "e402", "base", "x402")
+
+
+def write_style(fx: Fixture, did: str, style: str = "blur") -> str:
+    """img/<style>.jpg as the highlight route stores it (0600 in a 0700 img/)."""
+    folder = os.path.join(fx.paths.content, "drafts", did, "img")
+    os.makedirs(folder, mode=0o700, exist_ok=True)
+    path = os.path.join(folder, f"{style}.jpg")
+    with open(path, "wb") as fh:
+        fh.write(style_jpeg())
+    os.chmod(path, 0o600)
+    return path
+
+
+def build_images(root: str, *, key=True, ledger_usd=None, live_widths=()) -> Fixture:
+    """The «images» fixtures of authoring.md §18.6, on top of `build_data`: `my-photos` with
+    the 3 024 x 4 032 photo.
+
+    - static: `plain` (four texts, D′ crops, no style), `styled` (as `plain`, plus
+      img/blur.jpg 1 536 x 2 048 and four quotes) and `based` (base `blur`, its crops at the
+      style's sizes); `key=False` drops GEMINI_API_KEY, `ledger_usd` fills the AI month;
+    - `live_widths`: per width, the drafts of IMAGE_LIVE (`<state>-<w>`), each changed or
+      spent on by one state at one width.
+    """
+    from unittest import mock
+    from decimal import Decimal
+    from factory.authoring import budget, drafts
+    fx = build_data(root)
+    if not key:
+        with open(fx.paths.env_file, encoding="utf-8") as fh:
+            lines = [line for line in fh if not line.startswith("GEMINI_API_KEY=")]
+        with open(fx.paths.env_file, "w", encoding="utf-8") as fh:
+            fh.writelines(lines)
+    big = store_photo(fx, "my-photos", big_photo(), _BIG["thumb"], _BIG["view"], "portrait.jpg")
+    small = make_photo(320, 240, 1500)   # the probe's 191 x 100 limit case (§18.5 item 3)
+    fx.small_photo = store_photo(fx, "my-photos", small, make_photo(160, 120, 1500), small, "small.jpg")
+    store = drafts.Store(fx.paths.content, fx.clock, fx.machine_tz)
+    fx.image_ids = {}
+    names = ([f"{state}-{w}" for w in live_widths for state in IMAGE_LIVE] if live_widths
+             else ["plain", "styled", "based"])
+    for i, name in enumerate(names):
+        did = send_draft(fx, store, big, name, 0x100 + i)
+        fx.image_ids[name] = did
+        kind = name.rsplit("-", 1)[0] if live_widths else name
+        if kind == "x402":
+            # the draft page before «Развернуть»: a chosen topic and no texts yet
+            store.update(did, lambda d: d.update(variants={}))
+            continue
+        if kind in ("styled", "base", "based"):
+            write_style(fx, did)
+        if kind in ("styled", "tpl"):
+            store.update(did, lambda d: d.update(quotes=dict(STYLE_QUOTES)))
+        if kind == "tpl":
+            store.update(did, lambda d: d.update(look=json.loads(json.dumps(TPL_LOOK))))
+            continue                     # no crops: the page makes them
+        if kind == "based":
+            store.update(did, lambda d: d.update(base="blur"))
+            write_crops(fx, did, STYLED_SIZES, seed=40)
+            continue
+        write_crops(fx, did)
+    if ledger_usd is not None:
+        ledger = budget.Ledger(fx.paths.state, fx.clock)
+        rid = ledger.reserve("topics", Decimal(str(ledger_usd)), Decimal("10"), "fixture")
+        ledger.settle(rid, "ok", actual=Decimal(str(ledger_usd)))
     return fx

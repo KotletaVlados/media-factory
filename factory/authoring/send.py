@@ -21,6 +21,7 @@ import secrets
 import shutil
 import stat
 import threading
+import unicodedata
 from dataclasses import dataclass, field
 from decimal import Decimal
 from zoneinfo import ZoneInfo
@@ -37,9 +38,16 @@ OUT = "out"
 MEDIA = "media"
 LOCK_FILE = ".publish.lock"
 NETWORKS = ("facebook", "instagram", "linkedin", "x")
-RATIO = {"instagram": (4, 5), "x": (16, 9)}          # D19: exact integer multiples
+RATIO = {"instagram": (4, 5), "x": (16, 9)}          # D19: D′'s default ratios
 MAX_SIZE = {"instagram": (1080, 1350), "x": (1600, 900)}
 LONG_SIDE = 2048                                       # Facebook and LinkedIn
+# Slice C (authoring.md §18 D28): every fixed ratio a:b is a*k x b*k inside the network's cap
+# box; «как у фото» keeps the base's ratio with the long side at most the network's cap.
+RATIOS = {"4:5": (4, 5), "1:1": (1, 1), "1.91:1": (191, 100), "16:9": (16, 9)}
+CAP_BOX = {"instagram": (1080, 1350), "x": (1600, 1600), "facebook": (2048, 2048),
+           "linkedin": (2048, 2048)}
+CAP_LONG = {"x": 1600, "facebook": 2048, "linkedin": 2048}
+IMG = "img"
 BYTES = {"facebook": rules.FB_MAX_BYTES, "instagram": rules.IG_MAX_BYTES,
          "x": rules.X_MAX_BYTES}
 OFFER_DAYS = ("mon", "wed", "fri")
@@ -56,6 +64,8 @@ NO_TEXT = "нет текста — нажмите «Развернуть»"
 HELD = "повторять нечего: {names} уже отмечены в журнале постера как опубликованные, удалённые или неизвестные — проверьте аккаунт"
 UNKNOWN = "прошлая попытка закончилась неизвестно — проверьте аккаунт"
 RELOGIN = "войдите заново: python3 -m poster login linkedin"
+STYLE_FIRST = "сначала создайте этот стиль"
+QUOTE_EMPTY = "впишите цитату"
 
 
 class Problems(Refusal):
@@ -73,26 +83,36 @@ def _round(value: float) -> int:
     return int(math.floor(value + 0.5))
 
 
-def crop_size(network: str, w: int, h: int) -> tuple:
-    """D19: Instagram 4k x 5k (k <= 270), X 16k x 9k (k <= 100), Facebook and LinkedIn the
-    original ratio with the long side min(2048, the original's). Nothing is upscaled."""
-    if network in RATIO:
-        a, b = RATIO[network]
-        k = min(MAX_SIZE[network][0] // a, w // a, h // b)
+def ratio_name(network: str, ratio: str | None) -> str:
+    return ratio or drafts.CHOICES[network][0]
+
+
+def crop_size(network: str, w: int, h: int, ratio: str | None = None) -> tuple:
+    """D19 and D28: a fixed ratio a:b gives a*k x b*k with k = min(capW // a, capH // b,
+    w // a, h // b); «как у фото» (`orig`) keeps the base's ratio with the long side
+    min(cap, the base's). Nothing is upscaled. `ratio` defaults to the network's first choice
+    (D′'s crop). A k of 0 gives (0, 0): the base is too small for that ratio."""
+    name = ratio_name(network, ratio)
+    if name != "orig":
+        a, b = RATIOS[name]
+        cw, ch = CAP_BOX[network]
+        k = min(cw // a, ch // b, w // a, h // b)
         return a * k, b * k
     long = max(w, h)
-    side = min(LONG_SIDE, long)
+    side = min(CAP_LONG[network], long)
     if w >= h:
         return side, max(1, _round(h * side / long))
     return max(1, _round(w * side / long)), side
 
 
-def crop_window(network: str, w: int, h: int, fx: float = 0.5, fy: float = 0.5) -> tuple:
+def crop_window(network: str, w: int, h: int, fx: float = 0.5, fy: float = 0.5,
+                ratio: str | None = None) -> tuple:
     """(x, y, width, height) of the source window: the largest one of the network's ratio,
-    centred on the focus and clamped inside the photo (D20); the whole photo otherwise."""
-    if network not in RATIO:
+    centred on the focus and clamped inside the photo (D20); the whole photo for «как у фото»."""
+    name = ratio_name(network, ratio)
+    if name == "orig":
         return 0, 0, w, h
-    a, b = RATIO[network]
+    a, b = RATIOS[name]
     if w * b > h * a:
         ww, wh = _round(h * a / b), h
     else:
@@ -102,23 +122,26 @@ def crop_window(network: str, w: int, h: int, fx: float = 0.5, fy: float = 0.5) 
     return x, y, ww, wh
 
 
-def crop_problem(network: str, info, view: tuple) -> str:
-    """Why a posted crop does not fit its network (§17.5 item 3), or ""."""
+def crop_problem(network: str, info, view: tuple, ratio: str | None = None) -> str:
+    """Why a posted crop does not fit its network's look (§17.5 item 3, §18.5 item 1), or "".
+    `view` is the base's size: the view copy's for the original, the style file's for a style."""
     w, h = info.width, info.height
     vw, vh = view
-    if network in RATIO:
-        a, b = RATIO[network]
+    name = ratio_name(network, ratio)
+    if name != "orig":
+        a, b = RATIOS[name]
         if w * b != h * a:
-            return f"соотношение сторон не {a}:{b}"
-        if w > MAX_SIZE[network][0]:
-            mw, mh = MAX_SIZE[network]
-            return f"больше {S.group(mw)} × {S.group(mh)}"
+            return f"соотношение сторон не {name}"
+        cw, ch = CAP_BOX[network]
+        if w > cw or h > ch:
+            return f"больше {S.group(cw)} × {S.group(ch)}"
         return ""
+    cap = CAP_LONG[network]
     if abs(w * vh - h * vw) > 0.01 * h * vw:
         return "соотношение сторон не как у фото"
-    if max(w, h) > LONG_SIDE:
-        return f"длинная сторона больше {S.group(LONG_SIDE)}"
-    if max(w, h) < max(vw, vh):
+    if max(w, h) > cap:
+        return f"длинная сторона больше {S.group(cap)}"
+    if max(w, h) < min(cap, max(vw, vh)):
         return "меньше копии фото"
     return ""
 
@@ -515,17 +538,171 @@ class Sender:
         return found
 
     def crop_file(self, did: str, name: str) -> str | None:
-        """The file GET /create/<id>/file serves: a target network's crop that sniffs JPEG."""
-        if name not in NETWORKS:
+        """The file GET /create/<id>/file serves: a target network's crop (`out/`) or a style
+        result (`img/`, slice C) that sniffs JPEG. Any other name is None (404)."""
+        if name not in NETWORKS and name not in drafts.STYLES:
             return None
         try:
             self.store.load(did)
         except Refusal:
             return None
-        path = self.crops(did).get(name)
+        path = self.crops(did).get(name) if name in NETWORKS else self.style_file(did, name)
         if path is None or rules.sniff(path).format != "jpeg":
             return None
         return path
+
+    # ------------------------------------------------------------ styles (slice C, §18.2)
+
+    def img_dir(self, did: str, create: bool = False) -> str | None:
+        return _real_dir(os.path.join(self.store.path(did), IMG), create)
+
+    def style_file(self, did: str, style: str) -> str | None:
+        """img/<style>.jpg when it is a regular file in a real img/ directory, else None."""
+        if style not in drafts.STYLES:
+            return None
+        try:
+            folder = self.img_dir(did)
+        except Refusal:
+            return None
+        path = os.path.join(folder, f"{style}.jpg") if folder else None
+        try:
+            if path and stat.S_ISREG(os.lstat(path).st_mode):
+                return path
+        except FileNotFoundError:
+            pass
+        return None
+
+    def styles(self, did: str) -> dict:
+        """style -> (path, mtime_ns) of each stored result."""
+        out = {}
+        for style in drafts.STYLES:
+            path = self.style_file(did, style)
+            if path:
+                out[style] = (path, os.lstat(path).st_mtime_ns)
+        return out
+
+    def base_size(self, did: str, draft: dict) -> tuple:
+        """The size «как у фото» keeps: the view copy's index size for the original, the
+        sniffed style file for a style (§18.5 item 1)."""
+        base = draft.get("base", "orig")
+        if base == "orig":
+            return self.view_size(draft)
+        path = self.style_file(did, base)
+        info = rules.sniff(path) if path else None
+        if info is None or info.format != "jpeg" or not (info.width and info.height):
+            raise Refusal(STYLE_FIRST)
+        return info.width, info.height
+
+    def store_style(self, did: str, style: str, data: bytes) -> dict:
+        """Write img/<style>.jpg (0600, img/ 0700) under `.lock`, clear `highlight_error`, and
+        when the style is the base drop every crop (§18.5 item 8). A sent draft stores
+        nothing (409). Returns (draft, the sniffed ImageInfo)."""
+        if self.store.load(did)["state"] != "draft":   # sent or gone during the call: no img/
+            raise Refusal(drafts.SENT)
+        folder = self.img_dir(did, create=True)
+        tmp = os.path.join(folder, ".up-" + secrets.token_hex(8))
+        _write_new(tmp, data)
+        try:
+            info = rules.sniff(tmp)
+            if info.format != "jpeg" or not (info.width and info.height):
+                raise Refusal(gemini.NOT_JPEG, 502)
+            with self.store.locked(did):
+                draft = self.store.load(did)
+                if draft["state"] != "draft":
+                    raise Refusal(drafts.SENT)
+                os.replace(tmp, os.path.join(folder, f"{style}.jpg"))
+                tmp = None
+                draft.pop("highlight_error", None)
+                if draft.get("base", "orig") == style:
+                    out = self.out_dir(did)
+                    for n in NETWORKS:
+                        if out:
+                            _unlink(os.path.join(out, f"{n}.jpg"))
+                self.store.save(did, draft)
+        finally:
+            _unlink(tmp)
+        return draft, info
+
+    def look_view(self, did: str, draft: dict) -> dict:
+        """network -> its look, digest and ratio pair for the page (send.js)."""
+        out = {}
+        for n in self.networks():
+            value = drafts.look(draft, n)
+            name = value["ratio"]
+            out[n] = dict(value, digest=drafts.look_digest(draft, n),
+                          pair=list(RATIOS[name]) if name != "orig" else None,
+                          stored=(draft.get("quotes") or {}).get(n, ""))
+        return out
+
+    def set_look(self, did: str, data: dict) -> dict:
+        """POST /create/<id>/settings (§18.3): `{base}` or `{network, ratio?, frame?, quote_at?,
+        quote?}`. Under `.lock` it validates, saves, and deletes `out/<n>.jpg` of every
+        network whose look digest changed (D30)."""
+        if not isinstance(data, dict) or not data:
+            raise Refusal("неверный запрос", 400)
+        if "base" in data:
+            if set(data) != {"base"} or data["base"] not in drafts.BASES:
+                raise Refusal("неверный запрос", 400)
+        else:
+            if any(k not in ("network", "ratio", "frame", "quote_at", "quote") for k in data):
+                raise Refusal("неверный запрос", 400)
+            n = data.get("network")
+            if n not in self.networks() or len(data) < 2:
+                raise Refusal("неверный запрос", 400)
+            if ("ratio" in data and data["ratio"] not in drafts.CHOICES[n]
+                    or "frame" in data and data["frame"] not in drafts.FRAMES
+                    or "quote_at" in data and data["quote_at"] not in drafts.PLACES):
+                raise Refusal("неверный запрос", 400)
+            if "quote" in data:
+                if not isinstance(data["quote"], str):
+                    raise Refusal("неверный запрос", 400)
+                quote = unicodedata.normalize("NFC", data["quote"]).strip()
+                problem = drafts.quote_problem(quote)
+                if problem:
+                    raise Refusal(problem, 400 if "строка" in problem else 409)
+        with self.store.locked(did):
+            draft = self.store.load(did)
+            if draft["state"] != "draft":
+                raise Refusal(drafts.SENT)
+            before = json.loads(json.dumps(draft))
+            if "base" in data:
+                if data["base"] != "orig" and not self.style_file(did, data["base"]):
+                    raise Refusal(STYLE_FIRST)
+                draft["base"] = data["base"]
+                if draft["base"] == "orig":
+                    draft.pop("base")
+            else:
+                n = data["network"]
+                item = dict((draft.get("look") or {}).get(n) or {})
+                item.update({k: data[k] for k in drafts.LOOK_KEYS if k in data})
+                for k, default in (("ratio", drafts.CHOICES[n][0]), ("frame", "none"),
+                                   ("quote_at", "none")):
+                    if item.get(k) == default:
+                        item.pop(k)
+                quotes = dict(draft.get("quotes") or {})
+                if "quote" in data:
+                    if quote:
+                        quotes[n] = quote
+                    else:
+                        quotes.pop(n, None)
+                if item.get("quote_at", "none") != "none" and not quotes.get(n, "").strip():
+                    raise Refusal(QUOTE_EMPTY)
+                look = dict(draft.get("look") or {})
+                if item:
+                    look[n] = item
+                else:
+                    look.pop(n, None)
+                draft["look"] = look
+                draft["quotes"] = quotes
+                for key in ("look", "quotes"):
+                    if not draft[key]:
+                        draft.pop(key)
+            drafts.drop_changed(self.store.path(did), before, draft, NETWORKS)
+            self.store.save(did, draft)
+        crops = self.crops(did)
+        return {"base": draft.get("base", "orig"),
+                "look": {n: v for n, v in self.look_view(did, draft).items()},
+                "missing": [n for n in self.networks() if n not in crops]}
 
     def view_size(self, draft: dict) -> tuple:
         try:
@@ -542,10 +719,16 @@ class Sender:
     def focus(draft: dict) -> list:
         return draft.get("focus") or [0.5, 0.5]
 
-    def store_crop(self, did: str, network: str, fx: str, fy: str, body: bytes) -> dict:
-        """POST /create/<id>/image (§17.5 item 3): sniff, Exif walk, `check_image`, the
-        network's ratio and size, the focus the page drew with; then out/.up-* moved into
-        place under `.lock`. Any refusal leaves nothing behind."""
+    def cropped(self, draft: dict) -> list:
+        """D35: the target networks whose ratio is not «как у фото», which a focus tap moves."""
+        return [n for n in self.networks() if drafts.look(draft, n)["ratio"] != "orig"]
+
+    def store_crop(self, did: str, network: str, fx: str, fy: str, body: bytes,
+                   look: str | None = None) -> dict:
+        """POST /create/<id>/image (§17.5 item 3, §18.5 item 1): sniff, Exif walk,
+        `check_image`, the look's ratio and size against the base, the focus and the look
+        the page drew with; then out/.up-* moved into place under `.lock`. Any refusal leaves
+        nothing behind. An absent `look` stands for the default look (D′'s posts)."""
         if network not in self.networks():
             raise Refusal("неверная сеть", 400)
         try:
@@ -554,10 +737,16 @@ class Sender:
             raise Refusal("неверный кадр", 400) from None
         if not all(math.isfinite(v) and 0 <= v <= 1 for v in focus):
             raise Refusal("неверный кадр", 400)
+        if look is not None and not re.fullmatch(r"[0-9a-f]{12}", look):
+            raise Refusal("неверный кадр", 400)
+        posted = look or drafts.default_digest(network)
         draft = self.store.load(did)
         if draft["state"] != "draft":
             raise Refusal(drafts.SENT)
-        view = self.view_size(draft)
+        if drafts.look_digest(draft, network) != posted:
+            raise Refusal(FOCUS_MOVED)
+        view = self.base_size(did, draft)
+        ratio = drafts.look(draft, network)["ratio"]
         out = self.out_dir(did, create=True)
         tmp = os.path.join(out, ".up-" + secrets.token_hex(8))
         _write_new(tmp, body)
@@ -573,7 +762,7 @@ class Sender:
             errors = rules.check_image(network, info).errors
             if errors:
                 raise Refusal(image_words(network, info, errors[0]))
-            problem = crop_problem(network, info, view)
+            problem = crop_problem(network, info, view, ratio)
             if problem:
                 raise Refusal(f"картинка {S.group(info.width)} × {S.group(info.height)} "
                               f"не подходит: {problem}")
@@ -581,7 +770,7 @@ class Sender:
                 draft = self.store.load(did)
                 if draft["state"] != "draft":
                     raise Refusal(drafts.SENT)
-                if self.focus(draft) != focus:
+                if self.focus(draft) != focus or drafts.look_digest(draft, network) != posted:
                     raise Refusal(FOCUS_MOVED)
                 os.replace(tmp, os.path.join(out, f"{network}.jpg"))
                 tmp = None
@@ -591,7 +780,8 @@ class Sender:
                 "bytes": info.size}
 
     def set_focus(self, did: str, data: dict) -> dict:
-        """POST /create/<id>/focus: save the point and drop the Instagram and X crops."""
+        """POST /create/<id>/focus: save the point and drop the crops of every target network
+        whose ratio is not «как у фото» (D35)."""
         values = [data.get("fx"), data.get("fy")]
         if not all(isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
                    and 0 <= v <= 1 for v in values):
@@ -601,7 +791,7 @@ class Sender:
         def mutate(d):
             d["focus"] = focus
             out = self.out_dir(did)
-            for n in RATIO:
+            for n in self.cropped(d):
                 if out:
                     _unlink(os.path.join(out, f"{n}.jpg"))
         self.store.update(did, mutate)

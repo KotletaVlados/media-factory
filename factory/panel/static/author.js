@@ -58,18 +58,26 @@
     });
   }
 
-  // Slice D′ (authoring.md §17.1, D18–D20). The output size of one network's plain crop for
-  // an original of w x h (D19): Instagram 4k x 5k (k <= 270), X 16k x 9k (k <= 100), Facebook
-  // and LinkedIn the original ratio with the long side min(2048, the original's). Never
-  // upscaled. send.py's crop_size is the same rule.
-  var CROP = {instagram: [4, 5, 270], x: [16, 9, 100]};
-  function cropSize(network, w, h) {
-    var r = CROP[network];
+  // Slice D′ (authoring.md §17.1, D18–D20) and slice C (§18 D28). The output size of one
+  // network's crop of a base of w x h. A fixed ratio a:b gives a*k x b*k with
+  // k = min(capW / a, capH / b, w / a, h / b), all floored; «как у фото» ("orig") keeps the
+  // base's ratio with the long side min(cap, the base's). Never upscaled. `ratio` defaults to
+  // the network's first choice, which is D′'s crop. A k of 0 gives [0, 0]. send.py's
+  // crop_size is the same rule.
+  var RATIOS = {"4:5": [4, 5], "1:1": [1, 1], "1.91:1": [191, 100], "16:9": [16, 9]};
+  var CAP_BOX = {instagram: [1080, 1350], x: [1600, 1600], facebook: [2048, 2048], linkedin: [2048, 2048]};
+  var CAP_LONG = {x: 1600, facebook: 2048, linkedin: 2048};
+  var FIRST = {instagram: "4:5", facebook: "orig", linkedin: "orig", x: "16:9"};
+  function cropSize(network, w, h, ratio) {
+    var name = ratio || FIRST[network];
+    var r = RATIOS[name];
     if (r) {
-      var k = Math.min(r[2], Math.floor(w / r[0]), Math.floor(h / r[1]));
+      var cap = CAP_BOX[network];
+      var k = Math.min(Math.floor(cap[0] / r[0]), Math.floor(cap[1] / r[1]),
+                       Math.floor(w / r[0]), Math.floor(h / r[1]));
       return [r[0] * k, r[1] * k];
     }
-    var long = Math.max(w, h), side = Math.min(2048, long);
+    var long = Math.max(w, h), side = Math.min(CAP_LONG[network], long);
     return w >= h ? [side, Math.max(1, Math.round(h * side / long))] :
       [Math.max(1, Math.round(w * side / long)), side];
   }
@@ -92,11 +100,123 @@
             Math.round(Math.min(Math.max(focus[1] * h - wh / 2, 0), h - wh)), ww, wh];
   }
 
-  // One plain crop of a decoded original (no effects): spec = {ratio, width, height,
-  // maxBytes}. JPEG at 0.9, then 0.8 and 0.7 while the file is over maxBytes. The canvas
-  // writes no camera metadata. Resolves {blob, width, height, window, quality}.
+  // Slice C (§18.4, D31): the frame and the quote band of a W x H crop, laid out with the
+  // canvas's own measureText, so what is measured is what is drawn. The frame is
+  // f = max(16, round(2.5 % of the short side)) px inside the edges. The quote is white 600
+  // system-ui on a band of rgba(0, 0, 0, .6) across the inner width, centred on the middle of
+  // the top or bottom third of the inner area; its font starts at 6 % of the width and steps
+  // down by 1 px to max(10, 2.5 % of the width); at most 4 lines of at most
+  // min(0.86 W, inner width - 2 x padding). A word longer than a line is broken between
+  // characters; nothing else changes the text. `fits` is false when no size gives 4 lines.
+  var FRAME_COLOURS = {white: "#ffffff", black: "#000000", gold: "#e8c47c"};
+  var QUOTE_LINES = 4, LINE_HEIGHT = 1.25;
+  var measurer = null;
+  function quoteFont(px) { return "600 " + px + "px system-ui, sans-serif"; }
+  function wrap(g, text, max) {
+    var lines = [], line = "";
+    function push(word) {
+      var probe = line ? line + " " + word : word;
+      if (g.measureText(probe).width <= max) {
+        line = probe;
+        return;
+      }
+      if (line) {
+        lines.push(line);
+        line = "";
+      }
+      if (g.measureText(word).width <= max) {
+        line = word;
+        return;
+      }
+      Array.from(word).forEach(function (ch) {   // a word longer than the line
+        if (line && g.measureText(line + ch).width > max) {
+          lines.push(line);
+          line = "";
+        }
+        line += ch;
+      });
+    }
+    text.split(" ").filter(function (word) { return word.length; }).forEach(push);
+    if (line) {
+      lines.push(line);
+    }
+    return lines;
+  }
+  function layoutTemplate(W, H, frame, quote, at) {
+    var inset = frame && frame !== "none" ? Math.max(16, Math.round(0.025 * Math.min(W, H))) : 0;
+    var out = {inset: inset, band: null, font: "", size: 0, lines: [], fits: true, width: W, height: H};
+    if (!quote || !at || at === "none") {
+      return out;
+    }
+    measurer = measurer || document.createElement("canvas").getContext("2d");
+    var g = measurer, iw = W - 2 * inset, ih = H - 2 * inset;
+    var start = Math.floor(0.06 * W), least = Math.max(10, Math.ceil(0.025 * W));
+    for (var px = Math.max(start, least); px >= least; px -= 1) {
+      g.font = quoteFont(px);
+      var pad = 0.5 * px, max = Math.min(0.86 * W, iw - 2 * pad), lh = LINE_HEIGHT * px;
+      if (max <= 0) {
+        break;
+      }
+      var lines = wrap(g, quote, max);
+      var bh = lines.length * lh + 2 * pad;
+      if (lines.length > QUOTE_LINES || bh > ih) {
+        continue;
+      }
+      var centre = inset + ih * (at === "top" ? 1 / 6 : 5 / 6);
+      var top = Math.min(Math.max(centre - bh / 2, inset), inset + ih - bh);
+      out.band = [inset, top, iw, bh];
+      out.font = quoteFont(px);
+      out.size = px;
+      out.padding = pad;
+      out.max = max;
+      out.lineHeight = lh;
+      out.lines = lines.map(function (text, i) {
+        var w = g.measureText(text).width;
+        return {text: text, x: W / 2 - w / 2, y: top + pad + i * lh, w: w};
+      });
+      return out;
+    }
+    out.fits = false;
+    return out;
+  }
+
+  function drawTemplate(g, layout, frame) {
+    var W = layout.width, H = layout.height, f = layout.inset;
+    if (layout.band) {
+      var b = layout.band;
+      g.fillStyle = "rgba(0, 0, 0, 0.6)";
+      g.fillRect(b[0], b[1], b[2], b[3]);
+      g.fillStyle = "#ffffff";
+      g.font = layout.font;
+      g.textBaseline = "middle";
+      g.textAlign = "left";
+      layout.lines.forEach(function (line) {
+        g.fillText(line.text, line.x, line.y + layout.lineHeight / 2);
+      });
+    }
+    if (f) {
+      g.fillStyle = FRAME_COLOURS[frame];
+      g.fillRect(0, 0, W, f);
+      g.fillRect(0, H - f, W, f);
+      g.fillRect(0, f, f, H - 2 * f);
+      g.fillRect(W - f, f, f, H - 2 * f);
+    }
+  }
+
+  // One crop of a decoded base: spec = {ratio, width, height, maxBytes} and, in slice C,
+  // the optional {frame, quote, quoteAt}. JPEG at 0.9, then 0.8 and 0.7 while the file is
+  // over maxBytes. The canvas writes no camera metadata. Resolves {blob, width, height,
+  // window, quality, layout}; a quote that does not fit rejects with code "quote" before
+  // anything is drawn. With no frame and no quote this is D′'s plain crop, unchanged.
   function makeCrop(bitmap, spec, focus) {
     var win = cropWindow(bitmap.width, bitmap.height, spec.ratio, focus || [0.5, 0.5]);
+    var templated = (spec.frame && spec.frame !== "none") || (spec.quote && spec.quoteAt && spec.quoteAt !== "none");
+    var layout = templated ? layoutTemplate(spec.width, spec.height, spec.frame, spec.quote, spec.quoteAt) : null;
+    if (layout && !layout.fits) {
+      var err = new Error("quote");
+      err.code = "quote";
+      return Promise.reject(err);
+    }
     return createImageBitmap(bitmap, win[0], win[1], win[2], win[3],
                              {resizeWidth: spec.width, resizeHeight: spec.height, resizeQuality: "high"})
       .then(function (small) {
@@ -108,6 +228,9 @@
         g.fillRect(0, 0, spec.width, spec.height);
         g.drawImage(small, 0, 0);
         small.close();
+        if (layout) {
+          drawTemplate(g, layout, spec.frame);
+        }
         var qualities = [0.9, 0.8, 0.7];
         function attempt(i) {
           return new Promise(function (resolve, reject) {
@@ -119,7 +242,7 @@
               return attempt(i + 1);
             }
             return {blob: blob, width: spec.width, height: spec.height, window: win,
-                    quality: qualities[i]};
+                    quality: qualities[i], layout: layout};
           });
         }
         return attempt(0);
@@ -160,7 +283,8 @@
   }
 
   window.MFAuthor = {makeCopies: makeCopies, uploadFile: uploadFile, makeCrop: makeCrop,
-                     cropSize: cropSize, cropWindow: cropWindow};
+                     cropSize: cropSize, cropWindow: cropWindow, layoutTemplate: layoutTemplate,
+                     RATIOS: RATIOS};
 
   var section = document.querySelector("section[data-photos]");
   if (!section) {

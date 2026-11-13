@@ -51,6 +51,14 @@ first screen, the dialogs (a double click on the opener, focus inside, a click b
 Tab and Escape are then pressed over DevTools), the crop sizes and windows, and the focus tap;
 afterwards the stored crops, the focus and the one publish call are checked here.
 
+The image states (authoring.md §18.6) run on three «images» fixtures (static drafts; one with the
+AI month at $9.99, one without the key) and «images-live» (a draft per state and width, each on its
+own panel so a held Gemini call takes no other state's slot). States that reload the page run in
+stages over one DevTools session: the probe names the next URL (MFProbeNext), the check opens it in
+the same tab, and only the last stage writes the JSON (`review-template`, `review-highlight*`,
+`review-base`). Afterwards the stored crops, style files, draft errors and the static fixtures'
+unchanged files are checked here.
+
 It also computes the WCAG contrast of every text colour pair from panel.css. It prints the
 snapshot build time (`snapshot_ms`, budget 1000 ms) and exits 1 on any finding.
 
@@ -67,6 +75,7 @@ import argparse
 import base64
 import concurrent.futures
 import glob
+import hashlib
 import html
 import http.client
 import io
@@ -198,6 +207,36 @@ class Chrome:
                 page.screenshot(full_png)
         return result
 
+    def staged(self, url: str, w: int, h: int, png: str, full_png: str | None) -> dict:
+        """Real time over DevTools for a state the probe runs in stages (§18.6): each stage
+        but the last sets MFProbeNext, which is opened in the same tab; the last writes the
+        JSON. Earlier stages' probe results are kept under "stages"."""
+        stages, current = [], url
+        with Live(self, url, w, h) as page:
+            for _ in range(4):
+                want = urllib.parse.parse_qs(urllib.parse.urlsplit(current).query).get("probe_send", [""])[0]
+                expr = ("(function () { if (new URLSearchParams(location.search).get('probe_send') !== %s) { return null; }"
+                        " if (window.MFProbeNext) { return JSON.stringify({next: window.MFProbeNext, stage: window.MFProbeSend || null}); }"
+                        " var p = document.getElementById('probe'); return p ? JSON.stringify({done: p.textContent}) : null; })()"
+                        % json.dumps(want))
+                value = page.poll(expr, 150)
+                if "done" in value:
+                    result = json.loads(value["done"])
+                    break
+                stages.append(value["stage"])
+                current = urllib.parse.urljoin(current, value["next"])
+                page.send("Page.navigate", {"url": current})
+            else:
+                raise RuntimeError(f"{url}: more than four stages")
+            result["stages"] = stages
+            page.screenshot(png)
+            full_h = min(max(h, int(result.get("height", h))), FULL_MAX)
+            if full_png and full_h > h:
+                page.send("Emulation.setDeviceMetricsOverride", {
+                    "width": w, "height": full_h, "deviceScaleFactor": 1, "mobile": False})
+                page.screenshot(full_png)
+        return result
+
     def probe(self, url: str, w: int, h: int) -> dict:
         r = self.run([f"--window-size={w},{h}", "--virtual-time-budget=2000", "--dump-dom", url])
         m = re.search(r'<pre id="probe">(.*?)</pre>', r.stdout.decode("utf-8", "replace"), re.S)
@@ -298,6 +337,21 @@ class Live:
                 return value
             time.sleep(0.2)
         raise RuntimeError(f"no probe output for {self.url} within {timeout} s")
+
+    def poll(self, expression: str, timeout: float) -> dict:
+        """Like wait_value across navigations: an evaluation that meets a document being
+        replaced is tried again until the deadline. Returns the parsed JSON value."""
+        deadline = time.monotonic() + timeout
+        last = ""
+        while time.monotonic() < deadline:
+            try:
+                value = self.evaluate(expression)
+            except RuntimeError as exc:
+                value, last = None, str(exc)
+            if value is not None:
+                return json.loads(value)
+            time.sleep(0.25)
+        raise RuntimeError(f"no probe stage for {self.url} within {timeout} s {last}")
 
     def key(self, key: str, code: int) -> None:
         for kind in ("keyDown", "keyUp"):
@@ -454,6 +508,117 @@ def send_problems(state, result) -> list:
         if (any(t.startswith("page") for t in tabs) or tabs.count("dialog") < 2 or k.get("closed") is not True
                 or k.get("submits") != 0):
             out.append(f"keyboard in the dialog: {k} (Tab must stay inside, Escape must close, nothing posted)")
+    return out
+
+
+IMAGE_STATES = ("review-styles-empty", "review-styles", "review-based", "review-template", "review-ratio",
+                "review-highlight-loading", "review-highlight", "review-highlight-text", "review-highlight-402",
+                "create-error-402", "review-base", "review-styles-budget", "review-styles-nokey")
+# the live states and the draft each changes (panel_fixture.IMAGE_LIVE)
+IMAGE_LIVE_STATE = {"review-template": "tpl", "review-ratio": "ratio", "review-highlight-loading": "hold",
+                    "review-highlight": "hl", "review-highlight-text": "text", "review-highlight-402": "e402",
+                    "review-base": "base", "create-error-402": "x402"}
+TPL_SIZES = {"instagram": [1080, 1080], "x": [1600, 1600], "linkedin": [1910, 1000], "facebook": [2048, 1152]}
+STYLED = {"facebook": [1536, 2048], "instagram": [1080, 1350], "linkedin": [1536, 2048], "x": [1536, 864]}
+LINE_402 = ("Не удалось получить {what} от Gemini (HTTP 402): закончились предоплаченные кредиты Gemini — "
+            "пополните баланс в Google AI Studio")
+
+
+def image_problems(state, result) -> list:
+    """The image probe's own problems from every stage, plus this state's facts (§18.6)."""
+    stages = [x for x in (result.get("stages") or []) if x] + [result.get("send") or {}]
+    out = []
+    for stage in stages:
+        out.extend(stage.get("problems", []))
+    if not result.get("send"):
+        out.append("no image probe result")
+    first = stages[0]
+    if state == "review-template":
+        sizes = {c["network"]: [c["width"], c["height"]] for c in first.get("crops") or []}
+        if sizes != TPL_SIZES:
+            out.append(f"template crops {sizes}, expected {TPL_SIZES}")
+        if first.get("sweep") != 13 * 4 * 3:
+            out.append(f"layout sweep covered {first.get('sweep')} layouts, expected 156")
+        if first.get("posts") != [200] * 4:
+            out.append(f"template crop posts {first.get('posts')}, expected four 200s")
+    if state == "review-ratio" and len(first.get("ratio") or []) != 13:
+        out.append(f"ratio choices made {len(first.get('ratio') or [])}, expected 13")
+    if state == "review-highlight-loading" and not first.get("busy"):
+        out.append("no blocked controls measured while the call runs")
+    if state == "review-highlight" and first.get("calls") != [200]:
+        out.append(f"highlight calls {first.get('calls')}, expected one 200")
+    if state in ("review-highlight-text", "review-highlight-402") and first.get("calls") != [502]:
+        out.append(f"highlight calls {first.get('calls')}, expected one 502")
+    if state == "review-base":
+        if first.get("settings") != [200] or len(stages) < 3 or stages[1].get("posts") != [200] * 4:
+            out.append(f"base switch: settings {first.get('settings')}, crop posts "
+                       f"{stages[1].get('posts') if len(stages) > 1 else None}")
+    return out
+
+
+def content_hashes(fx) -> dict:
+    out = {}
+    for dirpath, _, files in os.walk(fx.paths.content):
+        for f in files:
+            path = os.path.join(dirpath, f)
+            with open(path, "rb") as fh:
+                out[os.path.relpath(path, fx.paths.content)] = hashlib.sha256(fh.read()).hexdigest()
+    return out
+
+
+def image_after(fx, widths, ran, fake, static: dict) -> list:
+    """After the run: what the live image states stored (crops, style files, errors, the
+    ledger's view of each call), and that no GET changed the static fixtures (§18.5 item 11)."""
+    from factory.authoring import common, drafts
+    from poster import rules as prules
+    out = []
+    store = drafts.Store(fx.paths.content, fx.clock, fx.machine_tz)
+
+    def crops(did, want, label):
+        folder = os.path.join(fx.paths.content, "drafts", did, "out")
+        for n, size in want.items():
+            path = os.path.join(folder, f"{n}.jpg")
+            if not os.path.isfile(path):
+                out.append(f"{label}: no {n} crop stored")
+                continue
+            info = prules.sniff(path)
+            with open(path, "rb") as fh:
+                data = fh.read()
+            if [info.width, info.height] != size or info.format != "jpeg" or common.jpeg_exif(data) != "ok" \
+                    or prules.check_image(n, info).errors:
+                out.append(f"{label}: {n} is {info.describe()}, expected a {size} JPEG the poster accepts")
+    for w in widths:
+        ids = {k: fx.image_ids[f"{k}-{w}"] for k in ("tpl", "ratio", "hold", "hl", "text", "e402", "base", "x402")}
+        if "review-template" in ran:
+            crops(ids["tpl"], TPL_SIZES, f"tpl-{w}")
+        if "review-base" in ran:
+            crops(ids["base"], STYLED, f"base-{w}")
+            if store.load(ids["base"]).get("base") != "blur":
+                out.append(f"base-{w}: the base is not «blur»")
+        if "review-highlight" in ran:
+            if not os.path.isfile(os.path.join(fx.paths.content, "drafts", ids["hl"], "img", "blur.jpg")):
+                out.append(f"hl-{w}: no img/blur.jpg")
+        if "review-highlight-text" in ran:
+            err = store.load(ids["text"]).get("highlight_error") or {}
+            if err.get("text") != "Gemini не вернул картинку" or not err.get("model_text"):
+                out.append(f"text-{w}: stored {err}")
+        if "review-highlight-402" in ran:
+            err = store.load(ids["e402"]).get("highlight_error") or {}
+            if err.get("text") != LINE_402.format(what="картинку"):
+                out.append(f"e402-{w}: stored {err}")
+        if "create-error-402" in ran:
+            err = store.load(ids["x402"]).get("error") or {}
+            if err.get("text") != LINE_402.format(what="тексты"):
+                out.append(f"x402-{w}: stored {err}")
+        for kind in ("hl", "text", "e402", "hold"):
+            state = {"hl": "review-highlight", "text": "review-highlight-text", "e402": "review-highlight-402",
+                     "hold": "review-highlight-loading"}[kind]
+            n = sum(1 for r in fake.requests if r.fields.get("draft") == ids[kind])
+            if state in ran and n != 1:
+                out.append(f"{kind}-{w}: {n} Gemini requests, expected 1")
+    for name, (sfx, before) in static.items():
+        if content_hashes(sfx) != before:
+            out.append(f"the {name} fixture changed during its GET-only states")
     return out
 
 
@@ -793,6 +958,16 @@ def main(argv=None) -> int:
     focus_mtimes = {(did, n): os.stat(os.path.join(send_live.paths.content, "drafts", did, "out", f"{n}.jpg")).st_mtime_ns
                     for key, did in send_live.send_ids.items() if key.startswith("focus-")
                     for n in ("facebook", "linkedin")}
+    images = panel_fixture.build_images(os.path.join(fixtures_root, "images"))
+    images_budget = panel_fixture.build_images(os.path.join(fixtures_root, "images-budget"), ledger_usd="9.99")
+    images_nokey = panel_fixture.build_images(os.path.join(fixtures_root, "images-nokey"), key=False)
+    images_live = panel_fixture.build_images(os.path.join(fixtures_root, "images-live"), live_widths=widths)
+    static_images = {name: (fx, content_hashes(fx)) for name, fx in
+                     (("images", images), ("images-budget", images_budget), ("images-nokey", images_nokey))}
+    fake_img = panel_fixture.FakeGemini()
+    fake_img.hold = {did for key, did in images_live.image_ids.items() if key.startswith("hold-")}
+    fake_img.images = {did: "text" for key, did in images_live.image_ids.items() if key.startswith("text-")}
+    fake_img.e402 = {did for key, did in images_live.image_ids.items() if key.startswith(("e402-", "x402-"))}
     send_hold = threading.Event()
     send_fake = panel_fixture.FakePoster(hold=send_hold, wait=4 * 3600)   # released at teardown
     fake = panel_fixture.FakeGemini()
@@ -818,6 +993,11 @@ def main(argv=None) -> int:
     servers["send-crash"] = start(send_crash)
     servers["send-live"] = start(send_live)
     servers["send-go"] = start(send_go)   # a FakePoster that publishes at once
+    for name, fx in (("images", images), ("images-budget", images_budget), ("images-nokey", images_nokey)):
+        servers[name] = start(fx)
+    for w in widths:   # one panel per spending state and width: a held call takes no other's slot
+        for state in IMAGE_LIVE_STATE:
+            servers[f"images-live-{state}-{w}"] = start(images_live, fake_img)
     t0 = time.perf_counter()
     snap = servers["data"].panel.holder.get()
     snapshot_ms = snap.build_ms
@@ -931,6 +1111,16 @@ def main(argv=None) -> int:
     states += [("review-crops", ""), ("review-focus", "")]
     states += [("submit-publish", ""), ("submit-queue", "")]   # driven after the pool, see submit_problems
     states.append(("rule-refused", "file://" + refused))
+    # slice C (§18.6): static states on «images», live ones on «images-live» (address made per width)
+    image_paths = {
+        "review-styles-empty": ("images", f"/create/{images.image_ids['plain']}/review#photo"),
+        "review-styles": ("images", f"/create/{images.image_ids['styled']}/review?style=blur#photo"),
+        "review-based": ("images", f"/create/{images.image_ids['based']}/review#photo"),
+        "review-styles-budget": ("images-budget", f"/create/{images_budget.image_ids['plain']}/review#photo"),
+        "review-styles-nokey": ("images-nokey", f"/create/{images_nokey.image_ids['styled']}/review?style=blur#photo"),
+    }
+    states += [(name, url(fixture, path)) for name, (fixture, path) in image_paths.items()]
+    states += [(name, "") for name in IMAGE_LIVE_STATE]
     probe_urls["rule-refused"] = "file://" + refused_probe
     if args.only:
         states = [s for s in states if args.only in s[0]]
@@ -953,6 +1143,23 @@ def main(argv=None) -> int:
             address = urllib.parse.urlunsplit(parts._replace(query=query))
             result = chrome.live(address, w, h, os.path.join(out, f"{state}-{w}.png"),
                                  os.path.join(out, f"{state}-{w}-full.png"))
+            with open(os.path.join(out, f"{state}-{w}-probe.json"), "w", encoding="utf-8") as fh:
+                json.dump(result, fh, ensure_ascii=False, indent=2)
+            return state, w, result, min(max(h, int(result.get("height", h))), FULL_MAX)
+        if state in IMAGE_STATES:   # real time and stages (§18.6)
+            if not address:
+                kind = IMAGE_LIVE_STATE[state]
+                did = images_live.image_ids[f"{kind}-{w}"]
+                hashes = {"review-template": f"?probe_small={images_live.small_photo}", "review-ratio": "#send-cards-h",
+                          "create-error-402": ""}
+                path = (f"/create/{did}" if state == "create-error-402" else f"/create/{did}/review") + \
+                    hashes.get(state, "#photo")
+                address = url(f"images-live-{state}-{w}", path)
+            parts = urllib.parse.urlsplit(address)
+            query = parts.query + ("&" if parts.query else "") + "probe=1&probe_send=" + state
+            address = urllib.parse.urlunsplit(parts._replace(query=query))
+            result = chrome.staged(address, w, h, os.path.join(out, f"{state}-{w}.png"),
+                                   os.path.join(out, f"{state}-{w}-full.png"))
             with open(os.path.join(out, f"{state}-{w}-probe.json"), "w", encoding="utf-8") as fh:
                 json.dump(result, fh, ensure_ascii=False, indent=2)
             return state, w, result, min(max(h, int(result.get("height", h))), FULL_MAX)
@@ -1006,7 +1213,11 @@ def main(argv=None) -> int:
                 for problem in send_problems(state, result):
                     findings.setdefault(f"{state}-{w}", []).append(
                         {"kind": "send", "el": "", "text": "", "detail": problem})
-            if state in author_paths or state.startswith("create-"):
+            if state in IMAGE_STATES:
+                for problem in image_problems(state, result):
+                    findings.setdefault(f"{state}-{w}", []).append(
+                        {"kind": "images", "el": "", "text": "", "detail": problem})
+            elif state in author_paths or state.startswith("create-"):
                 for problem in author_problems(state, result):
                     findings.setdefault(f"{state}-{w}", []).append(
                         {"kind": "authoring", "el": "", "text": "", "detail": problem})
@@ -1078,9 +1289,16 @@ def main(argv=None) -> int:
             failed = True
             print(f"SEND SUBMIT: {problem}")
         servers["send-go"].panel.sender.join(30)
+    ran_images = [s[0] for s in states if s[0] in IMAGE_STATES]
+    if ran_images:
+        for problem in image_after(images_live, widths, ran_images, fake_img,
+                                   static_images if any(s in ran_images for s in image_paths) else {}):
+            failed = True
+            print(f"IMAGES: {problem}")
     send_hold.set()
     servers["send"].panel.sender.join(30)
     fake.release.set()
+    fake_img.release.set()
     for srv in servers.values():
         srv.shutdown()
         srv.server_close()

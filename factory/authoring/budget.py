@@ -21,8 +21,10 @@ FILE = "ai-ledger.jsonl"
 LOCK = "ai-ledger.lock"
 MONTHS = ("январь", "февраль", "март", "апрель", "май", "июнь", "июль", "август", "сентябрь", "октябрь", "ноябрь", "декабрь")
 NEXT = ("января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря")
-ACTION = {"topics": "«Темы»", "voice": "«Голос»", "expand": "«Развернуть»", "regenerate": "«Перегенерировать»"}
+ACTION = {"topics": "«Темы»", "voice": "«Голос»", "expand": "«Развернуть»", "regenerate": "«Перегенерировать»",
+          "highlight": "«Стиль фото»"}
 NO_KEY = "нет GEMINI_API_KEY в .env — темы, тексты и голос недоступны"
+NO_KEY_IMAGE = "нет GEMINI_API_KEY в .env — стили фото недоступны"   # slice C (§18.4)
 BAD_CAP = "AI_MONTHLY_CAP_USD в .env: нужно число, например 10.00"
 
 
@@ -40,6 +42,8 @@ def cap(env):
 
 
 def model(op):
+    if op == "highlight":
+        return prompts.IMAGE_MODEL
     return prompts.VOICE_MODEL if op == "voice" else prompts.TEXT_MODEL
 
 
@@ -48,11 +52,18 @@ def bound(op, prompt, now, audio_size=0):
     # bytes plus framing, instead of counting only the human-facing prompt.
     schema = json.dumps(prompts.SCHEMAS.get(op, {}), ensure_ascii=False)
     tokens = len(prompt.encode("utf-8")) + len(schema.encode("utf-8")) + 512
-    tokens += math.ceil(audio_size * 8 / 6000) * 32 if op == "voice" else 1120
-    return prices.cost(model(op), tokens, prompts.OUTPUT[op], now)
+    if op == "voice":
+        tokens += math.ceil(audio_size * 8 / 6000) * 32
+    else:
+        tokens += prompts.IMAGE_TOKENS.get(op, 1120)
+    out = prompts.IMAGE_OUTPUT[op] if op in prompts.IMAGE_OUTPUT else prompts.OUTPUT[op]
+    return prices.cost(model(op), tokens, out, now)
 
 
 def button(op, now):
+    if op == "highlight":   # every style, the description at 120 four-byte characters (D32)
+        worst = max(bound(op, prompts.highlight(style, "\U00010000" * 120), now) for style in prompts.STYLES)
+        return max(Decimal("0.09"), worst.quantize(Decimal("0.01"), rounding=ROUND_CEILING))
     # Use the real template and 4-byte characters at every field limit. Reserve all
     # networks' rules in regen's bound even though the request carries only one.
     author = {"audience": {}}

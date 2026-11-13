@@ -6,6 +6,7 @@ all tests and visual fixtures. Only the real transport sends HTTPS requests.
 from __future__ import annotations
 
 import base64
+import binascii
 import json
 import os
 import threading
@@ -22,7 +23,37 @@ TIMEOUT = 120
 INCOMPLETE = "ответ Gemini обрезан — повторите"
 INVALID = "Gemini вернул неполный ответ — повторите"
 OFFLINE = "нет связи с Gemini — повторите"
-WHAT = {"topics": "темы", "expand": "тексты", "regenerate": "новый текст", "voice": "расшифровку голоса"}
+WHAT = {"topics": "темы", "expand": "тексты", "regenerate": "новый текст", "voice": "расшифровку голоса",
+        "highlight": "картинку"}
+# D33: a 4xx is worded from its status, never from the vendor's body (the reduced vendor
+# message goes to one redacted panel-log line).
+REASONS = {400: "Gemini не принял запрос — подробности в журнале панели",
+           401: "ключ GEMINI_API_KEY не принят — проверьте ключ и доступ к Gemini API",
+           403: "ключ GEMINI_API_KEY не принят — проверьте ключ и доступ к Gemini API",
+           402: "закончились предоплаченные кредиты Gemini — пополните баланс в Google AI Studio",
+           404: "модель недоступна для этого ключа",
+           413: "запрос слишком большой",
+           429: "Gemini просит подождать — повторите позже"}
+OTHER_4XX = "Gemini отклонил запрос — подробности в журнале панели"
+# slice C (authoring.md §18.5 items 5 and 6)
+IMAGE_TIMEOUT = 180
+MAX_IMAGE = 8 * 1024 * 1024
+NO_IMAGE = "Gemini не вернул картинку"
+NOT_JPEG = "Gemini вернул картинку не в JPEG — повторите"
+TOO_BIG = "Gemini вернул слишком большую картинку — повторите"
+
+
+class NoImage(Refusal):
+    """A completed reply without an image block; `model_text` is the model's text part."""
+
+    def __init__(self, model_text):
+        super().__init__(NO_IMAGE, 502)
+        self.model_text = model_text
+
+
+def reason(status):
+    return REASONS.get(status, OTHER_4XX)
+
 def billed_output(u):
     # G14: total_tokens disambiguates whether the output count includes thoughts.
     # With no confirming total, retain the conservative sum from §11.2.
@@ -78,6 +109,7 @@ def parse(op, data):
         if not isinstance(value, dict):
             raise ValueError()
         expected = {"topics"} if op == "topics" else set(drafts.LANGS) if op == "expand" else {"text"}
+        quotes = value.pop("quotes", None) if op == "expand" else None
         if set(value) != expected:
             raise ValueError()
         if op == "topics":
@@ -93,9 +125,61 @@ def parse(op, data):
         else:
             if any(not isinstance(v, str) or not v.strip() or len(v) > 5000 for v in value.values()):
                 raise ValueError()
+        if op == "expand":
+            # Slice C (§18.5 item 4): the quotes are optional; a bad one is dropped, the texts stay.
+            kept = {}
+            if isinstance(quotes, dict):
+                for n, q in quotes.items():
+                    if n in drafts.LANGS and isinstance(q, str):
+                        q = unicodedata.normalize("NFC", q).strip()
+                        if q and not drafts.quote_problem(q):
+                            kept[n] = q
+            if kept:
+                value["quotes"] = kept
         return value, path
     except (ValueError, TypeError, KeyError):
         raise Refusal(INVALID, 502) from None
+
+
+def picture(data):
+    """The first image block of the reply's `model_output` steps as base64 text (§9.2), or
+    NoImage with the model's text part. `incomplete` and other states answer as §8.4."""
+    if not isinstance(data, dict):
+        raise Refusal(INVALID, 502)
+    if data.get("status") == "incomplete":
+        raise Refusal(INCOMPLETE, 502)
+    if data.get("status") != "completed":
+        raise Refusal(INVALID, 502)
+    steps = data.get("steps", [])
+    steps = [s for s in steps if isinstance(s, dict) and s.get("type") == "model_output"
+             and isinstance(s.get("content"), list)] if isinstance(steps, list) else []
+    words = []
+    for step in steps:
+        for block in step["content"]:
+            if not isinstance(block, dict):
+                continue
+            if block.get("type") == "image" and isinstance(block.get("data"), str):
+                return block["data"]
+            if block.get("type") == "text" and isinstance(block.get("text"), str):
+                words.append(block["text"])
+    if not words and isinstance(data.get("output_text"), str):
+        words.append(data["output_text"])
+    raise NoImage(" ".join(" ".join(words).split()))
+
+
+def decode_picture(encoded):
+    """Base64 to JPEG bytes, at most 8 MB decoded; refusals as §18.5 item 6."""
+    if len(encoded) > (MAX_IMAGE + 2) // 3 * 4 + 4:
+        raise Refusal(TOO_BIG, 502)
+    try:
+        raw = base64.b64decode(encoded, validate=True)
+    except (binascii.Error, ValueError):
+        raise Refusal(NOT_JPEG, 502) from None
+    if len(raw) > MAX_IMAGE:
+        raise Refusal(TOO_BIG, 502)
+    if not raw.startswith(b"\xff\xd8\xff"):
+        raise Refusal(NOT_JPEG, 502)
+    return raw
 
 
 def image(stock, draft):
@@ -112,6 +196,20 @@ def image(stock, draft):
     if kind != "ok":
         raise Refusal("неверная копия фото — загрузите фото заново")
     return data
+
+
+def highlight_request(key, prompt, media, aspect):
+    """§9.2's request with "resolution": "high" on the image block (D32)."""
+    body = {"model": prompts.IMAGE_MODEL, "store": False,
+            "input": [{"type": "text", "text": prompt},
+                      {"type": "image", "mime_type": "image/jpeg",
+                       "data": base64.b64encode(media).decode("ascii"), "resolution": "high"}],
+            "response_format": {"type": "image", "mime_type": "image/jpeg", "aspect_ratio": aspect,
+                                "image_size": "2K"}}
+    headers = {"x-goog-api-key": key}
+    if REVISION:
+        headers["Api-Revision"] = REVISION
+    return http.json_request("POST", URL, body, headers=headers, timeout=IMAGE_TIMEOUT, display={})
 
 
 def request(op, key, prompt, media, mime):
@@ -178,9 +276,9 @@ def checked_variants(data):
 
 
 class Service:
-    def __init__(self, paths, clock, store, ledger, redactor, transport=None):
+    def __init__(self, paths, clock, store, ledger, redactor, transport=None, log=None):
         self.paths, self.clock, self.store, self.ledger = paths, clock, store, ledger
-        self.redactor = redactor
+        self.redactor, self.log = redactor, log
         self.transport = transport if transport is not None else http.UrllibTransport()
         self.slots = threading.BoundedSemaphore(2)
 
@@ -200,7 +298,7 @@ class Service:
     def availability(self, op, env=None):
         env = self.env() if env is None else env
         if not env.get("GEMINI_API_KEY", "").strip():
-            return budget.NO_KEY
+            return budget.NO_KEY_IMAGE if op == "highlight" else budget.NO_KEY
         try:
             limit = budget.cap(env)
             amount = budget.button(op, self.clock())
@@ -263,17 +361,11 @@ class Service:
                 self.ledger.settle(rid, "failed" if 400 <= resp.status < 500 else "unknown",
                                    http=resp.status, interaction=state)
             if not resp.ok:
-                # Empty/503 fixture stays concise. Reduced vendor details never escape redaction.
-                # The panel says what failed, not the status of a server error; a refusal
-                # (4xx) keeps its status and the reduced vendor reason. The status is in the ledger.
-                message = f"Не удалось получить {WHAT[op]} от Gemini"
-                if resp.status < 500:
-                    detail = self.redactor().redact(http.vendor_message(resp))
-                    message += f" (HTTP {resp.status}): {detail}"
-                raise Refusal(message, 502)
+                self.refused(op, resp)
             value, path = parse(op, data)
             # Redact before storing, including a malicious model echo of a credential.
             value = json.loads(self.redactor().redact(json.dumps(value, ensure_ascii=False)))
+            quotes = value.pop("quotes", {}) if op == "expand" else {}
 
             def apply(d):
                 if op == "topics":
@@ -286,6 +378,11 @@ class Service:
                         d["variants"] = {}
                     for n, t in texts.items():
                         d["variants"][n] = {"text": unicodedata.normalize("NFC", t), "lang": drafts.LANGS[n], "source": "gemini"}
+                    if quotes:
+                        # A changed quote that a network draws drops that network's crop (D30).
+                        before = json.loads(json.dumps(d))
+                        d["quotes"] = dict(d.get("quotes") or {}, **quotes)
+                        drafts.drop_changed(self.store.path(did), before, d, drafts.CHOICES)
                 if d.get("error", {}) and d["error"]["op"] == op:
                     d["error"] = None
             draft = self.store.update(did, apply)
@@ -293,3 +390,81 @@ class Service:
                 {"topic": draft["topic"], "transcript": value} if op == "voice" else
                 {"variants": checked_variants(draft["variants"])})
             return dict(result, rid=rid, parse_path=path)
+
+    def refused(self, op, resp):
+        """Raise the Russian line for a failed reply (D33). A 4xx says what to do by its
+        status; the reduced vendor message goes only to one redacted panel-log line. A
+        5xx keeps B′'s line without a status."""
+        message = f"Не удалось получить {WHAT[op]} от Gemini"
+        if resp.status < 500:
+            detail = self.redactor().redact(http.vendor_message(resp))
+            if self.log is not None:
+                print(self.redactor().redact(f"panel: gemini {op} HTTP {resp.status}: {detail}"),
+                      file=self.log, flush=True)
+            message += f" (HTTP {resp.status}): {reason(resp.status)}"
+        raise Refusal(message, 502)
+
+    def highlight(self, did, style, who, sender):
+        """POST /create/<id>/highlight (§18.5 items 5–7): one Gemini image call for one style,
+        reserved before it is built and sent. The result is stored as img/<style>.jpg by
+        `sender.store_style`; a draft sent meanwhile stores nothing (409)."""
+        if style not in drafts.STYLES:
+            raise Refusal("неверный стиль", 400)
+        if not isinstance(who, str):
+            raise Refusal("неверный запрос", 400)
+        who = " ".join(unicodedata.normalize("NFC", who).split())
+        if len(who) > drafts.WHO_MAX:
+            raise Refusal(f"кто главный: не больше {drafts.WHO_MAX} знаков")
+        op = "highlight"
+        with self.admission(did):
+            draft = self.store.load(did)
+            if draft["state"] != "draft":
+                raise Refusal(drafts.SENT)
+            if (draft.get("who") or "") != who:
+                def keep(d):
+                    if who:
+                        d["who"] = who
+                    else:
+                        d.pop("who", None)
+                draft = self.store.update(did, keep)
+            env = self.env()
+            why = self.availability(op, env)
+            if why:
+                raise Refusal(why)
+            media = image(self.paths.stock, draft)
+            view = photos.file_path(self.paths.stock, draft["folder"], draft["photo"], "view")
+            info = rules.sniff(view)
+            aspect = prompts.aspect(info.width, info.height)
+            prompt = prompts.highlight(style, who)
+            now = self.clock()
+            amount = budget.bound(op, prompt, now)
+            rid = self.ledger.reserve(op, amount, budget.cap(env), did, admission=budget.button(op, now))
+            try:
+                req = highlight_request(env["GEMINI_API_KEY"], prompt, media, aspect)
+                req.fields = {"op": op, "draft": did, "style": style}
+                resp = self.transport.send(req)
+            except (http.TransportError, TimeoutError, OSError):
+                self.ledger.settle(rid, "unknown")
+                raise Refusal(OFFLINE, 504) from None
+            data = resp.json()
+            u = usage(data)
+            state = data.get("status", "") if isinstance(data, dict) else ""
+            if state not in ("completed", "incomplete", "failed", "cancelled", "in_progress",
+                             "requires_action", "requires_continuation"):
+                state = "invalid"
+            if resp.ok and u is not None:
+                actual = prices.cost(prompts.IMAGE_MODEL, u["in"], billed_output(u), now)
+                self.ledger.settle(rid, "ok", actual=actual, usage=u, http=resp.status, interaction=state)
+            else:
+                self.ledger.settle(rid, "failed" if 400 <= resp.status < 500 else "unknown",
+                                   http=resp.status, interaction=state)
+            if not resp.ok:
+                self.refused(op, resp)
+            try:
+                raw = decode_picture(picture(data))
+            except NoImage as exc:
+                exc.model_text = self.redactor().redact(exc.model_text)[:300]
+                raise
+            stored, info = sender.store_style(did, style, raw)
+            return {"style": style, "width": info.width, "height": info.height,
+                    "url": f"/create/{did}/file?name={style}", "base": stored.get("base", "orig")}
