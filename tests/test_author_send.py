@@ -774,6 +774,57 @@ class QueueTest(SendCase):
         self.assertEqual(status, 409)
         self.assertIn("999", page)
 
+    def add_rule(self, rid, targets, status="active", folder="my-photos"):
+        doc = self.rules_doc()
+        rule = {"id": rid, "folder": folder, "targets": targets, "days": ["mon"],
+                "hours": ["10:00"], "timezone": "Europe/Berlin", "status": status}
+        if status == "active":
+            rule["active_since"] = "2026-09-07T00:00:00Z"
+        doc["rules"].append(rule)
+        pf._write_json(self.fx.paths.rules, doc)
+
+    def assert_refused_whole(self, seen, status_word):
+        before = self.tree(self.fx.paths.stock, self.fx.paths.packages, self.fx.paths.content)
+        draft_before = self.draft()
+        status, _, page = self.form(self.did, "queue", {"seen": seen, "folder": "my-photos"})
+        self.assertEqual(status, 409, status_word)
+        self.assertIn("fb:demo", page)
+        self.assertIn("этого не было на проверке", page)
+        self.assertEqual(self.tree(self.fx.paths.stock, self.fx.paths.packages, self.fx.paths.content),
+                         before)
+        self.assertEqual(self.draft(), draft_before)
+        self.assertTrue(os.path.isdir(os.path.join(self.fx.paths.content, "drafts", self.did)))
+        self.assertEqual(self.poster.calls, [])
+
+    def check_other_page_rule(self, status):
+        self.add_rule(f"elsewhere-{status}", ["fb:demo"], status)
+        body, seen = self.review()
+        self.assertIn("этого не было на проверке", body)
+        self.assertIn("fb:demo", body)
+        self.assertNotIn('name="rule"', body)
+        self.assertRegex(body, r'<button class="btn" type="submit" form="send-queue" disabled>')
+        self.assertNotRegex(body, r'data-open="dlg-publish" disabled')
+        self.assert_refused_whole(seen, status)
+
+    def test_an_active_rule_for_another_page_refuses_the_queue_and_the_review_says_so(self):
+        self.check_other_page_rule("active")
+
+    def test_a_draft_rule_for_another_page_refuses_the_queue_too(self):
+        self.check_other_page_rule("draft")
+
+    def test_a_rule_changed_after_the_review_refuses_the_queue(self):
+        _, seen = self.review()
+        self.add_rule("moved", ["fb:demo", "linkedin"])
+        self.assert_refused_whole(seen, "changed")
+
+    def test_a_rule_inside_the_reviewed_targets_still_queues(self):
+        self.add_rule("only-fb", ["fb:kotleta", "x"])
+        body, seen = self.review()
+        self.assertNotIn("этого не было на проверке", body)
+        status, _, _ = self.form(self.did, "queue", {"seen": seen, "folder": "my-photos"})
+        self.assertEqual(status, 303)
+        self.assertEqual(self.poster.calls, [])
+
     def test_a_package_under_another_file_name_with_the_same_id_refuses_both_routes(self):
         pf._write_json(os.path.join(self.fx.paths.packages, "other.json"), {
             "schema": 1, "id": self.did, "theme": "t", "variants": {"facebook": {"text": "t"}}})

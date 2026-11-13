@@ -19,6 +19,7 @@ import urllib.parse
 from poster import config
 from factory import planner, ruleset as fruleset
 from factory.authoring import photos as fphotos
+from factory.authoring.common import Refusal
 from factory.panel import model as M, strings as S
 
 DOMAINS = {"facebook": "fb", "instagram": "ig", "x": "x", "linkedin": "in", "telegram": "tg",
@@ -1336,19 +1337,27 @@ def create_review(ctx: Ctx, refusal=None) -> str:
                      f'<ul>{items}</ul></div>')
         else:
             check = f'<p class="send-ok k-ok">{esc(S.SEND_OK.format(n=n, word=S.plural(n, S.NET_WORDS)))}</p>'
-        off = " disabled" if problems or rv.missing else ""
-        buttons = (f'<div class="send-buttons"><button class="btn green" type="button" '
-                   f'data-open="dlg-publish"{off}>{esc(S.SEND_PUBLISH)}</button>'
-                   f'<button class="btn" type="submit" form="send-queue"{off}>{esc(S.SEND_QUEUE)}</button></div>')
         folders = sender.queue_folders(ctx.snap)
         titles = dict(folders)
         chosen = ctx.q("folder") or draft["folder"]
         if chosen not in titles:
             chosen = draft["folder"]
+        try:
+            found = sender.rule_conflicts(chosen)
+            conflict_line = sender.conflict_text(found) if found else ""
+        except Refusal as exc:
+            conflict_line = exc.message
+        off = " disabled" if problems or rv.missing else ""
+        off_queue = " disabled" if off or conflict_line else ""
+        buttons = (f'<div class="send-buttons"><button class="btn green" type="button" '
+                   f'data-open="dlg-publish"{off}>{esc(S.SEND_PUBLISH)}</button>'
+                   f'<button class="btn" type="submit" form="send-queue"{off_queue}>{esc(S.SEND_QUEUE)}</button></div>')
         options = "".join(f'<option value="{esc(name)}"{" selected" if name == chosen else ""}>'
                           f'{esc(title)}</option>' for name, title in folders)
         rules = sender.active_rules(ctx.snap, chosen)
-        if rules:
+        if conflict_line:
+            rule_html = f'<p class="send-rule small k-bad" role="alert">{esc(conflict_line)}</p>'
+        elif rules:
             rule_html = f'<p class="send-rule small">{esc(_rule_line(ctx, rules[0], chosen))}</p>'
         else:
             rule_html = (f'<label class="check send-offer small"><input type="checkbox" name="rule" '

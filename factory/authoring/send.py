@@ -896,6 +896,29 @@ class Sender:
         return [(name, snap.red(f.title or name)) for name, f in sorted(snap.inputs.stock.folders.items())
                 if f.lane == "photo" and not f.problems]
 
+    def rule_conflicts(self, folder: str) -> list:
+        """(rule id, [target ids outside the review]) for every rule, active or draft, that
+        reads `folder` and names a destination the review never showed (D24): the review and
+        the package cover the fixed main-profile targets only. Reads the rules file itself,
+        not the snapshot, so a rule changed after the review is seen."""
+        try:
+            ruleset = fruleset.load(self.paths.rules)
+        except fruleset.RulesError:
+            raise Refusal(S.SEND_RULES_UNREADABLE) from None
+        reviewed = {t.id for t in self.targets()}
+        out = []
+        for rule in ruleset.rules:
+            if rule.folder != folder:
+                continue
+            extra = [i for i in (config.parse_target(t).id for t in rule.targets) if i not in reviewed]
+            if extra:
+                out.append((rule.id, extra))
+        return out
+
+    @staticmethod
+    def conflict_text(conflicts: list) -> str:
+        return S.SEND_RULE_ELSEWHERE.format(id=conflicts[0][0], targets=", ".join(conflicts[0][1]))
+
     def queue(self, did: str, folder: str, rule_on: bool, seen_value: str, write_lock):
         """Returns (location, rules refusal or None)."""
         with write_lock:
@@ -906,6 +929,9 @@ class Sender:
                 targets, crops = self._ready(draft, seen_value, self.facts(snap))
                 if folder not in titles:
                     raise Refusal("в эту папку ставить нельзя")
+                conflicts = self.rule_conflicts(folder)
+                if conflicts:
+                    raise Refusal(self.conflict_text(conflicts))
                 try:
                     real = photos.folder_path(self.paths.stock, folder)
                 except photos.UploadError as exc:
