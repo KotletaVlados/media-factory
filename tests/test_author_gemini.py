@@ -34,6 +34,17 @@ class GeminiTest(PosterTestCase):
                 self.assertIn("current text", prompt)
                 self.assertIn("shorter", prompt)
 
+    def test_highlight_request_has_no_resolution_but_text_ops_keep_it(self):
+        # The image model refuses the field with HTTP 400 (observed 2026-11-14); the text model needs it.
+        request = gemini.highlight_request(CANARIES["GEMINI_API_KEY"], "prompt", b"bytes", "3:4")
+        image = json.loads(request.body)["input"][1]
+        self.assertEqual(image, {"type": "image", "mime_type": "image/jpeg",
+                                 "data": base64.b64encode(b"bytes").decode()})
+        self.assertNotIn("resolution", request.body.decode())
+        for op in ("topics", "expand", "regenerate"):
+            text_request = gemini.request(op, CANARIES["GEMINI_API_KEY"], "prompt", b"bytes", "image/jpeg")
+            self.assertEqual(json.loads(text_request.body)["input"][1]["resolution"], "high", op)
+
     def test_steps_last_output_and_output_text(self):
         for path in ("steps", "output_text"):
             value, used = gemini.parse("expand", pf.gemini_reply(pf.TEXTS, path=path).json())

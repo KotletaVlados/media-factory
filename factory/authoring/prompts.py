@@ -12,7 +12,9 @@ OUTPUT = {"topics": 2000, "expand": 6000, "regenerate": 2500, "voice": 2000}
 # thought (D32, G17 unconfirmed until LC3); the request carries no max_output_tokens (§9.2),
 # so it stays out of OUTPUT, which is each text call's max_output_tokens.
 IMAGE_OUTPUT = {"highlight": 1680 + 1000}
-IMAGE_TOKENS = {"highlight": 2240}   # the photo at resolution "high" on the image model (D32, G17)
+# The photo's tokens on the image model, an upper bound: the request sets no resolution (the
+# model refuses the field), so the real count is unobserved (D32, G17).
+IMAGE_TOKENS = {"highlight": 2240}
 QUOTE_MAX = 140                      # a stored quote (authoring.md §18.2)
 INSTRUCTIONS = (
     "You help the author write social posts built around this photo. The photo shows the "
