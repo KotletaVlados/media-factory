@@ -1,8 +1,8 @@
 # Authoring posts in the panel: «Создать», topics, Gemini texts, photos, send
 
-Design document. Status: slices A, B′ and D′ are built (`main` at `4dd221f`). Slice C
-(ratio choices, frame, quote, Gemini highlight styles) is pinned in §18 and ready to build.
-M follows (§15).
+Design document. Status: slices A, B′, D′ and C are built (`main` at `728a4a4`). The slice
+"topics from the author's themes and cases, photo optional" is pinned in §19 and ready to
+build. M follows (§15).
 
 History:
 
@@ -15,10 +15,14 @@ History:
   decisions of 2026-11-13 (send before images; a plain crop for each network).
 - Revised on 2026-11-13 against `main` at `4dd221f` for slice C (§18). Where §7.1, §9 or
   §11 differ from the code as merged, §18 follows the code and says so.
+- Revised on 2026-11-14 against `main` at `728a4a4` for topics from the author's themes and
+  cases, with the photo optional (§19). The operator asked for it that day. The sections
+  that were §19–§22 are now §20–§23. Where §7.1, §8, §10, §11.2 or §16 differ from §19, §19
+  governs.
 
 Vendor and browser documentation was read on the dates given in §4, and each external fact
 cites its page. Legend: **C** means confirmed on the cited official page; **O** means
-observed on this machine; **U** means unconfirmed, and §19 names the cheapest check for
+observed on this machine; **U** means unconfirmed, and §20 names the cheapest check for
 each.
 
 ## 1. Originating requirement
@@ -58,6 +62,7 @@ Decisions in force (the operator's forms and answers):
 | 2026-11-11 and 2026-11-12 | Gemini highlights the main person (blurred background, glow or outline), with several styles to choose from, inside the shared AI budget (built in C, §18) |
 | 2026-11-13 ~01:35 UTC | Build slice D (send) before C (images), so the first real post leaves the panel sooner |
 | 2026-11-13 07:01 UTC | D plus a simple automatic crop for each network, without effects, so the first post comes as fast as possible; templates and «highlight me» come later in C (§17) |
+| 2026-11-14 | Topics come from the author's themes and cases, not from the photo. The photo only illustrates, and a post can start without one. The panel keeps a «Кейсы» list (§19) |
 
 ### 1.1 Validation against the requirement
 
@@ -72,9 +77,10 @@ Decisions in force (the operator's forms and answers):
 | Maybe process the photo, maybe not | Slice D′: one plain crop per network, automatic, centred or moved by one tap (§17). Slice C: ratio, frame and quote per network, and Gemini highlight styles of the operator, each optional, on the review page (§9, pinned in §18) |
 | One button sends everything | Slice D′: review every variant, then publish now or queue, three movements after the texts (§10, §17) |
 | USD 10 a month for AI, then ask | One ledger, reservation before every call, refusal in Russian, month shown on «Создать» (§11) |
-| Video the same way, later | A separate task; not designed here (§21) |
+| Video the same way, later | A separate task; not designed here (§22) |
+| Topics from my themes and cases, the photo only illustrates, a post can start without a photo (2026-11-14) | §19: the «Кейсы» list, topics without the photo, a draft without a photo, text-only send to Facebook, LinkedIn and X |
 
-Every row is built in slices B′, D′, C and M (§15). Cut scope is in §21.
+Every row is built in slices B′, D′, C, §19 and M (§15). Cut scope is in §22.
 
 ## 2. What exists today
 
@@ -149,7 +155,7 @@ has no active `ANTHROPIC_API_KEY` line and no `AI_MONTHLY_CAP_USD` line.
 | D4 | AI calls run in the request thread with a 120 s deadline and at most two at a time. Publishing (D) runs in a background thread | One job queue for everything | An AI call ends within seconds and the page waits; a publish can take over 5 minutes |
 | D5 | Gemini through the Interactions API with `"store": false` | `generateContent` (legacy, still supported, G9) | The current guides for structured output, audio and image editing use Interactions (G1, G4). Interactions stores requests for 55 days on the paid tier unless `store` is false (G9) |
 | D6 | Texts and topics with Gemini structured output: `response_format` of type `text`, `mime_type` `application/json` and a JSON `schema` | Free text parsed by hand; function calling | The schema is checked by the vendor, `minItems`/`maxItems` are enforced (G4), and the JSON is the text of the `model_output` step (G6) |
-| D7 | Texts and topics with `gemini-3.8-flash` at `thinking_level: "low"` | `gemini-4-hydrogen`; `gemini-3.5-flash-lite` | 3.8 Flash is the model the research report names. It is stable, takes images, supports structured output and costs $0.75 / $3.75 per MTok through 2026-12-31 and $1.50 / $7.50 after (G2, G3). Google's overview recommends Hydrogen for new projects, but it costs $1.50 / $7.50 now and thinks at `high` by default (G2, G3, G5). Flash-Lite is cheaper but Google describes it for throughput, not writing. The model is one constant in `prompts.py` (§21 names the trigger to switch) |
+| D7 | Texts and topics with `gemini-3.8-flash` at `thinking_level: "low"` | `gemini-4-hydrogen`; `gemini-3.5-flash-lite` | 3.8 Flash is the model the research report names. It is stable, takes images, supports structured output and costs $0.75 / $3.75 per MTok through 2026-12-31 and $1.50 / $7.50 after (G2, G3). Google's overview recommends Hydrogen for new projects, but it costs $1.50 / $7.50 now and thinks at `high` by default (G2, G3, G5). Flash-Lite is cheaper but Google describes it for throughput, not writing. The model is one constant in `prompts.py` (§22 names the trigger to switch) |
 | D8 | Transcription with `gemini-3.5-flash-lite` and inline audio | `gemini-3.5-transcribe` | Inline WebM and OGG audio are documented for general models (G8). The transcribe model's examples upload through the Files API first, which costs two requests and a clean-up |
 | D9 | Authoring pages need JavaScript; with JS off they say so | A no-JS path for each step | Drop, recording and canvas exist only in JS. «Профиль автора» is a plain form and works without JS |
 | D10 | The AI month is shown in the row under the top bar on every «Создать» page, not in the top bar | A top-bar item (first revision) | The top bar already gains the «Создать» tab and the longer «Медиатека» label. Measured in §11.5: the bar keeps its heights except at 1 414–1 513 px, where it moves to two rows as it already does at 1 280. The AI spend happens only on «Создать», so the fact sits there once |
@@ -159,7 +165,7 @@ has no active `ANTHROPIC_API_KEY` line and no `AI_MONTHLY_CAP_USD` line.
 | D14 | Voice audio stays in the page. The server holds it in memory for one call and never writes it to disk | Storing `voice-<n>.webm` for a retry (first revision) | No recording of the operator's voice on disk. The page keeps the blob for «Повторить расшифровку» |
 | D15 | Draft writes are per field, under a short per-draft lock; the last write wins | A whole-file revision on every write | An AI result that arrives while the operator types would make the next autosave stale. The panel is local and used by one operator |
 | D16 | «Перегенерировать» sends the topic, the profile, the photo, that network's current text and the wish | All four texts as context (first revision) | The reservation bound stays small and fixed. Consistency across networks comes from the shared topic and profile |
-| D17 | «Профиль автора» is one form page saved to `content/profile.json` | Profile in the env file; a profile that learns from edits | The content folder is ignored by git and holds the operator's own data. Learning from edits is deferred (§21) |
+| D17 | «Профиль автора» is one form page saved to `content/profile.json` | Profile in the env file; a profile that learns from edits | The content folder is ignored by git and holds the operator's own data. Learning from edits is deferred (§22) |
 
 ## 4. Vendor and platform facts
 
@@ -207,6 +213,7 @@ factory/authoring/            standard library only
   photos.py     (A) upload, ids, index, listing, paths; (B′) ensure_default()
   drafts.py     (B′) draft schema, create, load, per-field update, AI lock, list cache
   profile.py    (B′) profile schema, limits, load, save, prompt block
+  cases.py      (§19) cases schema, limits, load, save, the gist and record prompt blocks
   budget.py     (B′) AI ledger: reserve, settle, month total, cap, static bounds
   prices.py     (B′) dated price table with source URL and read date
   prompts.py    (B′) model constants, instructions, schemas, per-network targets
@@ -247,6 +254,7 @@ The factory core (`stock`, `ruleset`, `planner`, `runner`, `journal`, `checks`,
 |---|---|---|---|
 | Uploaded photos (A) | `content/stock/<folder>/photos/…`; the default folder is `content/stock/my-photos/` | dirs 0700, files 0600 | no (`content/` is ignored) |
 | Author profile (B′) | `content/profile.json` | 0600 | no |
+| Cases (§19) | `content/cases.json`, `content/.cases.lock` | 0600 | no |
 | Drafts | `content/drafts/<id>/draft.json` (B′); `out/<network>.jpg` (D′); `img/<style>.jpg` (C); `content/drafts/.publish.lock` (D′) | dirs 0700, files 0600 | no |
 | Queued package (D′) | `content/stock/<folder>/<NNN>-<id>.json`, `media/<id>/<network>.jpg` | same | no |
 | Published-now package (D′) | `content/packages/<id>.json`, `content/packages/media/<id>/…` | same | no |
@@ -261,6 +269,7 @@ voice recording is ever written (D14).
 |---|---|---|
 | `stock/<f>/photos/**`, `stock/my-photos/folder.json` | panel upload only | panel; the stock loader reads `folder.json` |
 | `content/profile.json` | panel «Профиль автора» form | panel (every Gemini text request) |
+| `content/cases.json` | panel «Кейсы» form | panel (topics, expand, regenerate; the bounds on «Создать» pages) |
 | `content/drafts/**` | panel only | panel; C and D′ |
 | `ai-ledger.jsonl` | panel AI routes | panel («Создать» sub row, refusals) |
 | packages, poster `posts.jsonl`, `x-ledger.jsonl` | unchanged by B′. D′: the panel writes packages and media (publish now, queue) and `rules.json` (the offered rule); the poster, called by the panel, writes `posts.jsonl` and `x-ledger.jsonl` | the poster, the factory, the panel |
@@ -323,7 +332,7 @@ view has the «Фото» section (the photo count stands once, in the sub row �
 «в очереди» and «опубликовано» from stock packages. The first revision also planned a
 text-post button, a drafts strip and a «Пост» button on each tile for lane B. In this
 revision the drafts list lives on «Создать» (§8.2) and the tile button moves to slice M
-(§15). Text-only posts are deferred (§21).
+(§15). Text-only posts were deferred (§22). §19 builds them for Facebook, LinkedIn and X.
 
 ## 7. Drafts
 
@@ -357,8 +366,8 @@ B′ writes these fields:
 - `id`: `YYYY-MM-DD-<folder>-<4 hex>`, with the date in the machine zone. It matches the
   poster's id pattern `[a-z0-9][a-z0-9._-]{0,79}` and later becomes the package id. An
   existing id retries with new hex.
-- `folder` and `photo` name an indexed photo. A draft always has a photo in B′; text-only
-  posts are deferred (§21).
+- `folder` and `photo` name an indexed photo. A draft always has a photo in B′. §19 lets both be
+  `null` (a draft without a photo) and adds `case` and a topic's `case`.
 - `topics_auto` is `pending` (a new draft with a key, before its automatic request),
   `done` (the automatic request was reserved, whatever its outcome) or `manual` (no key
   when the draft was created).
@@ -854,7 +863,7 @@ failure removes what was written.
      problems.
 5. Ctrl+C waits for a running publish. An interrupted one shows «прервано — проверьте
    аккаунт» on its review page and in «Черновики» (an attention-bell item is deferred,
-   §21).
+   §22).
 
 ### 10.4 Add to the queue
 
@@ -1040,6 +1049,8 @@ and `audio`; non-form kinds dispatch to their handler after the CSRF header chec
 | `/create/<id>/image` | image | 8 MB | `image/jpeg` | D′ (C reuses it) |
 | `/create/<id>/focus` | json | 64 KB | `application/json` | D′ |
 | `/create/<id>/highlight`, `/settings` | json | 64 KB | `application/json` | C |
+| `/create/<id>/photo` | json | 64 KB | `application/json` | §19 |
+| `/create/cases/save`, `/delete`, `/start` | form | 16 KB | form | §19 |
 | `/create/<id>/publish`, `/retry`, `/queue`, `/delete` | form | 16 KB | form | D′ |
 
 JSON bodies must decode as a UTF-8 JSON object (else 400 «неверный запрос»). JSON replies
@@ -1052,6 +1063,7 @@ text), so the sub row updates without a reload.
 - B′: `/` (302 to `/create`), `/create`, `/create/<id>`, `/create/profile`.
 - D′: `/create/<id>/review`, `/create/<id>/status`, and `/create/<id>/file?name=<network>`
   (the crops). C extends `name` to its style images.
+- §19: `/create/cases`.
 
 ### 14.3 Rendering rules for the new pages
 
@@ -1296,7 +1308,7 @@ carry spec item 1, 4–7 item 2, 8–12 item 3, 13 item 4, 14 item 5, 15–16 it
 19. **Checks.** `python3 -I -B -m unittest discover -s tests -t .` passes, and so does
     `python3 tools/visual_check.py --out DIR` with every state of §16.2 at all seven
     widths. `git status --short --ignored` in the worktree shows nothing new after both.
-20. **Live check.** LC1 (§19) ran with at most 6 real Gemini calls, a non-personal test
+20. **Live check.** LC1 (§20) ran with at most 6 real Gemini calls, a non-personal test
     image and clip, and a cumulative reserved bound under $0.10. Each call is in the
     ledger, and the lane's report lists every call.
 
@@ -1421,12 +1433,12 @@ specification are whole in §16.1.
 | Cut | Goes to | Why it can wait |
 |---|---|---|
 | «Медиатека» as "all photos on top, queue folders deeper", and a «Пост» button on each tile | Slice M (§15) | Spec item 1 asks for the rename, everything slice A shows, and a folder the operator never makes. Those are in B′. The re-layout changes the visual check's ellipsis states and every Files test, so it reviews better on its own |
-| Both-language variants (`en+uk`), per-network on/off switches | §21 | The languages are fixed by the decisions; no one asked for switches |
+| Both-language variants (`en+uk`), per-network on/off switches | §22 | The languages are fixed by the decisions; no one asked for switches |
 | The `quote` line for the quote-on-photo template | C (§9.1) | Only C draws it |
 | «Удалить черновик», removing drafts after send | D (§10.5) | B′ caps drafts at 500 and lists the 10 newest |
 | AI month in the top bar | Replaced by the «Создать» sub row (D10) | Measured and simpler |
-| Profile that learns from repeated edits | §21 | Not in the acceptance; needs a design for what counts as a repeated edit |
-| Text-only posts (no photo) | §21 | The operator asked to start with photos; Instagram needs an image |
+| Profile that learns from repeated edits | §22 | Not in the acceptance; needs a design for what counts as a repeated edit |
+| Text-only posts (no photo) | §22 | The operator asked to start with photos; Instagram needs an image |
 
 ## 17. Slice D′: pinned acceptance (the lane is judged against this section)
 
@@ -1463,13 +1475,13 @@ commit unless marked *new*.
 |---|---|---|---|
 | D18 | The crops are drawn in the browser on `<canvas>` from the **original** (`/photo?v=orig`, decoded with `createImageBitmap(blob, {imageOrientation: "from-image"})`), saved as JPEG and posted to the server. The server only checks and stores the bytes | Crops on the server; crops from the view copy | The standard library has no image codec (D1; §2 Machine). The view copy is at most 1 600 px on its long side (§6.6), so it cannot give 2 048. Canvas JPEGs carry no camera metadata (slice A, B2) |
 | D19 | Sizes. **Instagram** 4:5 as exactly 4k × 5k with k = min(270, ⌊W/4⌋, ⌊H/5⌋), so 1 080 × 1 350 at most. **Facebook** and **LinkedIn** keep the original ratio, with the long side min(2 048, the original's long side). **X** 16:9 as exactly 16k × 9k with k = min(100, ⌊W/16⌋, ⌊H/9⌋), so 1 600 × 900 at most. Nothing is upscaled. JPEG quality is 0.9, then 0.8 and 0.7 while the file is above min(the network's byte limit, 8 MB) | Rounded sizes such as `round(w × 5 / 4)`; the ratio choices of §9.1 | Integer multiples keep Instagram at exactly 0.8, the edge of `IG_MIN_ASPECT` (`rules.py:26`), so rounding can never land at 0.7996. Measured on 2026-11-13 (O): `check_image` passes 1 080 × 1 350 on every network, and 1 536 × 2 048 and 1 600 × 900 everywhere except Instagram's ratio check for 1 536 × 2 048 (aspect 0.750 refused). A 3 024 × 4 032 fixture JPEG (`panel_fixture.make_photo`) takes 0.87 s to generate. The ratio choices stay in C |
-| D20 | **Centre crop by default.** One tap on the source photo on the review page sets `focus` (fx, fy in 0..1). Only the cropped networks (Instagram, X) are redrawn. The window is the largest one of the ratio, centred on the focus and clamped inside the photo | Face detection; Gemini; drag-to-crop | The standard library has no face detection, and Gemini is outside D′ (no paid call, decision of 2026-11-13). Without the tap, a portrait centre crop to 16:9 can cut a head; the tap is the smallest fix, and it is optional. Drag-to-crop stays deferred (§21) |
+| D20 | **Centre crop by default.** One tap on the source photo on the review page sets `focus` (fx, fy in 0..1). Only the cropped networks (Instagram, X) are redrawn. The window is the largest one of the ratio, centred on the focus and clamped inside the photo | Face detection; Gemini; drag-to-crop | The standard library has no face detection, and Gemini is outside D′ (no paid call, decision of 2026-11-13). Without the tap, a portrait centre crop to 16:9 can cut a head; the tap is the smallest fix, and it is optional. Drag-to-crop stays deferred (§22) |
 | D21 | `send.review` runs the poster's own functions in the order of `cmd_publish` (`poster/cli.py:210-252`) on the snapshot's env, record and X month, and words each problem in Russian. A parity test against `poster publish --dry-run` keeps the two equal (§17.8). At publish time the poster's own pre-flight runs again and is the authority | Run `--dry-run` for each page and parse its English lines | Parsing would tie Russian words to English sentences, and the dry run also prints every request. The snapshot already holds the env, the record and the X month, rebuilt only when their files change (`model.state_key`), so a review page reads no extra store |
 | D22 | Publishing runs in one background thread per content folder, guarded by `flock(content/drafts/.publish.lock, LOCK_EX \| LOCK_NB)`. It calls the injectable publish function, by default `factory.runner.poster_main`, which is `poster.cli.main` in this process. Progress is read from the poster record after a byte offset stored at the start. The outcome is written into the draft when the thread ends | A subprocess; an in-memory flag | The runner already calls the poster in-process (`runner.py:47`), and tests inject a fake transport the same way. A lock file is released by the kernel when the process dies, so after a crash or restart the panel can tell «прервано» from «идёт» without any GET writing |
 | D23 | When every target is published, the draft stays, in state `published` and read-only, until «Удалить черновик» | Removing the draft at once (first revision, §10.3) | A removed draft would turn the page that shows the links into a 404 on reload. The «Медиатека» chip can read «опубликовано» for its photo. 500 drafts is far away, and deletion now exists |
 | D24 | The targets are `config.PROFILES["kotleta"]` in poster order (`fb:kotleta`, `ig:kotleta`, `linkedin`, `x`). `make_server(..., publish=None, targets=None)` takes both for tests and for LC4. Nothing in the env file or the UI changes them. «В очередь» re-reads the rules file on the POST and refuses a folder that any rule, active or draft, reads with a destination outside these targets, before anything is written | Per-network switches; an env setting | Every decision names all four networks. A constructor parameter is enough for the fakes and for LC4's one-Page run (§17.9) |
 | D25 | «В очередь» with no active rule reading the folder carries a checkbox, checked by default: «Публиковать из «<папка>» по правилу: пн, ср, пт в 10:00». One click queues the package, then creates the rule and starts it through `checks.activation_problems`. A refused start saves the rule as a draft and shows why on «Правила» | A second click after queuing; a rule created without the checks | It costs one movement fewer. The checks are exactly what `factory rule start` runs, and the refusal display already exists (`views.rules(ctx, refusal=…)`) |
-| D26 | Any problem disables both buttons, including a LinkedIn token and the X month, even for «В очередь» | Queue despite publish-time problems (the runner skips X by itself) | The pinned specification says so. The looser queue is deferred (§21) |
+| D26 | Any problem disables both buttons, including a LinkedIn token and the X month, even for «В очередь» | Queue despite publish-time problems (the runner skips X by itself) | The pinned specification says so. The looser queue is deferred (§22) |
 
 ### 17.2 Draft states and fields
 
@@ -1920,7 +1932,7 @@ The critic also checks that:
 - The factory core: `factory/{stock,ruleset,planner,runner,journal,checks,attention,cli,
   inputs,paths}.py` and `factory/panel/actions.py`. D′ calls `checks.activation_problems`,
   `fruleset.parse_rule`/`write`, `finputs.load`, `fstock` and `runner.poster_main`.
-- The bell and its attention items (an item for an interrupted publish is deferred, §21).
+- The bell and its attention items (an item for an interrupted publish is deferred, §22).
 - B′'s Gemini routes, prompts, budget and ledger. `gemini.py` changes only by moving its
   Exif walk into a shared helper, and every B′ test passes unchanged.
 - The pages Подключение, Календарь, Охваты, Подписчики and Диалоги. On Правила, only the
@@ -2003,10 +2015,10 @@ That post is their own action through the review page, not a check.
 | Cut | Goes to | Why it can wait |
 |---|---|---|
 | Ratio choices, frame, quote, Gemini highlight, side by side, base switch | C (§9, §15) | Decision of 2026-11-13: plain crops now, templates and highlight later |
-| An attention-bell item for an interrupted publish | §21 | «прервано» shows on the review page and in «Черновики» on `/create`, the panel's first page |
-| Re-publishing an interrupted target from the panel | §21 | It risks a double post; the poster's `--force-target` exists for the rare case |
-| Per-network switches; queuing despite publish-time problems | §21 | The specification blocks both buttons on any problem (D26) |
-| Editing texts after a partial publish | §21 | A sent draft is read-only; the operator retries or deletes |
+| An attention-bell item for an interrupted publish | §22 | «прервано» shows on the review page and in «Черновики» on `/create`, the panel's first page |
+| Re-publishing an interrupted target from the panel | §22 | It risks a double post; the poster's `--force-target` exists for the rare case |
+| Per-network switches; queuing despite publish-time problems | §22 | The specification blocks both buttons on any problem (D26) |
+| Editing texts after a partial publish | §22 | A sent draft is read-only; the operator retries or deletes |
 | Choosing the offered rule's days and hours on the review page | Правила | The rule is saved and editable there |
 
 ## 18. Slice C: pinned acceptance (the lane is judged against this section)
@@ -2074,7 +2086,7 @@ plan:
 | # | Decision | Rejected options | Why |
 |---|---|---|---|
 | D27 | The ratio, frame and quote controls, the style strip and «Взять за основу» live on the **review page**: the strip in a «Фото» section that replaces D′'s source box, the per-network controls on each card. The draft page stays as B′ and D′ left it | The draft page's photo as the strip (§9.3) | D′ put the crops, the focus tap and the previews on the review page (`views.py:1437-1467`, `send.js:99-190`). So C's controls sit next to what they change, and the draft page keeps its measured first screen (§8.3: the topic box and «Развернуть» on a 700 px screen) |
-| D28 | Every fixed ratio a:b gives exactly a·k × b·k, with k = min(⌊capW/a⌋, ⌊capH/b⌋, ⌊W/a⌋, ⌊H/b⌋) for a base of W × H. The cap box (capW, capH) is Instagram 1 080 × 1 350, X 1 600 × 1 600, and Facebook and LinkedIn 2 048 × 2 048. «как у фото» keeps the base's ratio with the long side min(cap, the base's long side), where the cap is 1 600 for X and 2 048 for Facebook and LinkedIn. **1.91:1 is 191:100**. Nothing is upscaled | 1.91:1 as 1 080 × 566 (§9.1) | This extends D′'s own rule (`send.py:76-87`, `author.js:65-75`; D19), which keeps the poster's aspect checks exact. 1 080 × 566 is 1.908, not 1.91. Spec item 4 asks for the exact integer size of the ratio. 955 × 500 is exactly 1.91, which `check_image` accepts (`IG_MAX_ASPECT`, `rules.py:26`; `955/500 <= 1.91` is True, O). Instagram upscales it about 13 % for display; §21 names the trigger to revisit |
+| D28 | Every fixed ratio a:b gives exactly a·k × b·k, with k = min(⌊capW/a⌋, ⌊capH/b⌋, ⌊W/a⌋, ⌊H/b⌋) for a base of W × H. The cap box (capW, capH) is Instagram 1 080 × 1 350, X 1 600 × 1 600, and Facebook and LinkedIn 2 048 × 2 048. «как у фото» keeps the base's ratio with the long side min(cap, the base's long side), where the cap is 1 600 for X and 2 048 for Facebook and LinkedIn. **1.91:1 is 191:100**. Nothing is upscaled | 1.91:1 as 1 080 × 566 (§9.1) | This extends D′'s own rule (`send.py:76-87`, `author.js:65-75`; D19), which keeps the poster's aspect checks exact. 1 080 × 566 is 1.908, not 1.91. Spec item 4 asks for the exact integer size of the ratio. 955 × 500 is exactly 1.91, which `check_image` accepts (`IG_MAX_ASPECT`, `rules.py:26`; `955/500 <= 1.91` is True, O). Instagram upscales it about 13 % for display; §22 names the trigger to revisit |
 | D29 | The draft keeps `base`, `look`, `quotes`, `who` and `highlight_error` **at the top level** (§18.2) | `image`, `template` and `quote` inside each variant (§7.1) | B′ code replaces a variant's whole dict on every edit, expand and regenerate (`server.py:498-499`, `gemini.py:286-288`). A choice stored inside it would vanish on the next keystroke |
 | D30 | A change of ratio, frame, quote or base deletes the affected `out/<network>.jpg` under `.lock`, and the reply reloads the page. D′'s `missing` path (`send.js:235-237`) then re-makes the crops. Each crop POST carries `look`, a 12-hex digest of that network's base, ratio, frame, quote place and quote text. `store_crop` refuses a mismatch with D′'s «кадр изменился — обновите страницу». An absent `look` means the default look, so D′'s posts and tests stay valid | Redrawing in place without a reload; a version counter | It is the mechanism D′ already uses for the focus (`send.py:584-585`, `:593-608`), so one path makes every crop. The digest refuses a crop drawn from a stale page (a second tab, or a crop chain still running when the base changed). `seen` already makes the published bytes the reviewed ones (`send.py:288-299`) |
 | D31 | The quote is laid out with the canvas's own `measureText`, so what is measured is what is drawn. The font starts at 6 % of the width and steps down by 1 px to max(10 px, 2.5 % of the width). The text is at most 4 lines. A quote that does not fit fails that crop with a reason; it is never cut | Line breaking by a hidden DOM element; truncating the quote | The canvas measure is exact for the pixels. The panel never shortens operator text (§8.6). The `Range` measurement of spec item 1 checks the result (item 3) |
@@ -2155,7 +2167,7 @@ hostile input.
 |---|---|---|
 | A foreign site spends on a style or changes a look | JSON kind: `Origin` required and equal to the panel's, `X-CSRF-Token` checked before any body byte (`server.py:394-419`) | `/highlight` and `/settings` with `Origin: http://evil.example`, without the token, with a wrong `Host`: 403/421; the ledger and the draft are byte-identical; the fake transport saw nothing |
 | Path traversal through a style or file name | `style` and `name` only from fixed tuples; `img/` and `out/` must be real directories (D′'s `_real_dir`, `send.py:402-414`) | `name=../../.env`, `style=../x`, an `img/` symlinked to a scratch folder: 400/404/409, nothing read or written outside |
-| Personal data kept by Google, or camera metadata sent | Only the view copy, checked by `gemini.image` (`gemini.py:101-114`: JPEG, no Exif APP1). `"store": false`; no file name; `who` only as prompt text. The key's project must have billing on (G10, §20 item 1) | The captured request has `"store": false`, no `name` field and the view copy's base64; an injected Exif view copy answers 409 with no request |
+| Personal data kept by Google, or camera metadata sent | Only the view copy, checked by `gemini.image` (`gemini.py:101-114`: JPEG, no Exif APP1). `"store": false`; no file name; `who` only as prompt text. The key's project must have billing on (G10, §21 item 1) | The captured request has `"store": false`, no `name` field and the view copy's base64; an injected Exif view copy answers 409 with no request |
 | Key values in pages, JSON, logs, drafts | `_json` and `_page` redact; the JSON body is redacted before use (`server.py:471`); `vendor_message` and the model's text part are redacted before storing or logging | A canary key inside a 402 array body and inside a text-only answer: in no page, JSON reply, log line, ledger row or draft |
 | Spending without the operator | One call per click; reservation before sending; refusal above the cap; no retry by itself; `.ai.lock` per draft and two calls at once (`gemini.py:190-198`) | Month at $9.99: 409 and zero requests; two clicks on one draft: one request and 409 «уже выполняется»; a reload during a held call sends nothing |
 | A style result published unseen | A new result changes nothing until «Взять за основу». A base change deletes every crop, so «Проблем нет» and both buttons wait for the new crops, which the review shows. `seen` covers their bytes | `/publish` with the `seen` of the page before the switch: 409 «черновик изменился после проверки — проверьте ещё раз» |
@@ -2579,14 +2591,14 @@ first, as the other lane's `assertNoPosterWords` helper does (the token can cont
 
 ### 18.9 LC3, after the merge (not in this lane)
 
-LC3 (§19) settles G17: the photo's token count on the image model, the full `aspect_ratio`
+LC3 (§20) settles G17: the photo's token count on the image model, the full `aspect_ratio`
 list, the place of the image block in the reply, and whether the operator's face is kept.
 
 - It needs the operator's photo, their go-ahead and Gemini credits. The shared key
   answered 402 «prepayment credits are depleted» on 2026-11-13 around 16:2x UTC.
 - It is one «Размыть фон» through the review page, bounded at $0.09.
 - The report gives the `usage` numbers against D32's bound, and the operator's verdict on
-  the face. If the face is changed or refused, §21's code "spotlight" is the fallback.
+  the face. If the face is changed or refused, §22's code "spotlight" is the fallback.
 
 No stage of this lane makes a real Gemini call.
 
@@ -2596,12 +2608,678 @@ No stage of this lane makes a real Gemini call.
 |---|---|---|
 | The strip and chips on the draft page (§9.3) | Review page (D27) | The crops and focus already live there; the draft page's first screen is measured and full |
 | An «Оригинал» chip in the chip row (§9.3) | Dropped | The left tile always shows the original |
-| Instagram 1.91:1 at 1 080 × 566 | §21 | Not an exact ratio; 955 × 500 is (D28) |
-| Showing the vendor's English reason on the page | §21 (the panel log keeps it) | Spec item 6: Russian, never raw JSON (D33) |
-| Per-modality settlement of image tokens | §21 | The usage fields are G17; every output token is charged at the image rate meanwhile (D32) |
-| A different base per network; several kept results per style; drag-to-place a quote; custom colours and fonts | §21 | Not asked; one base, three frame colours and two quote places cover the decision of 2026-11-08 |
+| Instagram 1.91:1 at 1 080 × 566 | §22 | Not an exact ratio; 955 × 500 is (D28) |
+| Showing the vendor's English reason on the page | §22 (the panel log keeps it) | Spec item 6: Russian, never raw JSON (D33) |
+| Per-modality settlement of image tokens | §22 | The usage fields are G17; every output token is charged at the image rate meanwhile (D32) |
+| A different base per network; several kept results per style; drag-to-place a quote; custom colours and fonts | §22 | Not asked; one base, three frame colours and two quote places cover the decision of 2026-11-08 |
 
-## 19. Unconfirmed facts and live checks
+## 19. Topics from the author's themes and cases, photo optional: pinned acceptance (the lane is judged against this section)
+
+This slice changes where topics come from. Topics now come from the author's own themes and
+cases. The photo only illustrates the post, and a post can start without one. Read against `main`
+at `728a4a4` on 2026-11-14. Every function named here exists at that commit unless marked
+*new*.
+
+### 19.1 Requirement and validation
+
+This repository is public, so the operator's words are paraphrased here in the third person,
+as in §1. The verbatim words are in the pinned specification of this lane's task.
+
+**2026-11-14, in chat with the orchestrator.** The operator read the texts Gemini wrote. They
+found them acceptable on the whole, but they did not like that the topics were improvised.
+The topics they want to talk about:
+
+- themselves and the automation of the processes around them with neural networks (Claude,
+  Codex and the like);
+- artificial intelligence;
+- how they automate one process or another;
+- the cases they have completed.
+
+They want to share that material, not topics improvised from the photos.
+
+**The same day, the operator's form answer** to «Звідки брати теми постів?»: from the author's
+themes and cases; the photo is only an illustration; a post can be started without a photo.
+The pinned specification adds, from the same form, a «Кейсы» list kept in the panel.
+
+What the code does today:
+
+- The topics task asks for topics «that fit this photo and the author's themes and audiences»
+  (`prompts.py:57-59`). The instructions call the posts «built around this photo»
+  (`prompts.py:19-23`).
+- Every topics request carries the view copy (`gemini.py:339`, `:217-225`).
+- A draft cannot exist without a photo (`drafts.py:216-217`, `:297-303`).
+- The send path makes and requires a crop for every target (`send.py:270`, `:817`, `:855-858`).
+
+| Requirement | Where this section meets it |
+|---|---|
+| Topics about AI, automation and completed cases, not improvised from photos | Topics come from the profile's «О чём пишете» and from the cases (D36). The topics request carries no photo (D37) |
+| Share real cases | A «Кейсы» list in the panel (D38, §19.3). A draft carries one case, and its facts go into the texts (D39) |
+| The photo only illustrates | No photo in the topics request. The instructions say the photo never sets the subject (§19.5). From 1 000 px the photo stands above «Тексты», not above «Тема» (D43) |
+| A post can start without a photo | «Пост без фото» on «Создать» and «Пост по кейсу» on «Кейсы» (§19.4). A photo can be attached later (D41) |
+| Nothing invented | B′'s rule extends to the case, and it is strict about cases, clients and numbers (§19.5). Case ids are checked by the server (D40) |
+| A post without a photo can be sent | Facebook, LinkedIn and X go out text-only. Instagram is left out and named once (D42, §19.6) |
+
+### 19.2 Decisions
+
+| # | Decision | Rejected options | Why |
+|---|---|---|---|
+| D36 | **Topics from themes and cases.** A topics request carries the profile, which holds «О чём пишете» as `Author's themes` (`profile.py:10`), and one line per stored case: id, title and tools. On a draft that carries a case, the request carries that case's whole record instead, and asks for angles on it | Every case's whole record in every topics request; titles only; topics from trends (§22) | Whole records at the limits of §19.3 would raise the topics bound to $0.0355 for 20 cases and $0.0441 for 30, so the button would read «до $0.04» or «до $0.05» (O, below). Titles alone say too little to suggest an angle. The tools name what the operator wants to talk about (Claude, Codex) |
+| D37 | **The topics request carries no image block.** Expand and regenerate keep the image when the draft has a photo. `gemini.request` adds a media block only when it is given media. `Service.run` passes none for topics or for a draft without a photo | Sending the photo with a line «do not use it for the topic»; dropping the photo from every call | The operator asked that the photo not drive the topic, and a model that sees the photo can still follow it. What the photo shows stays a source of facts for the texts and for C's quotes (`prompts.py:68-69`). `test_all_request_shapes_and_key_only_in_header` (`test_author_gemini.py:11-35`) calls `request()` with media for every op, and that call keeps its shape |
+| D38 | **A «Кейсы» list** in `content/cases.json`, on a form page like «Профиль автора» (D17): add, edit and delete, at most 30 cases, with a limit for every field (§19.3). The page works without JavaScript, except the delete dialog | Cases inside the profile; one file per case; cases in git | One 600-character profile field cannot hold records, and records need ids so that a topic and a draft can name one. `content/` is ignored by git (`.gitignore:4`, `git check-ignore -v content/cases.json` matches it, O). The profile page is the measured pattern to follow (`views.py:1259-1277`, `server.py:439-455`) |
+| D39 | **A draft carries at most one case, by id** (`case`). Each text call reads the current record. Deleting a case leaves the id dangling: the three text calls refuse until «убрать» is pressed | Copying the case into the draft; deleting the reference from every draft when the case is deleted | An edited case should reach the next «Перегенерировать». A cascade would write into every draft from the cases page, and a sent draft is read-only (`drafts.py:347-355`) |
+| D40 | **Each topic names its case.** A topic item has `case`, a string in the schema. The server keeps it only when it is the id of a stored case, and otherwise stores `""`. On a draft that carries a case, the server sets every topic's `case` to that id | A schema `enum` of the stored ids; refusing the whole reply over an unknown id | An enum makes the schema, and with it the bound, change with the stored data. `test_all_request_shapes_and_key_only_in_header` compares the sent schema with `prompts.SCHEMAS` (`test_author_gemini.py:28`). Refusing would lose a billed reply over one link. Forcing the draft's case means that a tap on a card never drops the case the operator started from |
+| D41 | **A draft without a photo** has `"folder": null, "photo": null` and the id `YYYY-MM-DD-post-<4 hex>`. A photo is attached once, through `POST /create/<id>/photo`. A photo is never removed or replaced | Leaving the keys out; a placeholder image; replacing the photo | The draft summaries read `d[k]` for both keys (`drafts.py:387`), and `photo_uses` compares `draft["folder"]` (`model.py:523-526`), which a `null` passes. The id pattern accepts `post` (`drafts.py:24`). The id is only a label: nothing parses the folder back out of it. C's crops, styles and focus belong to one photo, so replacing it would have to reset all of them (deferred, §22) |
+| D42 | **Without a photo, the draft goes out text-only to Facebook, LinkedIn and X.** Instagram is left out of the draft's targets, and the review page says so once | Blocking both buttons until a photo is attached; drawing a text card as Instagram's image; sending Instagram anyway | The poster's `check_image(None)` refuses only Instagram (`poster/rules.py:341-347`), and Instagram refuses a variant without an image (`instagram.py:51`). Facebook posts a text to `/feed` (`facebook.py:43-51`). LinkedIn leaves out the media (`linkedin.py:53-54`). X without media costs $0.015 instead of $0.215 (`xapi.py:64-75`, the README's default prices). Blocking would make the operator find a photo for every case post. A text card is an image template nobody asked for (§22) |
+| D43 | **From 1 000 px, the draft page's photo (or the «Добавить фото» block) stands at the top of the right column**, above «Тексты». «Тема» then starts the left column. Below 1 000 px the order stays: photo, «Тема», «Тексты» | A row with a case select under the topic box; the photo kept above «Тема»; a smaller photo box | Measured below (§19.7): at 1 000 × 700 «Развернуть» ends at 683 px today, 17 px from the bottom. Case labels on the cards and the case line push it to 782 px with the photo on the left. With the photo on the right it ends at 686 px. A select row alone pushed it to 739 px, and a select clips a long title. The photo only illustrates, so it can stand beside the texts it illustrates. The DOM order stays photo, «Тема», «Тексты», so the one-column order below 1 000 px and the HTML that tests read do not change. B′'s probe checks that «Тексты» stands right of the photo's right edge (`probe.js:908-911`). That one comparison changes to the right edge of the «Тема» column (`.create-topic`), and its intent stays: «Тексты» in the right column, on the first screen |
+| D44 | **The bound on each button counts the stored cases at their stored UTF-8 size.** The profile and the draft's own fields stay at the static worst case (§11.2). With no cases, every button reads what it reads today | A static worst case with every case field at its limit; a smaller limit on cases | Static worst case: topics «до $0.04» at 20 cases and «до $0.05» at 30, and twice that from 2027 (O). Four tests and the probe pin the topics «до $0.02» (`test_author_create.py:217, 239, 258, 293`; `probe.js:574, 817, 863`). Keeping $0.02 under a static bound would leave room for about 270 four-byte characters of cases in all. The reservation stays computed from the bytes actually sent (§11.2). `reserve` takes the larger of the reservation and the button bound read at call time (`budget.py:147`) |
+| D45 | **A text-only package can be queued** into the same photo-lane folders. The rule-conflict check skips rule targets whose network the package has no variant for. The offered rule keeps all four targets | «В очередь» refused without a photo; queuing into text-lane folders | The planner publishes a package to the rule targets it has variants for (`planner.py:238-256`). So a rule with `ig:kotleta` sends the text-only package to the other three. Without the skip, `rule_conflicts` (`send.py:1172-1189`) would refuse every rule that names Instagram, although Instagram never receives this package. The queue lists photo lanes only (`send.py:1165-1170`), and a text-lane choice is deferred (§22) |
+
+**Measurement of the bounds** (O, 2026-11-14). The method:
+
+- `main` at `728a4a4`, exported to scratch;
+- `budget.bound`'s formula and `prices.cost` (UTF-8 bytes of the prompt and schema + 512 + 1 120
+  image tokens, at the output limit of each op);
+- the profile at its limits in four-byte characters, as `budget.button` builds it;
+- the prompt text of §19.5.
+
+| Case | Topics | Expand | Regenerate |
+|---|---|---|---|
+| Today's code, worst case | $0.0185 / $0.0369 | $0.0401 / $0.0803 | $0.0419 / $0.0838 |
+| §19.5's prompts, no cases | $0.0189 / $0.0378 | $0.0405 / $0.0809 | $0.0422 / $0.0844 |
+| Five typical cases (Russian, 2 bytes a character; title and tools 40 each, «что» 300, «что вышло» 200) | $0.0196 / $0.0393 | $0.0413 / $0.0826 | — |
+| Static worst case, 20 cases at §19.3's limits (rejected) | $0.0355 / $0.0709 | $0.0450 / $0.0900 | $0.0468 / $0.0935 |
+| Static worst case, 30 cases (rejected) | $0.0441 / $0.0883 | same | same |
+
+The amounts are through 2026-12-31 / from 2027-01-01. Under D44 the buttons read «до $0.02», «до $0.05»
+and «до $0.05» (2027: $0.04, $0.09, $0.09) until the stored cases grow. The tests of §11 and
+`test_button_bounds_cover_maximum_fields_both_price_periods` (`test_author_budget.py:123-136`)
+call `budget.button(op, now)` with no cases and keep their numbers.
+
+### 19.3 Data
+
+**Cases** (*new* `factory/authoring/cases.py`, `content/cases.json`, 0600, written atomically
+under `content/.cases.lock` with the helpers of `common.py:212-237`):
+
+```json
+{"schema": 1,
+ "cases": [{"id": "c-1a2b3c4d", "title": "…", "what": "…", "tools": "…", "result": "…",
+            "when": "", "created": "2026-11-14T19:00:00Z", "updated": "2026-11-14T19:00:00Z"}],
+ "updated": "2026-11-14T19:00:00Z"}
+```
+
+| Field | Label | Limit | Required |
+|---|---|---|---|
+| `title` | Название | 80 | yes |
+| `what` | Что автоматизировали | 600 | yes |
+| `tools` | Чем: инструменты и нейросети | 200 | yes |
+| `result` | Что вышло | 600 | yes |
+| `when` | Когда (необязательно) | 40 | no |
+
+- The `id` is `c-` plus 8 hex digits from `secrets.token_hex(4)`, and a taken id draws again. Ids
+  are never reused or renumbered. A new case goes first in the list.
+- Each value goes through `common.text` (NFC, the limit, refused but never cut), as the profile does
+  (`profile.py:26-36`). A required field that is blank after `strip()` is refused with
+  «<поле>: заполните». An over-limit field is refused with «<поле>: не больше N знаков».
+- At most 30 cases. The 31st is refused with «кейсов уже 30 — удалите ненужные».
+- Values pass the panel's redactor before saving, as the profile form does (`server.py:448`).
+- `load` returns `{"schema": 1, "cases": []}` when the file does not exist. It raises a `Refusal`
+  when the file is unreadable or invalid.
+- `gist(cases)` and `record(case)` give the prompt blocks of §19.5. `find(cases, id)` returns
+  the record or `None`.
+
+**Draft fields.** `drafts.validate` (`drafts.py:211-248`) accepts these. Everything else in §7.1,
+§17.2 and §18.2 stays:
+
+- `folder` and `photo`: both valid, as today (`drafts.py:216-217`), or **both `null`**. A
+  draft with a `null` photo refuses `focus`, a `base` other than `orig`, `look`, `style_rev`,
+  `who` and `highlight_error`. `quotes` stays allowed: expand writes it whatever the photo
+  (`gemini.py:383-387`), and it is used once a photo is attached.
+- `case`: optional. It is `c-` plus 8 hex digits. When absent, the draft has no case.
+- `topics[]`: each item is `{title, angle}` as today, or `{title, angle, case}` where `case` is
+  `""` or an id by the same pattern. B′'s fixture topics carry no `case` and stay valid.
+- `id`: `YYYY-MM-DD-post-<4 hex>` for a draft created without a photo. A photo attached later
+  keeps the id, because the id becomes the package id (§10.2).
+
+`drafts.Store.create(stock, folder, photo, key, case=None)`:
+
+- `folder` and `photo` both `None` make a draft without a photo. Any other mix goes through
+  today's photo check (`drafts.py:298-304`).
+- `case` is stored as given. The server has already checked that it is a stored case.
+- The 500-draft cap and the creation lock are shared (`drafts.py:305-309`).
+
+The summaries keep their keys (`drafts.py:387-389`).
+
+**Files** (§5.2 gains one row): `content/cases.json` and `content/.cases.lock`, 0600, ignored by
+git. Writers: the «Кейсы» form only. Readers: the panel, on every Gemini text call and on the
+«Создать» pages, for the bounds.
+
+### 19.4 Routes
+
+The header checks of §14.1 and `do_POST` (`server.py:383-437`) apply unchanged. The form routes
+check the `csrf` field and refuse a foreign `Origin`. The JSON routes need `Origin` and
+`X-CSRF-Token` before any body byte.
+
+| Route | Kind, limit | Does |
+|---|---|---|
+| `GET /create/cases[?edit=<id>][&saved=<id>\|&deleted=1]` | page | The «Кейсы» page (§19.7). It is matched before the draft catch-all, as `/create/profile` is (`server.py:220-233`). An unknown `edit` id renders the list with «кейс не найден» |
+| `POST /create/cases/save` | form, 16 KB: `id`, the five fields | No `id` adds a case. An existing `id` replaces its five fields and `updated`. 303 to `/create/cases?saved=<id>#case-<id>`. A refusal re-renders the page with 409 (404 for an unknown id), the operator's text kept and the reason on top, as `_profile_write` does (`server.py:439-455`) |
+| `POST /create/cases/delete` | form, 16 KB: `id` | Removes the case. 303 to `/create/cases?deleted=1`. Drafts that name it keep the id (D39) |
+| `POST /create/cases/start` | form, 16 KB: `id` | Creates a draft without a photo that carries this case (`topics_auto` as in §7.1), then 303 to `/create/<new id>`, where the automatic topics request runs (`create.js:348`) |
+| `POST /create/new` | JSON, 64 KB (B′) | `{folder, photo}` as today, or `{}` for a draft without a photo. `{case}` alone is refused with 400, because a post from a case starts on «Кейсы» |
+| `POST /create/<id>/topic` | JSON, 64 KB (B′) | `{topic}` as today (autosave, `create.js:132`), `{topic, case}` (a card tap), or `{case: ""}` («убрать»). A `case` that is neither `""` nor a stored id answers 409 «кейс удалён — выберите другую тему». A body with neither key answers 400. Both keys are written together under `.lock` |
+| `POST /create/<id>/photo` | JSON, 64 KB | `{folder, photo}`. Under `.lock`: the draft is in state `draft` (`server.py:479`) and has no photo, otherwise 409 «у черновика уже есть фото». The photo must be indexed in that photo-lane folder (the check of `drafts.py:298-304`), otherwise 404 «фото не найдено». Answers `{folder, photo}` |
+| `/create/<id>/focus`, `/settings`, `/highlight`, `/image` | as §17.3, §18.3 | On a draft without a photo: 409 «у черновика нет фото», with nothing written and no request sent |
+
+`post_route` (`server.py:81-108`) matches `/create/cases/(save|delete|start)` before the
+`/create/<id>/…` patterns. It also adds `photo` to the B′ group (`server.py:101`).
+
+**Gemini text calls on a draft whose `case` is not stored** (D39): `/topics`, `/expand` and
+`/regenerate` answer 409 «кейс этого черновика удалён — нажмите «убрать»». The check comes before
+admission and reservation. The answer is not stored as the draft's `error`, because the case line
+already says it (§19.7). Nothing is reserved or sent. Voice is unaffected.
+
+**Security.** Each promise names the server-side check that keeps it. §19.11 tries the hostile
+input.
+
+| Threat | Server-side check | Hostile test |
+|---|---|---|
+| A foreign site adds, edits, deletes a case or starts a post | Form routes: the `csrf` field, a foreign `Origin` 403, `Host` 421 (`server.py:388-432`) | Each `/create/cases/*` POST with `Origin: http://evil.example`, without `csrf`, with a wrong `Host`: 403/421, `cases.json` and `drafts/` byte-identical |
+| A foreign site attaches a photo or changes the case | JSON kind: `Origin` required, `X-CSRF-Token` before the body (`server.py:395-420`) | `/photo` and `/topic` with a foreign `Origin` or no token: 403, the draft unchanged |
+| Path traversal through a case id or a photo | Case ids by `c-[0-9a-f]{8}` and looked up in the store; draft ids by `drafts.ID_RE`; the photo through `photos.folder_path` and the index | `id=../x`, `folder=../x`, `photo=p-0000000000000000`: 400/404/409, nothing written |
+| An invented or foreign case reaching a prompt | Only stored records are put in prompts. A topic's `case` is kept only when stored (D40). A dangling draft case refuses before reservation | A fake reply naming `c-deadbeef` stores `case: ""`. A draft naming a deleted case: 409 and zero requests |
+| Case text kept by Google | `"store": false` on every request (G9). The case text is the operator's own, saved by them, and goes only to the calls that need it (§19.5). G9 and G10 were read again on 2026-11-14 and are unchanged. Interactions are stored by default, 55 days on the paid tier, and `store=false` opts out. Unpaid input may be read by human reviewers, so the billing of §21 item 1 applies to cases too | Each captured request has `"store": false`. A topics request holds only gists, and an expand request holds only its draft's case |
+| Key values in cases | Values pass the redactor before saving. Pages and JSON are redacted (`_page`, `_json`) | A canary key typed into «Что вышло» is stored and shown masked |
+
+### 19.5 Prompts
+
+`prompts.build(op, author, draft, network="", wish="", cases=())` (`prompts.py:51-72`) keeps
+its order: instructions, profile, then the case block, then the task. With no `cases` argument
+it builds the prompts below with «none» lines, so the five-argument calls in the tests keep
+working (`test_author_budget.py:133`, `test_author_gemini.py:13`).
+
+**INSTRUCTIONS** (replaces `prompts.py:19-23`):
+
+> You help the author write social posts about their own themes and their own cases: what
+> they automated, with which AI tools, and what came of it. The subject of a post is the
+> topic below. A photo, when one is attached, only illustrates the post: never take the
+> subject from it. Never invent facts beyond the topic, the author profile, the case below
+> and what the photo shows: no invented cases, clients, numbers, dates, tools or results.
+> When a fact is not given, leave it out. Never name people in the photo. Do not describe
+> the photo's technical qualities.
+
+**Case block.** It comes after the profile block (`profile.prompt`, `profile.py:58-61`):
+
+- topics on a draft without a case, with cases stored:
+
+  > Cases (the author's own records; id, title and tools only):
+  > c-1a2b3c4d: <title> (tools: <tools>)
+  > …one line per stored case, in the list's order
+
+- topics on a draft without a case, with none stored: `Cases: none recorded.`
+- topics, expand and regenerate on a draft that carries a case:
+
+  > Case c-1a2b3c4d (the only source of facts about it):
+  > Title: <title>
+  > What was automated: <what>
+  > Tools: <tools>
+  > Result: <result>
+  > When: <when>          (only when not empty)
+
+- expand and regenerate on a draft without a case:
+
+  > Case: none chosen. Do not present any project, client or result as the author's own
+  > experience unless the topic or the profile states it.
+
+**Topics task** (replaces `prompts.py:57-59`). On a draft without a case:
+
+> Suggest 3 to 5 distinct post topics. Each topic draws either on the author's themes (the
+> profile line "Author's themes") or on exactly one of the cases listed above; never combine
+> cases and never suggest a case that is not listed. title: at most 80 characters, in
+> Russian. angle: one sentence in Russian saying what the post would say and for whom (at
+> most 1000 characters). case: the id of the case the topic draws on, or an empty string
+> when it draws on the author's themes.
+
+On a draft that carries a case:
+
+> Suggest 3 to 5 distinct angles for a post about the case above. Every topic draws on that
+> case only, so case is its id. title: at most 80 characters, in Russian. angle: one
+> sentence in Russian saying what the post would say and for whom (at most 1000
+> characters).
+
+**Expand and regenerate tasks** are unchanged (`prompts.py:61-71`), with the quotes line of C
+included.
+
+**Schema.** `SCHEMAS["topics"]` (`prompts.py:44-45`) gains `case` as a required string in
+each item: `obj({"title": STRING, "angle": STRING, "case": STRING})`. `gemini.parse`
+(`gemini.py:116-125`) accepts an item with the keys `{title, angle}` or `{title, angle, case}`
+and a string `case` of at most 20 characters. Then `Service.run` keeps a `case` only when it is a
+stored id. On a draft that carries a case, it sets every topic's `case` to that id (D40).
+
+**Media** (D37). `gemini.request(op, key, prompt, media, mime)` (`gemini.py:217-232`) adds
+the image or audio block only when `media` is not `None`. `Service.run` (`gemini.py:333-339`)
+passes:
+
+| Call | Draft with a photo | Draft without a photo |
+|---|---|---|
+| topics | no media | no media |
+| expand, regenerate | the view copy, checked by `gemini.image` as today | no media |
+| voice | the audio, as today | the audio, as today |
+
+**Bounds** (D44). `budget.button(op, now, cases=())` (`budget.py:63-82`) builds its worst
+case with the stored cases:
+
+- for topics, the maximum over a draft without a case (the gist of every stored case) and a
+  draft carrying each stored case (its record);
+- for expand and regenerate, the maximum over no case and each stored case's record.
+
+The profile and the draft's fields stay at their limits in four-byte characters, as today.
+`budget.bound` is unchanged: it still counts 1 120 image tokens for a call that sends no image,
+an upper bound. The published table at `budget.py:80-81` is unchanged. `Service.availability`
+(`gemini.py:300-311`) and the reservation's `admission` (`gemini.py:344`) pass the cases read
+for that call. `views._author_state` (`views.py:1080-1097`) reads them once per page for the
+bounds and the month line.
+
+### 19.6 Review and publish without a photo, per network
+
+`Sender.targets_for(draft)` (*new*) returns `targets()` (`send.py:480-481`) when the draft has
+a photo. Without a photo it drops every Instagram target. Every draft-scoped use of `targets()`
+and `networks()` switches to it:
+
+- the review page (`views.py:1462`, `:1468`);
+- `seen` (`send.py:311-322`);
+- `_ready` (`send.py:810-824`);
+- `publish` and its ids (`send.py:948-966`);
+- `queue` (`send.py:1195-1221`);
+- the draft page's «Проверить и отправить →» (`views.py:1224-1225`).
+
+A draft with a photo gets exactly today's list.
+
+| Network | With a photo (unchanged, §17, §18) | Without a photo |
+|---|---|---|
+| Facebook | crop at the original ratio or the look; `/photos` | text-only `/feed` post (`facebook.py:48-51`) |
+| Instagram | 4:5 crop or the look | **left out of the targets**. The review's action block says once: «Без фото: Instagram пропущен — он публикует только с картинкой. Добавить фото» (the link goes to `/create/<id>#attach`) |
+| LinkedIn | crop | text-only post, without `content.media` (`linkedin.py:53-54`) |
+| X | 16:9 crop; estimate with media | text-only; `xapi.estimate(text, False, …)`, so «этот пост в X: $0.015 · …» with the README's default prices |
+
+Review and send without a photo:
+
+- `send.review(draft, targets, facts, crops)` (`send.py:245-308`) adds nothing to `missing`
+  when the draft has no photo. No crop is expected, so the crop line never shows and `send.js`
+  makes no crop (`send.js:419-420`). The X estimate passes `has_image` = the draft has a photo
+  (today `True`, `send.py:301`). Every other step is the poster's, unchanged: text, variables,
+  record, LinkedIn token, X month. `check_image(n, None)` gives no error for these three
+  networks.
+- `_ready` checks crops only for a draft with a photo (`send.py:817`). `seen` already hashes
+  `""` for a missing crop (`send.py:316-321`).
+- `_write_package` (`send.py:838-889`) writes `{"text": …}` with no `image` key for each target
+  of a draft without a photo. It creates no `media/<id>/` folder, and `meta` has no `photo`.
+  `poster.package.load` accepts a variant without an image (`package.py:114-125`). The exit-2
+  clean-up already ignores a missing media folder (`send.py:1076-1077`).
+- The review page omits the «Фото» section (`views.py:1555`) and, on each card, the 240 px
+  crop box, the size line and the look controls (`views.py:1558-1581`). The page data carries
+  `orig`, `source` and `focus` as `null` (`views.py:1594-1601`).
+- «Проблем нет · 3 сети», the dialog «Опубликовать в 3 сети сейчас?» / «Facebook, LinkedIn и
+  X. Это нельзя отменить.», the status lines «Опубликовано во всех 3 сетях», the retry and
+  the delete all come from the targets list and stay unchanged.
+- **Queue** (D45):
+  - The folder select lists the same photo-lane folders. The default is `my-photos` when it
+    is listed, else the first one (`views.py:1504-1506` reads `draft["folder"]` today).
+  - With no photo-lane folder, «В очередь» is disabled. The queue line reads «Очередь — это
+    папки фото-постов; первая появится с первым загруженным фото».
+  - `rule_conflicts(folder, networks)` skips rule targets whose network is not in the
+    package's networks (`send.py:1186`).
+  - The offered rule keeps `self.target_ids` (`send.py:1234`). Its activation passes, because
+    `planner.pick` takes a package with a variant for any of the rule's targets
+    (`planner.py:244-256`).
+- **Attaching a photo before sending** restores the four targets and D′'s crops: the review page
+  then lists the missing crops and makes them. A sent draft refuses the attach (409, §17.2).
+- With `targets=("ig:kotleta",)` (tests only, D24), a draft without a photo has no target. The
+  review then reads «Без фото отправить некуда: Instagram публикует только с картинкой —
+  добавьте фото», and both buttons are disabled.
+
+### 19.7 UI: pages, layout and the measured first screen
+
+**«Создать»** (`views.create`, `views.py:1122-1170`):
+
+- Under the drop zone stands one row: the button «Пост без фото» and the muted words «тема —
+  из ваших тем и кейсов». The button posts `/create/new` with `{}` and navigates to the draft
+  (the `newDraft` path, `create.js:59-63`).
+- The profile line (`views.py:1167`) becomes two links: «Профиль автора · заполнен» (or B′'s
+  «не заполнен» line) and «Кейсы · N». With no case the second link reads «Кейсы · добавить».
+- In «Черновики», a draft without a photo shows a 48 px box with the muted words «без фото»
+  instead of its thumb (`views.py:1147`).
+- `CREATE_PROFILE_HINT` (`strings.py:412`) becomes «Профиль и кейсы уходят в запросы к
+  Gemini за темами и текстами. Хранятся только на этом компьютере.».
+
+**«Кейсы»** (`GET /create/cases`, tab «Создать», sub row «Кейсы» with the AI month, the
+scripts `send.js` only for the delete dialog). In one column, at most 960 px wide:
+
+1. The heading «Кейсы» and the explainer «Из кейсов Gemini берёт темы и факты для текстов —
+   только то, что здесь записано. Хранятся только на этом компьютере (content/cases.json).»
+2. The notices «Кейс сохранён» or «Кейс удалён» (`role="status"`), or the refusal
+   (`role="alert"`).
+3. The list, or «Кейсов пока нет — добавьте первый: что автоматизировали, чем и что вышло.».
+   Each case is an `<article id="case-<id>">` holding:
+   - the title (bold, whole, wrapping);
+   - the four other fields as labelled lines;
+   - one row of «Пост по кейсу» (green, the `start` form), «Изменить» (a link to
+     `?edit=<id>#case-<id>`, which renders the form in place of the article) and «Удалить»
+     (a native `<dialog>`: «Удалить кейс?» / «Черновики с этим кейсом останутся, но тексты по
+     нему писать не получится.» / «Да, удалить», «Отмена», through `views._dialog`,
+     `views.py:1282-1291`).
+4. «Новый кейс»: the five fields with their limits («до 80 знаков») in the profile's grid,
+   with two columns from 600 px (`panel.css:559-566`), and «Добавить кейс». At 30 cases the
+   form is replaced by «кейсов уже 30 — удалите ненужные».
+
+**Draft page** (`views.create_draft`, `views.py:1203-1256`; `create.js`):
+
+- **From 1 000 px** the grid areas become `"topic photo" "topic texts"` (today `"photo texts"
+  "topic texts"`, `panel.css:546`, D43). Below 1 000 px the order stays photo, «Тема»,
+  «Тексты».
+- **Without a photo**, the photo box is replaced by `<label id="attach" class="create-photo
+  create-attach">` around a hidden single-file input. It holds the button «Добавить фото» and
+  the muted words «необязательно — без фото пост уйдёт в Facebook, LinkedIn и X; Instagram —
+  только с фото». A pick or a drop runs `MFAuthor.uploadFile("my-photos", csrf, file)`, then
+  `POST /create/<id>/photo`, then a reload. While this runs, the status line reads «Загрузка
+  фото…». The refusals and the several-files message are B′'s (§8.2).
+- **Topic cards** with a non-empty `case` gain a third row «кейс: <title>», small and muted. It
+  is one line with an ellipsis, and the full title is in the DOM and in `title`, as the
+  «Черновики» rows do it (`panel.css:507`, the probe's clamp rule `probe.js:110-130`). A card
+  whose case is no longer stored shows «кейс удалён». The row is placed by its own grid area,
+  because `.topic-card > span:not(.chosen)` would put it on the angle's row (`panel.css:582`).
+- **Case line**: when the draft carries a case, one row directly under the topic box reads
+  «Кейс: <title>», whole and wrapping, with «убрать» (a `linkbtn`, at least 24 px, which keeps
+  its width). For a dangling id the row reads «Кейс удалён — нажмите «убрать», чтобы писать
+  тексты». Then «Ещё темы», «Развернуть» and «Перегенерировать» are disabled with that reason
+  in `title`.
+- **A card tap** posts `/topic` with `{topic, case}`. The card's `case` (`""` included) becomes
+  the draft's case, and the case line updates without a reload. The page data (`data-create`,
+  `views.py:1100-1104`) carries `cases` as id → title for that. Typing posts `{topic}` only and
+  leaves the case alone.
+
+**Review page:** the text-only action block of §19.6, and cards without the crop box.
+
+**Measurement** (O, 2026-11-14). The setup:
+
+- `main` at `728a4a4`, exported to scratch;
+- B′'s «create» fixture, the `topics` draft: five cards with B′'s texts, the second chosen;
+- chrome-headless-shell 1248 at device scale 1, over the visual check's own DevTools client
+  (`visual_check.Live`), at the visual check's viewport heights (`visual_check.py:102`);
+- placeholders injected through the CSSOM:
+  - «кейс: <title>» on cards 1, 3 and 5 (one line, ellipsis);
+  - the case line with a 100-character title (two lines at this column width);
+  - the grid areas of D43;
+  - for the draft without a photo, the attach block in place of the photo.
+- Numbers are the bottom of «Развернуть» in px.
+
+| Viewport | Today | Labels + case line, photo on the left | Labels + case line, photo on the right (D43) | Without a photo (D43) |
+|---|---|---|---|---|
+| 1 000 × 700 | 683 | 782 (off screen) | **686** | **686** |
+| 1 100 × 700 | 683 | 782 (off screen) | **686** | **686** |
+| 1 200 × 800, 1 279 × 800, 1 280 × 800 | 695 | 794 | 686 | 686 |
+| 1 440 × 900 | 707 | 806 | 686 | 686 |
+| 1 600 × 900 | 665 | 764 | 644 | 644 |
+| 1 920 × 1 080 | 603 | 682 | 540 | 540 |
+
+More observations:
+
+- **Sideways scroll:** none, at any of the ten widths, in any variant.
+- **«Тексты» heading** (D43): it moves from 157 to 253 px at 1 000 × 700.
+- **Texts state:** the first text editor's bottom moves from 394 to 490 px at 1 000 × 700, so
+  B′'s «from 1 000 px the page has not scrolled» holds (`create.js:149-155`).
+- **A select row** for the case under the box, the photo on the left: «Развернуть» at 739 px
+  at 1 000 × 700, and the long title was clipped inside the select. It was rejected.
+- **«Создать»:** «Пост без фото» and the two links add 36 px. «Черновики · 5» ends at 809 px of
+  844 at 390 px, and at 643 px of 700 at 1 000 px.
+- **Review without a photo:** the line of §19.6 and «Проблем нет · 3 сети» keep the whole action
+  block on the first screen. It ends at 609 px of 844 at 390 px (563 today), at 376 px from 900
+  to 1 440 px (the screen is 700 px tall at 1 000 and 1 100), and at 334 px at 1 600 and 1 920.
+
+### 19.8 Acceptance list
+
+Each item can be observed by a test, a probe or a screenshot named in §19.9–§19.11. The
+specification's items map as follows:
+
+| Specification item | Acceptance items |
+|---|---|
+| 1 («Кейсы» list: add, edit, delete, limits like the profile's) | 1, 2 |
+| 2 (topics from themes and cases; the photo does not drive the topic; a topic names its case) | 3, 4, 5 |
+| 3 (start without a photo; attach later; review and publish without a photo; D′ and C unchanged with a photo) | 6, 7, 8, 9, 10 |
+| 4 (texts use the case and the profile; nothing invented) | 11, 12 |
+| 5 (every call through the budget guard, its bound on the button) | 13 |
+| 6 (existing tests; visual check of the new states) | 14, 15 |
+| Fences (fake Gemini only, no key, no paid call, no publishing, `content/` untouched) | 16 |
+
+1. **Cases store.**
+   - `/create/cases/save` adds a case to `content/cases.json` (0600; `content/` 0700), and
+     `git check-ignore content/cases.json` holds.
+   - The page shows «Кейс сохранён» and the case first in the list.
+   - Editing replaces only that case's fields and `updated`; the other cases are
+     byte-identical.
+   - Deleting removes it after the dialog («Да, удалить»), and the page shows «Кейс удалён».
+   - A panel restart shows the same list.
+2. **Limits and validation.** Each of these is refused with 409, the operator's text kept in
+   the form and nothing written:
+   - an 81-character «Название»;
+   - a blank «Что вышло» («Что вышло: заполните»);
+   - a 41-character «Когда»;
+   - a 31st case («кейсов уже 30 — удалите ненужные»).
+
+   An unknown id on save or delete answers 404. A canary key typed into a field is stored and
+   shown masked. Each field at its limit is accepted whole (NFC, never cut).
+3. **Topics request.** For a draft with a photo and for one without, the captured topics
+   request:
+   - has exactly one `input` block, the text: no `image` block, so the photo does not drive
+     the topic;
+   - carries the profile's «О чём пишете», each stored case's id, title and tools, and the
+     topics task of §19.5 word for word;
+   - carries no case's `what`, `result` or `when`;
+   - has a `response_format.schema` equal to `prompts.SCHEMAS["topics"]`, with `case` in the
+     items.
+
+   With no case stored it carries `Cases: none recorded.`
+4. **A topic names its case.**
+   - A fake reply with three topics naming stored cases and two with `""` stores those values.
+   - Each named card shows «кейс: <title>», and the title stays whole in the DOM.
+   - A topic naming `c-deadbeef` (not stored) is stored with `""` and shows no case row.
+   - On a draft that carries case A, a reply naming `""` or case B stores A on every topic.
+5. **A draft from a case.**
+   - «Пост по кейсу» creates a draft without a photo with `case` = that id and redirects to it.
+   - The automatic topics request sends that case's whole record and the angles task, and no
+     gist.
+   - Each card shows that case.
+6. **Start without a photo.**
+   - «Пост без фото» on «Создать» creates a draft with `folder` and `photo` `null` and the id
+     `YYYY-MM-DD-post-<4 hex>`, then navigates to it.
+   - The page shows the attach block, the automatic topics run once, and a typed topic
+     autosaves.
+   - «Черновики» lists it with «без фото».
+   - `/files` shows no chip for it, and `model.photo_uses` does not fail.
+7. **Attach later.**
+   - On a draft without a photo, the attach block uploads a generated JPEG through three
+     `/files/photos` posts and then posts `/create/<id>/photo`. The draft then holds that folder
+     and photo, keeps its id, topic, case and texts, and the page reloads with the photo at the
+     top of the right column from 1 000 px.
+   - A second `/photo` answers 409 «у черновика уже есть фото». A photo not in the index answers
+     404. A sent draft answers 409 «черновик уже отправлен».
+   - After attaching, the review page makes four crops (D′) and lists four targets.
+8. **Review and publish without a photo.**
+   - The review shows three cards (Facebook, LinkedIn, X) without crop boxes, the line of §19.6
+     once, «Проблем нет · 3 сети», and the X line with the text-only price.
+   - «Да, опубликовать» writes `content/packages/<id>.json`:
+     - each variant is `{"text"}` with no `image`;
+     - there is no `media/<id>/` folder;
+     - `meta` has no `photo`;
+     - `poster.package.load` accepts it.
+   - The publish function is called with `--targets fb:kotleta,linkedin,x`.
+   - With a scripted `FakeTransport`, Facebook's request goes to `/feed`, LinkedIn's body has
+     no `content`, and X's ledger rows hold no `media_upload`.
+   - The outcome rows read as in §17.
+9. **Parity with the poster** (as §17.5 item 5) on the text-only package, for the targets
+   without Instagram:
+   - the review is clean exactly when `poster publish --dry-run` exits 0, and names a target
+     exactly when the dry run does;
+   - the cases are: clean, X 281 weighted, a missing `FB_PAGE_KOTLETA_TOKEN`, LinkedIn
+     expired, and the X month at $4.99 of $5.00 (the text-only $0.015 does not fit).
+10. **Queue without a photo, and D′/C unchanged.**
+    - «В очередь» to `my-photos` with the offered rule writes `<NNN>-<id>.json` without images.
+      `python3 -m factory check` adds no problem line, and `factory plan --rule my-photos`
+      lists the package for `fb:kotleta`, `linkedin` and `x` only.
+    - A rule that reads the folder with `ig:kotleta` is not a conflict for this package, while a
+      rule with a target outside the reviewed list still is (§17.3).
+    - Every test in `tests/test_author_send.py` and `tests/test_author_images.py` passes
+      unedited, and D′'s and C's visual states pass. For a draft with a photo, `targets_for`
+      equals `targets()`.
+11. **Texts from the case and the profile.**
+    - Expand on a draft with case A sends A's whole record, the profile and, with a photo, the
+      image block. Without a photo it sends no image.
+    - Regenerate does the same.
+    - With no case, both send «Case: none chosen. …».
+    - INSTRUCTIONS in every text request equal §19.5's text word for word.
+    - An edit of A's «Что вышло» reaches the next regenerate's request.
+12. **Nothing invented, strictly.**
+    - A draft naming a deleted case: `/topics`, `/expand` and `/regenerate` answer 409 «кейс
+      этого черновика удалён — нажмите «убрать»». The fake transport saw zero requests, the
+      ledger has no new row, and `error` is not set.
+    - The case line reads «Кейс удалён — …», and the three buttons are disabled.
+    - «убрать» posts `{case: ""}`, and expand then sends «Case: none chosen».
+13. **Budget guard.**
+    - Every new or changed call reserves before sending (B′'s reserve-before-send wrapper,
+      §18.5 item 7, over topics, expand and regenerate on drafts with and without a photo and
+      with and without a case).
+    - With no cases, `budget.button` reads $0.02, $0.05 and $0.05 (2027: $0.04, $0.09, $0.09).
+    - With 30 cases at their limits, `budget.button(op, now, cases)` is at least the reserved
+      bound of every topics, expand and regenerate prompt built from those cases.
+    - The buttons show the bound computed from the stored cases.
+    - With the month at $9.99 every spending control refuses as in §11.1, and the transport sees
+      zero requests.
+14. **Existing tests.** `python3 -I -B -m unittest discover -s tests -t .` passes, with HOME and
+    TMPDIR outside the checkout. No existing test is edited. `tests/panel_fixture.py` gains
+    builders and FakeGemini answers, and `tools/visual_check.py` gains states. In
+    `static/probe.js` one existing comparison changes, and only as D43 says: «Тексты» is
+    measured against the «Тема» column's right edge instead of the photo's.
+15. **Visual check.** `python3 tools/visual_check.py --out DIR` passes every state of §16.2,
+    §17.6, §18.6 and §19.9 at all ten widths. `git status --short --ignored` in the worktree
+    shows nothing new after both.
+16. **No real call, no spend.**
+    - Every Gemini request goes to `FakeTransport` or `FakeGemini`, and `tests/base.py`'s guard
+      sees no other connection.
+    - Fixtures carry the canary env, and no stage reads a real key.
+    - Nothing is published except through `FakePoster` or a scripted `FakeTransport`.
+    - `.env`, `KEYS.md`, `KEYS.local.md` and the repository's `content/` are untouched.
+
+### 19.9 UI states and widths for the visual critic
+
+Every state runs in `tools/visual_check.py` at the ten widths (390, 900, 1000, 1100, 1200,
+1279, 1280, 1440, 1600, 1920), at the heights of `visual_check.py:102`. The probe's existing
+checks apply: cut text (an ellipsis needs a `title`), sideways scroll, overlaps, targets under
+24 × 24, an alert below the first screen, and contrast. The panel ships one theme, dark
+(`panel.css:32`), and Russian UI. The critic frames each state at **390, 900, 1440 and 1920**,
+plus **1000 × 700**, where D43's measurement is the tightest.
+
+Each state is defined by visible text that must be whole on the first screen at every width,
+measured with a `Range`. The exception is text clamped with an ellipsis and a `title`, which
+is whole in the DOM.
+
+Two fixtures carry the states, separate from B′'s, D′'s and C's, so that their states and counts
+stay as they are. FakeGemini runs in process.
+
+- **«cases»** (static). It has `my-photos` with 12 photos, the filled profile, and three cases:
+  one with an 80-character title, one with `when`, one with only the required fields. Its drafts:
+  - `nophoto`: no photo, no case, five topics; topics 1, 3 and 5 name cases, and the second is
+    chosen;
+  - `fromcase`: no photo, case A, five topics on A;
+  - `photocase`: B′'s photo, case A (the 80-character title), topics as `nophoto`, the second
+    chosen;
+  - `gone`: no photo, `case` = an id not stored;
+  - `textonly`: no photo, four texts;
+  - `textonly-published`: no photo, published to three targets;
+  - B′'s `topics` draft unchanged, for the photo-on-the-right frame.
+
+  The fixture has a variant without cases.
+- **«cases-live»**: per width, `attach-<w>` (no photo, texts) for the attach probe. Also a
+  panel per width for «Пост без фото» and «Пост по кейсу», because each creates a draft.
+
+| State | Setup | Defining text on the first screen |
+|---|---|---|
+| `cases-page` | «cases», `/create/cases` | «Кейсы», the three titles whole, «Пост по кейсу», «Изменить», «Удалить», «Новый кейс» (scrolled to: the five labels with «до N знаков») |
+| `cases-empty` | «cases» without cases | «Кейсов пока нет — добавьте первый: что автоматизировали, чем и что вышло.», «Название», «Добавить кейс» |
+| `cases-saved` | `/create/cases?saved=<id>#case-<id>` | «Кейс сохранён», that case's title |
+| `cases-refused` | setup posts a 81-character title (`post_page`) | 409 page: «Название: не больше 80 знаков», the typed text kept in the field |
+| `cases-edit` | `?edit=<id>#case-<id>` | the five fields filled, «Сохранить», «Отмена» |
+| `cases-delete` | probe clicks «Удалить» | «Удалить кейс?», «Да, удалить», «Отмена»; focus inside; nothing posted |
+| `create-start-cases` | «cases», `/create` | «Бросьте фото сюда», «Пост без фото», «Кейсы · 3», «Недавние фото», «Черновики · N», «без фото» on a row |
+| `draft-nophoto` | «cases», `nophoto` | «Добавить фото», «необязательно — без фото пост уйдёт в Facebook, LinkedIn и X; Instagram — только с фото», «кейс: …» on three cards, «выбрано», «Развернуть · до $0.05» (from 1 000 px on the first screen; at 390 and 900 after a card tap, as §16.2) |
+| `draft-case` | «cases», `photocase` | the photo at the top of the right column from 1 000 px, «Кейс: <80-character title>» whole, «убрать», «Развернуть · до $0.05» on the first screen at 1 000 × 700, 1 100 × 700 and every wider width (D43) |
+| `draft-fromcase` | «cases», `fromcase` | «Кейс: <title>», five cards each with that case |
+| `draft-case-gone` | «cases», `gone` | «Кейс удалён — нажмите «убрать», чтобы писать тексты», «убрать»; «Развернуть» dimmed and disabled |
+| `draft-photo-right` | «cases», B′'s `topics` draft | B′'s defining text of `create-topics`, with the photo at the top of the right column from 1 000 px and «Тексты» under it |
+| `draft-attach` (functional, then framed) | «cases-live», `attach-<w>`: probe passes a generated JPEG `attach-<w>.jpg` to the attach input | probe JSON: three upload posts, one `/photo`, one reload, one new index row with that name. Frame: the photo in place of the attach block |
+| `start-nophoto` (functional) | «cases-live»: probe clicks «Пост без фото» | probe JSON: one `/create/new` with `{}`, the navigation to `/create/<date>-post-<hex>`, one automatic topics request |
+| `start-fromcase` (functional) | «cases-live»: probe submits «Пост по кейсу» | probe JSON: one `/create/cases/start`, the 303 to the new draft, a topics request carrying that case's record |
+| `review-text-only` | «cases», `textonly`, `/review` | «Проверка перед отправкой», «Без фото: Instagram пропущен — он публикует только с картинкой.», «Добавить фото», «Проблем нет · 3 сети», «Опубликовать сейчас», «В очередь», three card heads, «этот пост в X: $0.015 · …» |
+| `review-text-only-confirm` | probe clicks «Опубликовать сейчас» | «Опубликовать в 3 сети сейчас?», «Facebook, LinkedIn и X. Это нельзя отменить.», «Да, опубликовать», «Отмена» |
+| `review-text-only-published` | «cases», `textonly-published` | «Отправлено», «Опубликовано во всех 3 сетях», three «открыть в …» |
+
+The critic also checks that:
+
+- no card's «кейс: …» row overlaps its angle, and the row's full title is in `title`;
+- «убрать» keeps its width and is at least 24 × 24;
+- the attach block and the photo box keep their height when the image arrives (no layout shift);
+- the case line, «кейс удалён» and the Instagram line are words, not colour only;
+- the sticky bar never covers the defining text from 900 px up.
+
+### 19.10 Not touched
+
+- `poster/**`: no change. The poster already publishes text-only variants (D42).
+- The factory core: `factory/{stock,ruleset,planner,runner,journal,checks,attention,cli,
+  inputs,paths}.py` and `factory/panel/actions.py`.
+- For a draft with a photo, D′ and C keep:
+  - the crops, ratios, frame, quote, styles, focus, `seen`, the package with images, publish,
+    retry, the queue, the offered rule, delete and status;
+  - `tests/test_author_send.py` and `tests/test_author_images.py`, unedited.
+- The visual check's existing states and their defining text. The probe changes only D43's
+  column comparison (`probe.js:908-911`).
+- B′:
+  - the expand and regenerate tasks, the schemas of expand and regenerate, voice, `budget.bound`,
+    the ledger, the price table and the cap;
+  - the published bounds table (`budget.py:80-81`);
+  - `/files` and the upload route.
+- No photo style or crop changes (out of scope by the specification). The text areas' resize
+  after a window resize and the observed style price in the design are out of scope as well.
+- `.env`, `KEYS.md`, `KEYS.local.md` and anything under the repository's `content/`. There is no
+  new key: `GEMINI_API_KEY` and `AI_MONTHLY_CAP_USD` are reused.
+- The CSP and the dependencies: standard library only, no new vendor, no Anthropic code.
+- The operator's running panel on port 8770 and the primary checkout. No real Gemini call, no
+  publishing and no paid API in any stage of this lane.
+
+### 19.11 Test plan and mocks
+
+No test opens a non-loopback socket (`tests/base.py` guard).
+
+| File | Covers (items) | Mocks |
+|---|---|---|
+| `tests/test_author_cases.py` (*new*) | `cases.py`: limits, validation, ids, 30 cap, redaction, file mode, `git check-ignore` (1, 2). The routes over `http.client` on port 0, with the header checks and the hostile input of §19.4 (1, 2, 5, 6, 7). Prompt texts word for word, the media table, the case blocks, topic `case` mapping and forcing (3, 4, 5, 11). The dangling refusal with zero requests and no ledger row (12). `button` with and without cases against reserved bounds; reserve-before-send over the new paths; the cap (13). Text-only review, package, publish argv, Facebook `/feed`, LinkedIn without `content`, X without `media_upload`, parity with `--dry-run`, queue with the offered rule, `factory check` and `plan`, the conflict rule (8, 9, 10). Canaries (§19.4) | `server.make_server(..., ai_transport=FakeTransport or FakeGemini, publish=FakePoster)`; scripted poster `FakeTransport` |
+| `tests/panel_fixture.py` | `build_cases(root, *, cases=True, live_widths=())`, `CASES` and `CASE_TOPICS` (topics naming fixture case ids). FakeGemini answers a topics request on a `fromcase` or `photocase` draft with `CASE_TOPICS` | — |
+| `tools/visual_check.py`, `static/probe.js` | The states of §19.9, with the probe JSON of `draft-attach`, `start-nophoto` and `start-fromcase` (6, 7, 15) | In-process `FakeGemini` and `FakePoster` |
+| Existing tests | Unchanged and passing (10, 14) | — |
+
+The project's checks run as `AGENTS.md` and `README.md` give them, one at a time through the
+gate wrapper. The README's «Создание постов в панели» gains two short paragraphs: «Кейсы», and
+«Пост без фото» with its three networks.
+
+### 19.12 What was cut from this slice, and where it went
+
+| Cut | Goes to | Why it can wait |
+|---|---|---|
+| A case picker on the draft page | §22 | A case reaches a draft through «Пост по кейсу» or a card tap. A select clips long titles, and its row did not fit the measured first screen (D43) |
+| A text card image so that Instagram gets posts without a photo | §22 | An image template nobody asked for; Facebook, LinkedIn and X carry the post (D42) |
+| Replacing or removing a draft's photo | §22 | C's crops, styles and focus belong to one photo |
+| Queuing into text-lane folders | §22 | The planner already handles a text-only package in a photo-lane folder (D45) |
+| A schema `enum` of case ids | §22 | The server check covers it without a dynamic schema (D40) |
+| Cases pre-filled from the operator's other notes | §22 | `content/` is not touched in any stage. The operator types the cases, or a later task fills them with their go-ahead |
+
+## 20. Unconfirmed facts and live checks
 
 Every live check needs the operator's OK. B′'s LC1 is pre-approved by the pinned
 specification within its limits.
@@ -2610,9 +3288,10 @@ specification within its limits.
 |---|---|---|---|
 | LC1 | G12–G16; the reply shape and `usage` on the real key; the typical costs of §11.2 | Below | < $0.10, at most 6 calls |
 | LC2 | Merged into LC1 on 2026-11-12 (transcription now runs on a public-domain clip) | — | — |
-| LC3 | G17; the image block's place in the reply; the real `usage` against D32's bound | After C's merge, with the operator's photo, go-ahead and Gemini credits (the key answered 402 on 2026-11-13): one «Размыть фон» on a photo of the operator at 2K through the review page. If `aspect_ratio` is refused, drop the field. If Gemini refuses or changes the face, build the code "spotlight" of §21 (§18.9) | bound $0.09, typical ≈ $0.06 |
+| LC3 | G17; the image block's place in the reply; the real `usage` against D32's bound | After C's merge, with the operator's photo, go-ahead and Gemini credits (the key answered 402 on 2026-11-13): one «Размыть фон» on a photo of the operator at 2K through the review page. If `aspect_ratio` is refused, drop the field. If Gemini refuses or changes the face, build the code "spotlight" of §22 (§18.9) | bound $0.09, typical ≈ $0.06 |
 | LC4 | The panel's publish path end to end with the real poster (D′) | After the merge and the operator's go-ahead: one photo post from the review page to the main profile's Facebook Page only, then `python3 -m poster delete` (§17.9) | free |
 | LC5 | B6; folder upload and the microphone from Windows; transcription of the operator's own voice | The operator opens `http://localhost:8770/` after the merge, drops two phone photos on «Создать», and dictates a topic | ≈ $0.002 |
+| LC6 | Whether Gemini names stored case ids in `case`, keeps to a case's facts, and stays off the photo for topics (§19, D36, D40) | After §19's merge, with the operator's go-ahead and their own cases: one «Пост по кейсу» (its automatic topics) and one «Развернуть», read by the operator. No stage of the §19 lane runs it | ≈ $0.01, bound ≈ $0.07 |
 
 **LC1 (slice B′):**
 
@@ -2658,7 +3337,7 @@ specification within its limits.
 If B6 fails (the panel is reached by a WSL address), voice stays off with its message and
 the rest works.
 
-## 20. Open items for the operator (non-blocking)
+## 21. Open items for the operator (non-blocking)
 
 1. **Gemini billing.** The key's Google Cloud project has, or will have, an active billing
    account (answered 2026-11-12). Until then, photos and voice fall under the unpaid
@@ -2674,10 +3353,13 @@ the rest works.
    2026-11-13 around 16:2x UTC. Until the credits are topped up, topics, texts, voice and
    C's styles answer with C's Russian 402 line (§18.5 item 9), and LC3 cannot run. A
    «highlight me» photo goes to Google, so the billing of item 1 applies to it too.
+6. **Cases.** After §19 is merged, the operator types their cases into «Кейсы». The panel
+   never fills them in by itself. Until there are cases, topics come from «О чём пишете»
+   alone. Cases go to Google with the topics and texts requests, under the billing of item 1.
 
 No question here changes the design; each has a default above.
 
-## 21. Deferred — not currently justified
+## 22. Deferred — not currently justified
 
 | Item | Why deferred | Trigger to build |
 |---|---|---|
@@ -2690,8 +3372,14 @@ No question here changes the design; each has a default above.
 | Audio playback before transcription; keeping recordings | The transcript is what gets checked; recordings are personal data | Operator asks |
 | Both-language variants (`en+uk`) and per-network on/off switches | Languages are fixed by the decisions; all four networks are wanted | Operator asks |
 | Profile that learns from repeated edits (the research's "self-updating profile") | Needs a rule for what counts as repeated; the operator can edit the profile | Operator asks, or the same edit recurs in many drafts |
-| Topics from trends (Google Search grounding) | Topics from the photo and profile answer "suggest a topic" | Operator asks for trend topics |
-| Text-only posts | The operator starts from photos; Instagram needs an image | Operator asks |
+| Topics from trends (Google Search grounding) | Topics from the author's themes and cases answer "suggest a topic" (§19) | Operator asks for trend topics |
+| Text-only posts | Built in §19 for Facebook, LinkedIn and X (2026-11-14). Instagram stays out: it needs an image | — |
+| A text card image so that Instagram gets posts without a photo (§19) | An image template nobody asked for; three networks carry the post (D42) | The operator wants Instagram in posts without a photo |
+| A case picker on the draft page (§19) | «Пост по кейсу» and a card tap bring a case. A select clips long titles and did not fit the measured first screen (D43) | The operator starts photo posts about a case often enough that the detour through «Кейсы» costs |
+| Replacing or removing a draft's photo (§19) | Attach once. C's crops, styles and focus belong to one photo | Operator asks |
+| Queuing into text-lane folders (§19) | A text-only package in a photo-lane folder already goes to the rule's other targets (D45) | Operator wants text-only posts on their own schedule |
+| A schema `enum` of the stored case ids (§19) | The server keeps only stored ids (D40); an enum makes the schema and its bound depend on the stored data | LC6 shows Gemini naming ids that are not stored |
+| Pre-filling cases from the operator's other notes (§19) | `content/` is the operator's; nothing writes it without them | Operator asks, with their go-ahead for that file |
 | HEIC decoding | No decoder in the browser on Windows or in the standard library | Operator's phone cannot export JPEG |
 | Several photos per post, carousels | The poster publishes one image per network | Poster gains carousels |
 | Video (topic → recording → automatic edit → Reels and Shorts) | A separate task in the research plan, with its own probe and design | That task's design |
@@ -2717,7 +3405,7 @@ No question here changes the design; each has a default above.
 | A different base per network; several kept results per style; drag-to-place a quote; custom frame colours, fonts or quote places (C) | One base, three colours and two places cover the decision of 2026-11-08 | Operator asks |
 | Style controls on the draft page (C) | The crops, the focus and the previews live on the review page (D27) | Operator asks to style before the texts |
 
-## 22. Sources
+## 23. Sources
 
 Google, read 2026-11-12 (`ai.google.dev` redirects to `aistudio.google.com/docs`):
 [Models](https://ai.google.dev/gemini-api/docs/models) ·
