@@ -396,7 +396,8 @@ class HighlightTest(ImagesCase):
         from factory.authoring import photos
         with open(photos.file_path(self.fx.paths.stock, "my-photos", self.ppid, "view"), "rb") as fh:
             self.assertEqual(body["input"][1], {"type": "image", "mime_type": "image/jpeg",
-                                                "data": base64.b64encode(fh.read()).decode(), "resolution": "high"})
+                                                "data": base64.b64encode(fh.read()).decode()})
+        self.assertNotIn("resolution", body["input"][1])
         self.assertEqual(body["response_format"], {"type": "image", "mime_type": "image/jpeg",
                                                    "aspect_ratio": "3:4", "image_size": "2K"})
         # reserved before the request, one ok row priced by D32 after it

@@ -200,11 +200,12 @@ def image(stock, draft):
 
 
 def highlight_request(key, prompt, media, aspect):
-    """§9.2's request with "resolution": "high" on the image block (D32)."""
+    """§9.2's request. The image block carries no "resolution": the image model answers 400
+    "Media resolution is not supported" for it (D32, observed 2026-11-14)."""
     body = {"model": prompts.IMAGE_MODEL, "store": False,
             "input": [{"type": "text", "text": prompt},
                       {"type": "image", "mime_type": "image/jpeg",
-                       "data": base64.b64encode(media).decode("ascii"), "resolution": "high"}],
+                       "data": base64.b64encode(media).decode("ascii")}],
             "response_format": {"type": "image", "mime_type": "image/jpeg", "aspect_ratio": aspect,
                                 "image_size": "2K"}}
     headers = {"x-goog-api-key": key}
