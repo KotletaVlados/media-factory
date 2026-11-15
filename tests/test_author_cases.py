@@ -312,10 +312,31 @@ class CasesRouteTest(CasesPanel):
         _, _, body = self.page("/create/cases")
         self.assertIn('<p class="muted case-full">кейсов уже 30 — удалите ненужные</p>', body)
         self.assertNotIn("Добавить кейс", body)
-        # the count and the way to the form stand beside the heading, above the list
+        # the count and the limit in words stand beside the heading, above the list; no link or form offers a case
         head = body[:body.index('class="case-list"')]
-        self.assertIn('<h2>Кейсы · 30 из 30</h2><a href="#case-new">Новый кейс ↓</a>', head)
+        self.assertIn('<h2>Кейсы · 30 из 30</h2><p class="muted case-full">кейсов уже 30 — удалите ненужные</p>', head)
+        self.assertNotIn("Новый кейс", body)
+        self.assertNotIn('id="case-new"', body)
+        self.assertEqual(body.count("кейсов уже 30"), 1)
+
+    def test_no_cases_heading_has_no_count_and_no_jump_and_says_it_once(self):
+        _, _, body = self.page("/create/cases")
+        self.assertIn('<div class="cases-heading"><h2>Кейсы</h2></div>', body)
+        self.assertNotIn("0 из 30", body)
+        self.assertNotIn("Новый кейс ↓", body)
+        self.assertEqual(body.count("Кейсов пока нет"), 1)
+        self.assertEqual(body.count("Новый кейс"), 1)
         self.assertIn('id="case-new"', body)
+
+    def test_the_refused_31st_case_words_the_limit_once(self):
+        for _ in range(30):
+            cases.save(self.fx.paths.content, pf.CASES[2], NOW)
+        status, _, body = self.post("/create/cases/save", pf.CASES[1])
+        self.assertEqual(status, 409)
+        self.assertEqual(body.count("кейсов уже 30"), 1)
+        self.assertIn('<h2>Кейсы · 30 из 30</h2></div>', body)
+        self.assertIn('name="title"', body)
+        self.assertNotIn("Новый кейс ↓", body)
 
     def test_the_cases_page_names_no_file_and_its_links_carry_no_separators(self):
         self.with_cases()
@@ -329,6 +350,13 @@ class CasesRouteTest(CasesPanel):
         links = body[body.index('<p class="draft-links">'):]
         links = links[:links.index("</p>")]
         self.assertNotIn("·", re.sub(r"<[^>]+>", "", links))
+
+    def test_the_delete_button_in_the_links_row_has_no_side_padding(self):
+        css = open(os.path.join(os.path.dirname(__file__), "..", "factory", "panel", "static", "panel.css"),
+                   encoding="utf-8").read()
+        rule = re.search(r"\.draft-links \.linkbtn \{([^}]*)\}", css).group(1)
+        self.assertIn("padding-left: 0", rule)
+        self.assertIn("padding-right: 0", rule)
 
     def test_the_31st_case_keeps_the_operators_fields(self):
         """§19.8 item 2: a refusal over the limit gives all five fields back; the file stays."""

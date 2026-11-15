@@ -1798,6 +1798,12 @@
         if (r.left < left - 0.5) { out.problems.push("a link starts outside the row: " + box(r)); }
       });
       if (/[·•|]/.test(row.textContent)) { out.problems.push("the links row holds a separator: " + words(row)); }
+      // the text of every link starts at its element's left edge, so rows and gaps are even
+      Array.prototype.forEach.call(row.children, function (el) {
+        var rg = document.createRange(); rg.selectNodeContents(el);
+        var inset = rg.getBoundingClientRect().left - el.getBoundingClientRect().left;
+        if (Math.abs(inset) > 0.5) { out.problems.push("«" + words(el) + "» text is inset " + inset.toFixed(1) + " px from its element"); }
+      });
       var firsts = {};
       Array.prototype.forEach.call(row.children, function (el) {
         var t = Math.round(el.getBoundingClientRect().top);
@@ -1846,17 +1852,21 @@
         });
         scrollTo(0, y);
       } else if (state === "cases-full") {
-        // at the limit the count and the way to the form stand on the first screen, above 30 records
+        // at the limit the count and the limit in words stand on the first screen, above 30 records,
+        // and nothing offers a new case
         see(".cases-heading h2", "Кейсы · 30 из 30");
-        see(".cases-heading a", "Новый кейс ↓");
+        see(".cases-heading .case-full", "кейсов уже 30 — удалите ненужные");
         if (document.querySelectorAll(".case-title").length !== 30) { out.problems.push("not thirty cases"); }
-        document.querySelector(".cases-heading a").click();
-        await sleep(100);
-        see(".case-full", "кейсов уже 30 — удалите ненужные");
-        if (document.querySelector("#case-new form")) { out.problems.push("a form at the limit"); }
-        scrollTo(0, 0);
+        if (document.querySelector(".cases-heading a, #case-new, form.case-form")) { out.problems.push("a way to a new case at the limit"); }
+        if (document.body.textContent.split("кейсов уже 30").length !== 2) { out.problems.push("the limit is worded more than once"); }
+        linksAligned();
       } else if (state === "cases-empty") {
-        see(".cases-heading h2", "Кейсы · 0 из 30");
+        // no cases: «Кейсы» without a count or a jump, the message once, «Новый кейс» once
+        see(".cases-heading h2", "Кейсы");
+        if (document.querySelector(".cases-heading h2").textContent.trim() !== "Кейсы") { out.problems.push("a count in the empty heading"); }
+        if (document.querySelector(".cases-heading a")) { out.problems.push("a jump link with no cases"); }
+        if (document.body.textContent.split("Кейсов пока нет").length !== 2) { out.problems.push("the empty message is not shown once"); }
+        if (document.body.textContent.split("Новый кейс").length !== 2) { out.problems.push("«Новый кейс» is not shown once"); }
         see(".case-empty", "Кейсов пока нет — добавьте первый: что автоматизировали, чем и что вышло.");
         see("#case-new label", "Название");
         // one column below 600 px, as on «Профиль автора»: the button is reached by scrolling

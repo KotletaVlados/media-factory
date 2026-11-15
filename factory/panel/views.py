@@ -1411,15 +1411,24 @@ def create_cases(ctx: Ctx, refusal=None) -> str:
     listing = (f'<div class="case-list">{"".join(items)}</div>' if items else
                f'<p class="empty case-empty">{esc(S.CASES_EMPTY)}</p>')
     values = kept if kept is not None and not (refusal and refusal["id"]) else {}
-    if len(stored) >= fcases.MAX:
-        new = f'<p class="muted case-full">{esc(S.CASES_FULL)}</p>'
-        if values:   # §19.8: the refusal over the limit still gives the operator's text back
-            new += _case_form(ctx, values)
+    full = len(stored) >= fcases.MAX
+    # one fact once: with no cases the heading carries no count and no jump (the message and
+    # «Новый кейс» are on the screen); at the limit the words stand beside the heading and no
+    # link offers a form — the form stays only to give a refused 31st case its text back (§19.8)
+    if not stored:
+        head = f'<h2>{esc(S.CASES_TITLE)}</h2>'
+    elif full:
+        said = refusal and refusal["error"] == fcases.FULL   # the refusal alert already says it
+        head = (f'<h2>{esc(S.CASES_COUNT.format(n=len(stored), max=fcases.MAX))}</h2>'
+                + ("" if said else f'<p class="muted case-full">{esc(S.CASES_FULL)}</p>'))
     else:
-        new = _case_form(ctx, values)
-    body = (f'<section class="create-cases"><div class="cases-heading"><h2>{esc(S.CASES_COUNT.format(n=len(stored), max=fcases.MAX))}</h2><a href="#case-new">{esc(S.CASES_JUMP)}</a></div><p>{esc(S.CASES_HINT)}</p>'
-            f'{"".join(notices)}{listing}<section class="case-new" id="case-new" aria-labelledby="case-new-h">'
-            f'<h2 id="case-new-h">{esc(S.CASES_NEW)}</h2>{new}</section>'
+        head = (f'<h2>{esc(S.CASES_COUNT.format(n=len(stored), max=fcases.MAX))}</h2>'
+                f'<a href="#case-new">{esc(S.CASES_JUMP)}</a>')
+    new = _case_form(ctx, values) if not full or values else ""
+    form = (f'<section class="case-new" id="case-new" aria-labelledby="case-new-h">'
+            f'<h2 id="case-new-h">{esc(S.CASES_NEW)}</h2>{new}</section>') if new else ""
+    body = (f'<section class="create-cases"><div class="cases-heading">{head}</div><p>{esc(S.CASES_HINT)}</p>'
+            f'{"".join(notices)}{listing}{form}'
             f'<p class="draft-links"><a href="/create">Создать пост</a><a href="/create/profile">Профиль автора</a></p>'
             f'</section>')
     return page(ctx, "create", body, sub=esc(S.CASES_TITLE), sub_right=month, scripts=("send.js",))

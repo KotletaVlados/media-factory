@@ -2961,9 +2961,13 @@ Review and send without a photo:
 scripts `send.js` only for the delete dialog). In one column, at most 960 px wide:
 
 1. The heading with the count, «Кейсы · <n> из 30», and beside it the link «Новый кейс ↓» to
-   `#case-new`, so that at 30 cases the limit and the way to the form are on the first screen
-   without scrolling the list; then the explainer «Из кейсов Gemini берёт темы и факты для текстов —
-   только то, что здесь записано. Хранятся только на этом компьютере.»
+   `#case-new`, so that the way to the form is on the first screen without scrolling a long list.
+   Each fact stands once on the first screen: with no case the heading is «Кейсы» alone, with
+   no count and no link (the empty message and «Новый кейс» are right below it); at 30 cases the
+   link is dropped and the words «кейсов уже 30 — удалите ненужные» stand beside the heading,
+   so the limit is named on the first screen and nothing offers a new case. Then the explainer
+   «Из кейсов Gemini берёт темы и факты для текстов — только то, что здесь записано. Хранятся
+   только на этом компьютере.»
 2. The notices «Кейс сохранён» or «Кейс удалён» (`role="status"`), or the refusal
    (`role="alert"`).
 3. The list, or «Кейсов пока нет — добавьте первый: что автоматизировали, чем и что вышло.».
@@ -2977,7 +2981,9 @@ scripts `send.js` only for the delete dialog). In one column, at most 960 px wid
      `views.py:1282-1291`).
 4. «Новый кейс»: the five fields with their limits («до 80 знаков») in the profile's grid,
    with two columns from 600 px (`panel.css:559-566`), and «Добавить кейс». At 30 cases the
-   form is replaced by «кейсов уже 30 — удалите ненужные».
+   form and its heading are not drawn: the limit is worded beside the heading (item 1). A refused
+   31st case still gets its five fields back in the form, and then the refusal alert is the only
+   place that words the limit.
 
 **Draft page** (`views.create_draft`, `views.py:1203-1256`; `create.js`):
 
@@ -3221,7 +3227,7 @@ stay as they are. FakeGemini runs in process.
 | State | Setup | Defining text on the first screen |
 |---|---|---|
 | `cases-page` | «cases», `/create/cases` | «Кейсы», the three titles whole, «Пост по кейсу», «Изменить», «Удалить», «Новый кейс» (scrolled to: the five labels with «до N знаков») |
-| `cases-empty` | «cases» without cases | «Кейсов пока нет — добавьте первый: что автоматизировали, чем и что вышло.», «Название», «Добавить кейс» |
+| `cases-empty` | «cases» without cases | «Кейсы» (no count, no jump link), «Кейсов пока нет — добавьте первый: что автоматизировали, чем и что вышло.», «Название», «Добавить кейс» |
 | `cases-saved` | `/create/cases?saved=<id>#case-<id>` | «Кейс сохранён», that case's title |
 | `cases-refused` | setup posts a 81-character title (`post_page`) | 409 page: «Название: не больше 80 знаков», the typed text kept in the field |
 | `cases-edit` | `?edit=<id>#case-<id>` | the five fields filled, «Сохранить», «Отмена» |
