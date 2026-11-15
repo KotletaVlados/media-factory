@@ -409,8 +409,41 @@ DRAFT_STAGE = {"new": "без темы", "topic": "своя тема", "topics":
 DRAFT_STAGE_BAD = ("error", "over", "partial", "interrupted")
 CREATE_PROFILE_EMPTY = "Профиль автора не заполнен — темы и тексты будут общими"
 CREATE_PROFILE_FILLED = "Профиль автора · заполнен"
-CREATE_PROFILE_HINT = ("Профиль уходит в каждый запрос к Gemini вместе с фото. "
-                       "Хранится только на этом компьютере.")
+CREATE_PROFILE_HINT = ("Профиль и кейсы уходят в запросы к Gemini за темами и текстами. "
+                       "Хранятся только на этом компьютере.")
+# ---------------------------------------------------------------- Кейсы и пост без фото (authoring.md §19.7)
+CREATE_NO_PHOTO = "Пост без фото"
+CREATE_NO_PHOTO_HINT = "тема — из ваших тем и кейсов"
+CREATE_CASES_LINK = "Кейсы · {n}"
+CREATE_CASES_ADD = "Кейсы · добавить"
+DRAFT_NO_PHOTO = "без фото"
+CASES_TITLE = "Кейсы"
+CASES_HINT = ("Из кейсов Gemini берёт темы и факты для текстов — только то, что здесь записано. "
+              "Хранятся только на этом компьютере (content/cases.json).")
+CASES_EMPTY = "Кейсов пока нет — добавьте первый: что автоматизировали, чем и что вышло."
+CASES_SAVED = "Кейс сохранён"
+CASES_DELETED = "Кейс удалён"
+CASES_NEW = "Новый кейс"
+CASES_ADD = "Добавить кейс"
+CASES_SAVE = "Сохранить"
+CASES_CANCEL = "Отмена"
+CASES_START = "Пост по кейсу"
+CASES_EDIT = "Изменить"
+CASES_DELETE = "Удалить"
+CASES_FULL = "кейсов уже 30 — удалите ненужные"
+CASES_NOT_FOUND = "кейс не найден"
+DLG_CASE_DELETE = "Удалить кейс?"
+DLG_CASE_DELETE_TEXT = "Черновики с этим кейсом останутся, но тексты по нему писать не получится."
+CASE_LINE = "Кейс: {title}"
+CASE_GONE_LINE = "Кейс удалён — нажмите «убрать», чтобы писать тексты"
+CASE_REMOVE = "убрать"
+CASE_CARD = "кейс: {title}"
+CASE_CARD_GONE = "кейс удалён"
+ATTACH_BUTTON = "Добавить фото"
+ATTACH_HINT = "необязательно — без фото пост уйдёт в Facebook, LinkedIn и X; Instagram — только с фото"
+SEND_NO_PHOTO = "Без фото: Instagram пропущен — он публикует только с картинкой."
+SEND_NO_PHOTO_ADD = "Добавить фото"
+SEND_QUEUE_NO_FOLDER = "Очередь — это папки фото-постов; первая появится с первым загруженным фото"
 CREATE_NEED_JS = "Создание постов работает только с включённым JavaScript."
 CREATE_JS = {
     "uploading": "Загрузка фото…", "drafting": "Создаю черновик…",
@@ -426,6 +459,8 @@ CREATE_JS = {
     "topics": "Предложить темы", "more_topics": "Ещё темы", "regenerate": "Перегенерировать",
     "wish": "пожелание: короче, без хештегов…", "repeat": "Повторить", "text_long": "текст длиннее 5 000 знаков",
     "topic_long": "тема: не больше 2000 знаков", "before_texts": "Тексты появятся после «Развернуть»",
+    "case_line": CASE_LINE, "case_gone": CASE_GONE_LINE, "case_card": CASE_CARD,
+    "case_card_gone": CASE_CARD_GONE, "remove": CASE_REMOVE, "attaching": "Загрузка фото…",
 }
 CREATE_NETWORKS = {"x": "X · англ.", "linkedin": "LinkedIn · англ.",
                    "instagram": "Instagram · укр.", "facebook": "Facebook · укр."}

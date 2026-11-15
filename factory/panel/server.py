@@ -31,7 +31,7 @@ from dataclasses import dataclass
 from poster import config, package as poster_package, rules as poster_rules
 from poster.redact import Redactor
 from factory import ruleset as fruleset
-from factory.authoring import photos, drafts, profile, budget, gemini, send
+from factory.authoring import photos, drafts, profile, budget, cases as fcases, gemini, send
 from factory.authoring.common import Refusal, text
 from factory.panel import actions, model, strings as S, views
 
@@ -90,6 +90,9 @@ def post_route(path: str, query: dict) -> Route | None:
         return Route(FORM, MAX_BODY, (FORM_TYPE,), "profile")
     if path == "/create/new":
         return Route(JSON, 64 * 1024, ("application/json",), "create", "new")
+    match = re.fullmatch(r"/create/cases/(save|delete|start)", path)
+    if match:   # §19.4: matched before the draft routes, which would take "cases" for an id
+        return Route(FORM, MAX_BODY, (FORM_TYPE,), "cases", match[1])
     match = re.fullmatch(r"/create/([^/]+)/(image|focus|settings|highlight|publish|retry|queue|delete)", path)
     if match:   # slice D′ (authoring.md §17.3) and slice C (§18.3)
         did, op = match[1], match[2]
@@ -98,7 +101,7 @@ def post_route(path: str, query: dict) -> Route | None:
         if op in ("focus", "settings", "highlight"):
             return Route(JSON, 64 * 1024, ("application/json",), did, op)
         return Route(FORM, MAX_BODY, (FORM_TYPE,), "send", op, did)
-    match = re.fullmatch(r"/create/([^/]+)/(topics|topic|expand|regenerate|text|voice)", path)
+    match = re.fullmatch(r"/create/([^/]+)/(topics|topic|expand|regenerate|text|voice|photo)", path)
     if match:
         op = match[2]
         return Route(AUDIO if op == "voice" else JSON,
@@ -219,6 +222,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self._page(path, query, "create", views.create)
         if path == "/create/profile":
             return self._page(path, query, "create", views.create_profile)
+        if path == "/create/cases":
+            return self._page(path, query, "create", views.create_cases)
         match = re.fullmatch(r"/create/([^/]+)/(review|status|file)", path)
         if match:
             return self._send_get(match[1], match[2], path, query)
@@ -432,6 +437,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self._plain(403, "forbidden: missing or wrong csrf")
         if route.handler == "profile":
             return self._profile_write(form, query)
+        if route.handler == "cases":
+            return self._cases_write(route.action, form, query)
         if route.handler == "send":
             return self._send_write(route.action, route.draft, form, query)
         return self._write(route.handler, route.action, form, query)
@@ -454,6 +461,37 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self._last_resort("/create/profile", query, exc)
         return self._redirect("/create/profile?saved=1")
 
+    def _cases_write(self, op, form, query):
+        """The «Кейсы» forms (§19.4): save (add or edit), delete, and «Пост по кейсу». A
+        refusal re-renders the page with its status, the operator's text kept and the reason
+        on top, as the profile form does."""
+        panel = self.panel
+
+        def f(name):
+            return (form.get(name) or [""])[0]
+        cid = f("id")
+        values = {name: f(name) for name, *_ in fcases.FIELDS}
+        try:
+            if op == "save":
+                clean = json.loads(panel.redactor().redact(json.dumps(values, ensure_ascii=False)))
+                case = fcases.save(panel.paths.content, clean, panel.clock(), cid)
+                return self._redirect(f"/create/cases?saved={case['id']}#case-{case['id']}")
+            if op == "delete":
+                fcases.delete(panel.paths.content, cid, panel.clock())
+                return self._redirect("/create/cases?deleted=1")
+            if fcases.find(fcases.listed(panel.paths.content), cid) is None:
+                raise Refusal(fcases.NOT_FOUND, 404)
+            draft = panel.drafts.create(panel.paths.stock, None, None,
+                                        bool(panel.ai.env().get("GEMINI_API_KEY", "").strip()), cid)
+            return self._redirect("/create/" + draft["id"])
+        except Refusal as exc:
+            refusal = {"values": values if op == "save" else None, "id": cid, "op": op,
+                       "error": exc.message}
+            return self._page("/create/cases", query, "create", views.create_cases,
+                              status=exc.status, refusal=refusal)
+        except Exception as exc:
+            return self._last_resort("/create/cases", query, exc)
+
     def _create_write(self, route, length, ctype, query=None):
         panel, op, did = self.panel, route.action, route.handler
         query = query or {}
@@ -473,11 +511,28 @@ class Handler(http.server.BaseHTTPRequestHandler):
             else:
                 data = {}
             if op == "new":
+                # §19.4: `{}` starts a draft without a photo; a case alone starts on «Кейсы»
+                if set(data) - {"folder", "photo"} or ("folder" in data) != ("photo" in data):
+                    raise Refusal("неверный запрос", 400)
+                if not data:
+                    draft = panel.drafts.create(panel.paths.stock, None, None,
+                                                bool(panel.ai.env().get("GEMINI_API_KEY", "").strip()))
+                    return self._json(200, {"id": draft["id"], "url": "/create/" + draft["id"]})
+                if data["folder"] is None or data["photo"] is None:
+                    raise Refusal("фото не найдено", 404)
                 draft = panel.drafts.create(panel.paths.stock, data.get("folder"), data.get("photo"),
                                             bool(panel.ai.env().get("GEMINI_API_KEY", "").strip()))
                 return self._json(200, {"id": draft["id"], "url": "/create/" + draft["id"]})
-            if panel.drafts.load(did)["state"] != "draft":
+            current = panel.drafts.load(did)
+            if current["state"] != "draft":
                 raise Refusal(drafts.SENT)   # a sent draft is read-only (§17.2)
+            if op in ("image", "focus", "settings", "highlight") and current["photo"] is None:
+                raise Refusal(gemini.NO_PHOTO)   # §19.4: nothing written, nothing sent
+            if op == "photo":
+                if set(data) != {"folder", "photo"}:
+                    raise Refusal("неверный запрос", 400)
+                draft = panel.drafts.attach(panel.paths.stock, did, data["folder"], data["photo"])
+                return self._json(200, {"folder": draft["folder"], "photo": draft["photo"]})
             if op == "image":
                 look = query.get("look")
                 return self._json(200, panel.sender.store_crop(
@@ -490,9 +545,26 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if op == "highlight":
                 return self._highlight(did, data)
             if op == "topic":
-                value = text(data.get("topic"), 2000, "тема")
-                draft = panel.drafts.update(did, lambda d: d.update(topic=value))
-                return self._json(200, {"topic": draft["topic"]})
+                # §19.4: {topic} (autosave), {topic, case} (a card tap) or {case: ""} («убрать»)
+                if not data or set(data) - {"topic", "case"}:
+                    raise Refusal("неверный запрос", 400)
+                value = text(data["topic"], 2000, "тема") if "topic" in data else None
+                case = data.get("case")
+                if "case" in data:
+                    if not isinstance(case, str):
+                        raise Refusal("неверный запрос", 400)
+                    if case and fcases.find(panel.ai.cases(), case) is None:
+                        raise Refusal("кейс удалён — выберите другую тему")
+
+                def choose(d):
+                    if value is not None:
+                        d["topic"] = value
+                    if case == "":
+                        d.pop("case", None)
+                    elif case:
+                        d["case"] = case
+                draft = panel.drafts.update(did, choose)
+                return self._json(200, {"topic": draft["topic"], "case": draft.get("case", "")})
             network = data.get("network", "")
             if op in ("text", "regenerate") and (not isinstance(network, str) or network not in drafts.LANGS):
                 raise Refusal("неверная сеть", 400)
@@ -515,7 +587,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 result = panel.ai.run(did, op, auto=auto, network=network, wish=wish,
                                       audio=raw if op == "voice" else b"", mime=ctype)
             except Refusal as exc:
-                if exc.status != 400:
+                if exc.status != 400 and not isinstance(exc, gemini.CaseGone):
                     def error(d):
                         d["error"] = {"op": op, "network": network if isinstance(network, str) else "",
                                       "text": panel.redactor().redact(exc.message),

@@ -60,7 +60,12 @@ def bound(op, prompt, now, audio_size=0):
     return prices.cost(model(op), tokens, out, now)
 
 
-def button(op, now):
+def button(op, now, cases=()):
+    """The bound shown on the button and checked at admission (§11.2). The profile and the
+    draft's own fields stand at their limits in four-byte characters; the stored cases count
+    at their stored size (§19.5, D44): for topics the maximum over a draft without a case (the
+    gist of every case) and a draft carrying each case, for texts over no case and each case.
+    With no cases every button reads what B′ published."""
     if op == "highlight":   # every style, the description at 120 four-byte characters (D32)
         worst = max(bound(op, prompts.highlight(style, "\U00010000" * 120), now) for style in prompts.STYLES)
         return max(Decimal("0.09"), worst.quantize(Decimal("0.01"), rounding=ROUND_CEILING))
@@ -74,7 +79,11 @@ def button(op, now):
             author[name] = "\U00010000" * limit
     draft = {"topic": "\U00010000" * 2000,
              "variants": {n: {"text": "\U00010000" * 5000} for n in prompts.RULES}}
-    candidates = [prompts.build(op, author, draft, n, "\U00010000" * 200) for n in prompts.RULES]
+    cases = list(cases or ()) if op != "voice" else []
+    shapes = [draft] + [dict(draft, case=c["id"]) for c in cases]
+    networks = prompts.RULES if op == "regenerate" else ("x",)   # only regenerate names one
+    candidates = [prompts.build(op, author, d, n, "\U00010000" * 200, cases)
+                  for d in shapes for n in networks]
     worst = max(bound(op, p, now, 1024 * 1024 if op == "voice" else 0) for p in candidates)
     after = now.astimezone(dt.timezone.utc).date() >= dt.date(2027, 1, 1)
     published = {"topics": "0.04" if after else "0.02", "expand": "0.09" if after else "0.05",

@@ -19,6 +19,7 @@ import datetime as dt
 import json
 import os
 import random
+import re
 import struct
 from dataclasses import dataclass
 
@@ -731,6 +732,10 @@ class FakeGemini:
             if did in self.fail_topics_once:
                 self.fail_topics_once.discard(did)
                 return resp(503, {"error": {"message": "temporarily unavailable"}})
+            # §19.11: a draft that carries a case gets angles on that case
+            found = re.search(r"Case (c-[0-9a-f]{8}) \(the only source", body["input"][0]["text"])
+            if found:
+                return gemini_reply({"topics": case_topics(found.group(1))})
             return gemini_reply({"topics": TOPICS})
         if "x" in schema:
             return gemini_reply(TEXTS)
@@ -776,6 +781,117 @@ def build_create(root: str, key=True, ledger_usd=None, live_widths=()) -> Fixtur
         from decimal import Decimal
         rid = ledger.reserve("topics", Decimal(str(ledger_usd)), Decimal("10"), "fixture")
         ledger.settle(rid, "ok", actual=Decimal(str(ledger_usd)))
+    return fx
+
+
+# ---------------------------------------------------------------- Кейсы и пост без фото (authoring.md §19.9, §19.11)
+
+# Three synthetic cases (not the operator's): an 80-character title, one with «Когда», one
+# with the required fields only. Fixed ids keep the fixture's topics and states stable.
+CASE_IDS = ("c-0a1b2c3d", "c-1b2c3d4e", "c-2c3d4e5f")
+CASE_LONG_TITLE = "Отчёт по продажам по понедельникам: три таблицы и письмо руководителю за 5 минут"
+assert len(CASE_LONG_TITLE) == 80
+CASES = [
+    {"title": CASE_LONG_TITLE,
+     "what": "Каждый понедельник сводил данные из трёх таблиц и писал письмо руками — около двух часов.",
+     "tools": "Claude Code, Python, Google Sheets API", "result": "Отчёт собирается сам за 5 минут, письмо — черновиком на проверку.",
+     "when": ""},
+    {"title": "Голосовые заметки сразу в задачи", "what": "Надиктованные на ходу заметки расшифровываются и раскладываются по проектам.",
+     "tools": "Gemini, Codex", "result": "Ни одна идея с прогулки больше не теряется.", "when": "октябрь 2026"},
+    {"title": "Ответы на частые вопросы клиентов", "what": "Черновики ответов на типовые письма.",
+     "tools": "Claude", "result": "Ответ уходит в тот же день.", "when": ""},
+]
+
+
+def case_topics(cid: str) -> list:
+    """Five angles on one case, each naming it (FakeGemini's answer on a draft with a case)."""
+    return [dict(t, case=cid) for t in TOPICS]
+
+
+# topics 1, 3 and 5 name the fixture cases; 2 and 4 draw on the author's themes
+CASE_TOPICS = [dict(t, case=(CASE_IDS[i // 2] if i % 2 == 0 else "")) for i, t in enumerate(TOPICS)]
+CASES_LIVE = ("attach",)
+
+
+def save_cases(fx: Fixture, cases=None) -> list:
+    """Store the fixture cases through `cases.save`, with their fixed ids, newest last so the
+    list reads in CASES order."""
+    from unittest import mock
+    from factory.authoring import cases as fcases
+    stored = []
+    for case, cid in reversed(list(zip(cases or CASES, CASE_IDS))):
+        with mock.patch("factory.authoring.cases.secrets.token_hex", return_value=cid[2:]):
+            stored.append(fcases.save(fx.paths.content, case, fx.now))
+    return stored
+
+
+def build_cases(root: str, *, cases=True, live_widths=(), sent=False) -> Fixture:
+    """The «cases» fixtures of authoring.md §19.9, on top of `build_data`: `my-photos` with 12
+    photos, the filled profile and (with `cases`) the three CASES.
+
+    - static: `nophoto` (no photo, no case, CASE_TOPICS, the second chosen), `fromcase` (no
+      photo, case A, five angles on A), `photocase` (a photo, case A, CASE_TOPICS),
+      `gone` (no photo, a case id not stored), `textonly` (no photo, four texts) and B′'s
+      `topics` draft;
+    - `sent`: only `textonly-published` (no photo, published to three targets). It has its
+      own fixture: a sent draft moves «Черновики» above the photos on «Создать» (§17.6);
+    - `live_widths`: per width, `attach-<w>` (no photo, texts) for the attach probe.
+    """
+    from unittest import mock
+    from factory.authoring import drafts
+    fx = build_data(root)
+    ids = []
+    for k in range(12):
+        orig = make_photo(320, 240, 1700 + k)
+        ids.append(store_photo(fx, "my-photos", orig, make_photo(160, 120, 1700 + k), orig, f"walk-{k + 1:02d}.jpg"))
+    from factory.authoring import profile as fprofile
+    fprofile.save(fx.paths.content, AUTHOR_PROFILE, fx.now)
+    if cases:
+        save_cases(fx)
+    store = drafts.Store(fx.paths.content, fx.clock, fx.machine_tz)
+    fx.case_ids = {}
+    names = ([f"{state}-{w}" for w in live_widths for state in CASES_LIVE] if live_widths else
+             ["textonly-published"] if sent else
+             ["nophoto", "fromcase", "photocase", "gone", "textonly", "topics"])
+    chosen = CASE_TOPICS[1]["title"] + " — " + CASE_TOPICS[1]["angle"]
+    for i, name in enumerate(names):
+        kind = name.rsplit("-", 1)[0] if live_widths else name
+        photo = (None, None) if kind not in ("photocase", "topics") else ("my-photos", ids[i % len(ids)])
+        case = CASE_IDS[0] if kind in ("fromcase", "photocase") else "c-deadbeef" if kind == "gone" else None
+        with mock.patch("factory.authoring.drafts.secrets.token_hex", return_value=f"{0xc000 + i:04x}"):
+            d = store.create(fx.paths.stock, photo[0], photo[1], True, case)
+
+        def fill(d, kind=kind):
+            d["topics_auto"] = "done"
+            if kind in ("nophoto", "photocase"):
+                d["topics"], d["topic"] = json.loads(json.dumps(CASE_TOPICS)), chosen
+            elif kind == "fromcase":
+                d["topics"], d["topic"] = case_topics(CASE_IDS[0]), ""
+            elif kind == "topics":
+                d["topics"], d["topic"] = TOPICS, TOPICS[1]["title"] + " — " + TOPICS[1]["angle"]
+            elif kind == "gone":
+                d["topics"], d["topic"] = case_topics("c-deadbeef"), case_topics("c-deadbeef")[0]["title"]
+            if kind in ("textonly", "textonly-published", "attach"):
+                d["topic"] = TOPICS[1]["title"] + " — " + TOPICS[1]["angle"]
+                d["variants"] = {n: {"text": t, "lang": drafts.LANGS[n], "source": "gemini"} for n, t in TEXTS.items()}
+        store.update(d["id"], fill)
+        fx.case_ids[name] = d["id"]
+    if "textonly-published" in fx.case_ids:
+        did = fx.case_ids["textonly-published"]
+        targets = ["fb:kotleta", "linkedin", "x"]
+        _write_json(os.path.join(fx.paths.packages, f"{did}.json"),
+                    {"schema": 1, "id": did, "theme": "fixture", "variants": {"facebook": {"text": "fixture"}},
+                     "meta": {"approved_by_operator": "2026-11-11", "source": "panel"}})
+        outcome = {"fb:kotleta": {"status": "published", "url": "https://www.facebook.com/" + PLAIN["FB_PAGE_KOTLETA_ID"] + "_5"},
+                   "linkedin": {"status": "published", "url": "https://www.linkedin.com/feed/update/urn:li:share:5/"},
+                   "x": {"status": "published", "url": "https://x.com/i/web/status/95"}}
+
+        def sent(d):
+            d["state"] = "published"
+            d["publish"] = {"package": f"packages/{did}.json", "targets": targets, "attempts": [
+                {"started": config.iso_utc(fx.now), "ended": config.iso_utc(fx.now), "targets": targets,
+                 "offset": 0, "exit": 0, "outcome": outcome}]}
+        store.update(did, sent, sent_ok=True)
     return fx
 
 

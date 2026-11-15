@@ -231,7 +231,7 @@
                                           hash: location.hash, expanders: measured,
                                           ellipsis: ellipsized.map(clampText),
                                           whole: whole.map(clampText), photos: photos, author: window.MFProbeAuthor,
-                                          send: window.MFProbeSend});
+                                          send: window.MFProbeSend, cases: window.MFProbeCases});
         document.body.appendChild(pre);
       });
     });
@@ -905,10 +905,12 @@
         var head = document.querySelector(".topic-heading").getBoundingClientRect(), first = document.querySelector(".topic-cards").getBoundingClientRect();
         if (first.top - head.bottom > 16) { out.problems.push("a blank band under the «Тема» heading: " + Math.round(first.top - head.bottom) + " px"); }
         if (innerWidth >= 1000) {
-          var photo = document.querySelector(".create-photo").getBoundingClientRect();
+          // D43 (§19.7): the photo stands above «Тексты» in the right column, so «Тексты» is measured
+          // against the «Тема» column's right edge
+          var topicCol = document.querySelector(".create-topic").getBoundingClientRect();
           var tr = document.createRange(); tr.selectNodeContents(document.querySelector(".texts-heading h2"));
           var tb = tr.getBoundingClientRect(), col = document.querySelector(".create-texts").getBoundingClientRect();
-          if (tb.left < photo.right || tb.bottom > innerHeight) { out.problems.push("«Тексты» is not in the right column on the first screen"); }
+          if (tb.left < topicCol.right || tb.bottom > innerHeight) { out.problems.push("«Тексты» is not in the right column on the first screen"); }
           if (Math.abs(col.right - document.querySelector(".create-columns").getBoundingClientRect().right) > 1) { out.problems.push("the texts column is not the full right column"); }
           out.defining.push({selector: ".texts-heading h2", text: "Тексты", top: Math.round(tb.top), bottom: Math.round(tb.bottom)});
           // the left column fits the topic box and «Развернуть» on the screen, with no scroll
@@ -1676,9 +1678,273 @@
     }
   }
 
+  // ------------------------------------------------------------ §19.9: cases and posts without a photo
+  // Each state's defining text is whole between the sticky bar and the window's bottom, measured
+  // with a Range; a «кейс: …» row is clamped with an ellipsis, so its whole title is checked in
+  // the DOM and in `title`, and its box on the screen.
+  async function caseChecks() {
+    var state = new URLSearchParams(location.search).get("probe_case");
+    if (!state) { return; }
+    var out = {state: state, problems: [], defining: []};
+    window.MFProbeCases = out;
+    var submits = 0;
+    document.addEventListener("submit", function (e) {
+      if (!e.defaultPrevented) { submits += 1; e.preventDefault(); }
+    });
+    window.MFProbeSubmits = function () { return submits; };
+    function sleep(ms) { return new Promise(function (ok) { setTimeout(ok, ms); }); }
+    async function until(predicate, label, timeout) {
+      var deadline = performance.now() + (timeout || 10000);
+      while (!predicate()) {
+        if (performance.now() > deadline) { throw new Error("timed out: " + label); }
+        await sleep(50);
+      }
+    }
+    function words(el) { return el.textContent.replace(/[\s\u00a0]+/g, " ").trim(); }
+    function box(r) { return Math.round(r.top) + ".." + Math.round(r.bottom) + " x " + Math.round(r.left) + ".." + Math.round(r.right); }
+    function offScreen(r, el) {
+      var top = el.closest("dialog") ? 0 : stickyBottom();
+      return r.top < top - 1 || r.bottom > innerHeight + 1 || r.left < -1 || r.right > innerWidth + 1;
+    }
+    // `scrolled`: judged once scrolled to (a one-column page puts it below the first screen)
+    function see(selector, expected, scrolled) {
+      var el = Array.prototype.find.call(document.querySelectorAll(selector), function (e) {
+        return shown(e) && (!expected || words(e).indexOf(expected) >= 0);
+      });
+      if (!el) { out.problems.push("missing «" + (expected || selector) + "»"); return null; }
+      if (scrolled) { el.scrollIntoView({block: "nearest"}); }
+      var range = document.createRange(); range.selectNodeContents(el);
+      var r = range.getBoundingClientRect();
+      out.defining.push({selector: selector, text: (expected || words(el)).slice(0, 90), at: box(r),
+                         scrolled: !!scrolled});
+      if (offScreen(r, el)) { out.problems.push("defining text off screen: «" + (expected || selector) + "» at " + box(r) + " in " + innerHeight); }
+      return el;
+    }
+    function value(selector, expected) {
+      var el = document.querySelector(selector);
+      if (!el) { out.problems.push("missing " + selector); return; }
+      if (el.value !== expected) { out.problems.push(selector + " holds «" + el.value.slice(0, 40) + "», expected «" + expected.slice(0, 40) + "»"); }
+      var r = el.getBoundingClientRect();
+      out.defining.push({selector: selector, text: expected.slice(0, 90), at: box(r)});
+      if (offScreen(r, el)) { out.problems.push("field off screen: " + selector + " at " + box(r)); }
+    }
+    // the card rows «кейс: <title>»: whole in the DOM and in `title`, on its own row under the angle
+    function caseRows(want, titles) {
+      var rows = Array.prototype.filter.call(document.querySelectorAll(".topic-card .topic-case"), shown);
+      if (rows.length !== want) { out.problems.push(rows.length + " «кейс: …» rows, expected " + want); }
+      rows.forEach(function (row) {
+        var title = row.getAttribute("title") || "";
+        if (title !== row.textContent || titles.indexOf(title.replace(/^кейс: /, "")) < 0) {
+          out.problems.push("case row «" + row.textContent.slice(0, 40) + "» lacks its whole title in `title`");
+        }
+        var angle = row.parentElement.querySelector("strong + span").getBoundingClientRect();
+        var r = row.getBoundingClientRect();
+        if (r.top < angle.bottom - 0.5) { out.problems.push("a case row overlaps its angle: " + box(r) + " vs " + box(angle)); }
+        out.defining.push({selector: ".topic-case", text: title.slice(0, 90), at: box(r),
+                           cut: row.scrollWidth > row.clientWidth + 0.5});
+      });
+      return rows;
+    }
+    function photoRight() {
+      // D43: from 1 000 px the photo (or «Добавить фото») stands at the top of the right column
+      if (innerWidth < 1000) { return; }
+      var photo = document.querySelector(".create-photo").getBoundingClientRect();
+      var topic = document.querySelector(".create-topic").getBoundingClientRect();
+      var texts = document.querySelector(".texts-heading").getBoundingClientRect();
+      if (photo.left < topic.right || photo.bottom > texts.top + 0.5) {
+        out.problems.push("the photo is not at the top of the right column: photo " + box(photo) + ", topic " + box(topic) + ", texts " + box(texts));
+      }
+      out.defining.push({selector: ".create-photo", text: "photo box", at: box(photo)});
+    }
+    // «Развернуть»: on the first screen from 1 000 px; below it the one-column page brings it into
+    // view after a card tap (§16.2), so only its words are checked here
+    function expandOnScreen(label) {
+      if (innerWidth >= 1000) { return see('[data-op="expand"]', label); }
+      var go = document.querySelector('[data-op="expand"]');
+      if (!go || words(go) !== label) { out.problems.push("expand label «" + (go && words(go)) + "»"); }
+      return go;
+    }
+    // the case line stands under the topic box: below 1 000 px (one column, five cards above it)
+    // it is judged once scrolled to, as «Развернуть» is (§16.2); from 1 000 px on the first screen
+    function caseLine(expected) {
+      var narrow = innerWidth < 1000, y = scrollY;
+      if (narrow) { document.querySelector(".case-line").scrollIntoView({block: "nearest"}); }
+      var el = see(".case-line .case-words", expected);
+      remove();
+      if (narrow) { scrollTo(0, y); }
+      return el;
+    }
+    function remove() {
+      var b = document.querySelector("[data-case-remove]");
+      if (!b || !shown(b)) { out.problems.push("missing «убрать»"); return; }
+      var r = b.getBoundingClientRect();
+      if (r.width < 24 || r.height < 24) { out.problems.push("«убрать» is " + Math.round(r.width) + "x" + Math.round(r.height)); }
+      if (offScreen(r, b)) { out.problems.push("«убрать» off screen at " + box(r)); }
+    }
+    var C = (function () { var root = document.querySelector("[data-create]"); return root ? JSON.parse(root.dataset.create) : {}; })();
+    var titles = C.cases ? Object.keys(C.cases).map(function (k) { return C.cases[k]; }) : [];
+    try {
+      if (state === "cases-page") {
+        see(".create-cases > h2", "Кейсы");
+        ["Пост по кейсу", "Изменить", "Удалить"].forEach(function (t) { see(".case-actions .btn", t); });
+        // from 900 px the three titles stand on the first screen; on a phone the first one does and
+        // the others are whole once scrolled to
+        var y = scrollY;
+        document.querySelectorAll(".case-title").forEach(function (el, i) { see(".case-title", words(el), innerWidth < 900 && i > 0); });
+        scrollTo(0, y);
+        if (document.querySelectorAll(".case-title").length !== 3) { out.problems.push("not three cases"); }
+        document.getElementById("case-new").scrollIntoView({block: "start"});
+        await sleep(50);
+        see("#case-new-h", "Новый кейс");
+        document.querySelectorAll("#case-new .profile-field label").forEach(function (el) {
+          var r = el.getBoundingClientRect();
+          out.defining.push({selector: "#case-new label", text: words(el), at: box(r)});
+          if (!/до \d+ знаков/.test(words(el))) { out.problems.push("label without its limit: " + words(el)); }
+          // one column below 600 px: the first fields are on the screen, the rest are reached by scrolling
+          if ((innerWidth >= 600 || el.closest(".profile-field") === document.querySelector("#case-new .profile-field")) && offScreen(r, el)) {
+            out.problems.push("label off screen after the scroll: " + words(el) + " at " + box(r));
+          }
+        });
+        scrollTo(0, y);
+      } else if (state === "cases-empty") {
+        see(".case-empty", "Кейсов пока нет — добавьте первый: что автоматизировали, чем и что вышло.");
+        see("#case-new label", "Название");
+        // one column below 600 px, as on «Профиль автора»: the button is reached by scrolling
+        var y1 = scrollY;
+        see("#case-new button", "Добавить кейс", innerWidth < 600);
+        scrollTo(0, y1);
+      } else if (state === "cases-saved") {
+        var saved = document.querySelector(".case-saved");
+        see(".case-saved", "Кейс сохранён");
+        if (saved) { see(".case-title", words(saved.closest(".case").querySelector(".case-title"))); }
+      } else if (state === "cases-refused") {
+        see('[role="alert"]', "Название: не больше 80 знаков");
+        var typed = document.querySelector("#case-new textarea[name=title]");
+        if (!typed || typed.value.length !== 81) { out.problems.push("the typed title is not kept: " + (typed && typed.value.length)); }
+        else { value("#case-new textarea[name=title]", typed.value); }
+      } else if (state === "cases-edit") {
+        var form = document.querySelector(".case-editing");
+        if (!form) { out.problems.push("no edit form"); }
+        else {
+          form.querySelectorAll("textarea").forEach(function (el) {
+            if (!el.value.trim()) { out.problems.push("an empty field in the edit form: " + el.name); }
+            var r = el.getBoundingClientRect();
+            if (offScreen(r, el)) { out.problems.push("edit field off screen: " + el.name + " at " + box(r)); }
+          });
+          if (form.querySelectorAll("textarea").length !== 5) { out.problems.push("the edit form lacks a field"); }
+          see(".case-editing .btn", "Сохранить"); see(".case-editing .btn", "Отмена");
+        }
+      } else if (state === "cases-delete") {
+        var opener = document.querySelector(".case-actions [data-open]");
+        var id = opener.getAttribute("data-open");
+        opener.click();
+        await until(function () { var d = document.getElementById(id); return d && d.open && d.matches(":modal"); }, "the delete dialog");
+        var dialog = document.getElementById(id);
+        dialog.querySelector("[data-confirm]").dispatchEvent(new MouseEvent("click", {bubbles: true, cancelable: true, detail: 2}));
+        await sleep(50);
+        if (!dialog.open || submits) { out.problems.push("a double click on «Удалить» confirmed the delete"); }
+        ["Удалить кейс?", "Черновики с этим кейсом останутся, но тексты по нему писать не получится.", "Да, удалить", "Отмена"].forEach(function (t) {
+          see("#" + id + " h2, #" + id + " p, #" + id + " button", t);
+        });
+        if (!dialog.contains(document.activeElement)) { out.problems.push("focus is outside the dialog"); }
+        var d = dialog.getBoundingClientRect();
+        if (d.top < 0 || d.left < 0 || d.bottom > innerHeight || d.right > innerWidth) { out.problems.push("the dialog leaves the viewport: " + box(d)); }
+        var behind = document.querySelector(".case-actions .btn.green").getBoundingClientRect();
+        var hit = document.elementFromPoint(behind.left + behind.width / 2, behind.top + behind.height / 2);
+        if (hit && hit.closest(".case-actions")) { out.problems.push("a click behind the dialog reaches the page"); }
+        dialog.querySelector("[data-close]").click();
+        if (dialog.open) { out.problems.push("«Отмена» left the dialog open"); }
+        opener.click();   // open again: Tab and Escape are pressed over DevTools after this probe
+        await until(function () { return dialog.open; }, "the dialog reopened");
+      } else if (state === "create-start-cases") {
+        see(".create-drop strong", "Бросьте фото сюда");
+        see("[data-nophoto]", "Пост без фото");
+        see(".profile-line a", "Кейсы · 3");
+        see("h2", "Недавние фото");
+        var heading = Array.prototype.find.call(document.querySelectorAll("h2"), function (h) { return /^Черновики · \d+$/.test(words(h)); });
+        if (!heading) { out.problems.push("missing «Черновики · N»"); } else { see("h2", words(heading)); }
+        see(".draft-nophoto", "без фото");
+      } else if (state === "draft-nophoto") {
+        see("#attach .btn", "Добавить фото");
+        var attachBox = document.getElementById("attach");
+        if (attachBox.scrollHeight > attachBox.clientHeight + 1) {
+          out.problems.push("the attach block's content is taller than the block: " + attachBox.scrollHeight + " > " + attachBox.clientHeight);
+        }
+        see(".attach-hint", "необязательно — без фото пост уйдёт в Facebook, LinkedIn и X; Instagram — только с фото");
+        caseRows(3, titles);
+        see('.topic-card[aria-pressed="true"] .chosen', "выбрано");
+        expandOnScreen("Развернуть · до $0.05");
+        photoRight();
+      } else if (state === "draft-case") {
+        var line = caseLine("Кейс: " + C.cases[C.draft.case]);
+        photoRight();
+        if (innerWidth >= 1000) { see('[data-op="expand"]', "Развернуть · до $0.05"); }
+        else if (document.querySelector('[data-op="expand"]').textContent !== "Развернуть · до $0.05") { out.problems.push("expand label"); }
+        caseRows(3, titles);
+        if (line && line.closest(".case-line").classList.contains("k-bad")) { out.problems.push("the case line is marked as an error"); }
+      } else if (state === "draft-fromcase") {
+        caseLine("Кейс: " + C.cases[C.draft.case]);
+        caseRows(5, titles).forEach(function (row) {
+          if (row.getAttribute("title") !== "кейс: " + C.cases[C.draft.case]) { out.problems.push("a card names another case"); }
+        });
+      } else if (state === "draft-case-gone") {
+        caseLine("Кейс удалён — нажмите «убрать», чтобы писать тексты");
+        ["expand", "topics"].forEach(function (op) {
+          var b = document.querySelector('[data-op="' + op + '"]');
+          var cs = getComputedStyle(b);
+          if (!b.disabled || parseFloat(cs.opacity) >= 1 || cs.cursor === "pointer" || b.title !== "Кейс удалён — нажмите «убрать», чтобы писать тексты") {
+            out.problems.push("«" + words(b) + "» does not look or say disabled: " + b.disabled + " " + cs.opacity + " «" + b.title + "»");
+          }
+        });
+        if (document.querySelector(".create-notice")) { out.problems.push("the dangling case is said twice"); }
+      } else if (state === "review-text-only") {
+        ["Проверка перед отправкой", "Без фото: Instagram пропущен — он публикует только с картинкой.", "Добавить фото",
+         "Проблем нет · 3 сети", "Опубликовать сейчас", "В очередь"].forEach(function (t) {
+          see(".send-action h2, .send-action p, .send-action a, .send-action button", t);
+        });
+        var nophoto = document.body.innerText.split("Без фото: Instagram пропущен").length - 1;
+        if (nophoto !== 1) { out.problems.push("the Instagram line shows " + nophoto + " times"); }
+        if (document.querySelector(".send-crop, #photo, .look")) { out.problems.push("a crop box or photo control on a text-only review"); }
+        // the cards stand below the action block: each head and the X line are judged once scrolled to
+        var y0 = scrollY;
+        var heads = Array.prototype.map.call(document.querySelectorAll(".send-card h3"), words);
+        if (heads.join(" | ") !== "Facebook · kotleta · укр. | LinkedIn · англ. | X · англ.") { out.problems.push("card heads: " + heads.join(" | ")); }
+        document.querySelectorAll(".send-card h3").forEach(function (h) { h.scrollIntoView({block: "nearest"}); see(".send-card h3", words(h)); });
+        var xl = Array.prototype.find.call(document.querySelectorAll(".send-card p"), function (p) { return words(p).indexOf("этот пост в X: $0.015 · ") === 0; });
+        if (!xl) { out.problems.push("missing the X line with $0.015"); } else { xl.scrollIntoView({block: "nearest"}); see(".send-card p", words(xl)); }
+        scrollTo(0, y0);
+      } else if (state === "review-text-only-confirm") {
+        var openBtn = document.querySelector('[data-open="dlg-publish"]');
+        openBtn.click();
+        await until(function () { var dd = document.getElementById("dlg-publish"); return dd.open && dd.matches(":modal"); }, "the publish dialog");
+        var pd = document.getElementById("dlg-publish");
+        pd.querySelector("[data-confirm]").dispatchEvent(new MouseEvent("click", {bubbles: true, cancelable: true, detail: 2}));
+        await sleep(50);
+        if (!pd.open || submits) { out.problems.push("a double click on the opener confirmed the publish"); }
+        ["Опубликовать в 3 сети сейчас?", "Facebook, LinkedIn и X. Это нельзя отменить.", "Да, опубликовать", "Отмена"].forEach(function (t) {
+          see("#dlg-publish h2, #dlg-publish p, #dlg-publish button", t);
+        });
+        if (!pd.contains(document.activeElement)) { out.problems.push("focus is outside the dialog"); }
+        pd.querySelector("[data-close]").click();
+        openBtn.click();
+        await until(function () { return pd.open; }, "the dialog reopened");
+      } else if (state === "review-text-only-published") {
+        see(".send-action h2", "Отправлено");
+        see(".send-status-line", "Опубликовано во всех 3 сетях");
+        ["Facebook", "LinkedIn", "X"].forEach(function (n) { see(".send-rows a", "открыть в " + n); });
+        if (document.querySelectorAll(".send-rows li").length !== 3) { out.problems.push("not three rows"); }
+      } else if (state === "draft-photo-right") {
+        document.querySelectorAll(".topic-card").forEach(function (el) { see(".topic-card strong", words(el.querySelector("strong"))); });
+        see('.topic-card[aria-pressed="true"] .chosen', "выбрано");
+        photoRight();
+        if (document.querySelector(".topic-case")) { out.problems.push("B′'s cards show a case row"); }
+      }
+    } catch (err) { out.problems.push(err.message); }
+  }
+
   // after the load event, so the browser has already scrolled to a #fragment
   function later() {
-    authorChecks().then(function () { return sendChecks(); }).then(function () {
+    authorChecks().then(function () { return sendChecks(); }).then(function () { return caseChecks(); }).then(function () {
       if (!window.MFProbeNext) { setTimeout(run, 100); }   // a staged state writes JSON on its last stage
     }, function (err) {
       window.MFProbeAuthor = {problems: [err.message]}; setTimeout(run, 100);
