@@ -40,7 +40,11 @@
       const m = document.getElementById("ai-month");
       m.textContent = result.month;
     }
-    if (!resp.ok) { throw new Error(result.error || String(resp.status)); }
+    if (!resp.ok) {
+      const failure = new Error(result.error || String(resp.status));
+      if (result.bound) { failure.bound = result.bound; }
+      throw failure;
+    }
     return result;
   }
   function setBusy(value) {
@@ -125,15 +129,17 @@
   const pending = new Set();
   const savers = new Map();
   function resize(el) { el.style.height = "auto"; el.style.height = el.scrollHeight + 2 + "px"; }
-  function saver(el, path, payload, status, after, dirty) {
+  // `extra` is fixed when the save is queued (a card tap's case), never read from shared state when
+  // the queue reaches it: an older refused save cannot take a newer tap's case with it.
+  function saver(el, path, payload, status, after) {
     let timer, serial = Promise.resolve();
-    async function flush() {
+    async function flush(extra) {
       clearTimeout(timer); timer = null;
-      if (el.value === el.dataset.saved && !(dirty && dirty())) { return serial; }
+      if (el.value === el.dataset.saved && extra === undefined) { return serial; }
       const value = el.value;
       report(status, T.saving);
       serial = serial.catch(() => {}).then(async () => {
-        const result = await post(base + path, payload(value));
+        const result = await post(base + path, payload(value, extra));
         el.dataset.saved = value;
         if (el.value === value) { status.classList.remove("k-bad"); report(status, T.saved); if (after) { after(result); } }
         return result;
@@ -162,7 +168,6 @@
     return flush;
   }
   // A card tap sends its case with the topic ("" included); typing sends the topic alone (§19.4).
-  let tappedCase = null;
   const caseLine = $(".case-line");
   function showCase() {
     const cid = D.case || "";
@@ -181,11 +186,10 @@
     });
   }
   C.caseGone = !!C.case_gone; D.case = D.case || "";
-  const saveTopic = saver(topic, "/topic", value => tappedCase === null ? {topic: value} : {topic: value, case: tappedCase},
+  const saveTopic = saver(topic, "/topic", (value, tapped) => tapped === undefined ? {topic: value} : {topic: value, case: tapped},
     $(".topic-save"), result => {
-      tappedCase = null;
       if (result.case !== D.case) { D.case = result.case; caseFixed(); showCase(); setBusy(busy); }
-    }, () => tappedCase !== null);
+    });
   topic.addEventListener("input", () => {
     const count = $(".topic-count"); count.hidden = topic.value.length < 1800;
     count.textContent = topic.value.length + "/2000"; markChosen(); setBusy(busy);
@@ -212,9 +216,8 @@
   function bindTopic(b) {
     b.addEventListener("click", async () => {
       topic.value = b.dataset.topic; resize(topic); markChosen(); setBusy(busy); revealExpand();
-      tappedCase = b.dataset.case || "";
-      // the saver keeps the text and the reason; a refused case is not sent again with typing
-      try { await saveTopic(); } catch (_) { tappedCase = null; }
+      // the saver keeps the text and the reason; the case rides with this tap's save only
+      try { await saveTopic(b.dataset.case || ""); } catch (_) { /* shown by the saver */ }
     });
   }
   $("[data-case-remove]", caseLine).addEventListener("click", async () => {
@@ -224,7 +227,6 @@
     await saveTopic.queue(async () => {
       try {
         const result = await post(base + "/topic", {case: ""});
-        tappedCase = null;
         D.case = result.case; caseFixed(); showCase(); setBusy(busy);
       } catch (err) { report(status, err.message); status.classList.add("k-bad"); }
     });
@@ -317,6 +319,14 @@
     expandLabel();
   }
   all(".create-text").forEach(bindText);
+  // The bound the page shows rides with the call; a call that would cost more is refused (D46).
+  const shownBound = op => (C.bounds[op] || "").replace(/[^0-9.]/g, "");
+  function refreshBounds() {
+    const t = $("[data-op=topics]");
+    t.textContent = (D.topics.length ? T.more_topics : T.topics) + " · " + C.bounds.topics;
+    expandLabel();
+    all('[data-op="regenerate"]').forEach(b => { b.textContent = T.regenerate + " · " + C.bounds.regenerate; });
+  }
   async function ai(op, data = {}, audio, mime) {
     if (busy) { return; }
     if (C.why[op]) { error(C.why[op]); return; }
@@ -337,7 +347,8 @@
         await saveTopic();
         await Promise.all(Array.from(savers.entries()).filter(([el]) => el !== topic).map(([, flush]) => flush()));
       }
-      const result = await post(base + "/" + op, audio || data, mime || "application/json");
+      const body = audio || (op === "voice" ? data : Object.assign({}, data, {bound: shownBound(op)}));
+      const result = await post(base + "/" + op, body, mime || "application/json");
       if (activeError === op) { $(".create-error").hidden = true; activeError = ""; }
       if (op === "topics") { $("[data-op=topics]").hidden = false; }
       if (op === "topics") { renderTopics(result.topics); }
@@ -354,6 +365,7 @@
       return result;
     } catch (err) {
       activeError = op;
+      if (err.bound) { C.bounds[op] = err.bound; refreshBounds(); }
       // The automatic topics request is spent once on the server; a retry is a real request.
       error(err.message, op === "voice" ? null : () => ai(op, op === "topics" ? {} : data, audio, mime), op);
       // the banner's «Повторить» is the one button for a failed topics request

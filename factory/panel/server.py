@@ -16,6 +16,7 @@ and "never shows a secret":
 
 from __future__ import annotations
 
+import decimal
 import errno
 import hmac
 import http.server
@@ -583,11 +584,21 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if op == "topics" and not isinstance(auto, bool):
                 raise Refusal("неверный запрос", 400)
             wish = text(data.get("wish", ""), 200, "пожелание") if op == "regenerate" else ""
+            shown = data.get("bound") if op != "voice" else None   # the bound the page showed (D46)
+            if shown is not None:
+                try:
+                    if not isinstance(shown, str) or len(shown) > 12:
+                        raise ValueError
+                    shown = decimal.Decimal(shown)
+                    if not shown.is_finite() or shown < 0:
+                        raise ValueError
+                except (ValueError, decimal.InvalidOperation):
+                    raise Refusal("неверный запрос", 400) from None
             try:
                 result = panel.ai.run(did, op, auto=auto, network=network, wish=wish,
-                                      audio=raw if op == "voice" else b"", mime=ctype)
+                                      audio=raw if op == "voice" else b"", mime=ctype, shown=shown)
             except Refusal as exc:
-                if exc.status != 400 and not isinstance(exc, gemini.CaseGone):
+                if exc.status != 400 and not isinstance(exc, (gemini.CaseGone, gemini.StaleBound)):
                     def error(d):
                         d["error"] = {"op": op, "network": network if isinstance(network, str) else "",
                                       "text": panel.redactor().redact(exc.message),
@@ -598,6 +609,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self._json(200, result)
         except (Refusal, photos.UploadError) as exc:
             reply = {"error": exc.message}
+            if isinstance(exc, gemini.StaleBound):
+                reply["bound"] = f"до ${exc.amount:.2f}"
             try:
                 reply["month"] = panel.ai_ledger.display(panel.ai.env())
             except (Refusal, config.ConfigError, OSError):

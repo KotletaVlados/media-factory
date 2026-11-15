@@ -1408,10 +1408,12 @@ def create_cases(ctx: Ctx, refusal=None) -> str:
             items.append(_case_article(ctx, case, saved=not refusal and ctx.q("saved") == case["id"]))
     listing = (f'<div class="case-list">{"".join(items)}</div>' if items else
                f'<p class="empty case-empty">{esc(S.CASES_EMPTY)}</p>')
+    values = kept if kept is not None and not (refusal and refusal["id"]) else {}
     if len(stored) >= fcases.MAX:
         new = f'<p class="muted case-full">{esc(S.CASES_FULL)}</p>'
+        if values:   # §19.8: the refusal over the limit still gives the operator's text back
+            new += _case_form(ctx, values)
     else:
-        values = kept if kept is not None and not (refusal and refusal["id"]) else {}
         new = _case_form(ctx, values)
     body = (f'<section class="create-cases"><h2>{esc(S.CASES_TITLE)}</h2><p>{esc(S.CASES_HINT)}</p>'
             f'{"".join(notices)}{listing}<section class="case-new" id="case-new" aria-labelledby="case-new-h">'

@@ -313,6 +313,27 @@ class CasesRouteTest(CasesPanel):
         self.assertIn('<p class="muted case-full">кейсов уже 30 — удалите ненужные</p>', body)
         self.assertNotIn("Добавить кейс", body)
 
+    def test_the_31st_case_keeps_the_operators_fields(self):
+        """§19.8 item 2: a refusal over the limit gives all five fields back; the file stays."""
+        for _ in range(30):
+            cases.save(self.fx.paths.content, pf.CASES[2], NOW)
+        before = self.file_hash(self.cases_file())
+        values = {"title": "Уникальное название 31", "what": "Что автоматизировал 31", "tools": "Инструменты 31",
+                  "result": "Результат 31", "when": "ноябрь 2026"}
+        status, _, body = self.post("/create/cases/save", values)
+        body = html.unescape(body)
+        self.assertEqual(status, 409)
+        self.assertIn("кейсов уже 30 — удалите ненужные", body)
+        for name, value in values.items():
+            self.assertIn(f'name="{name}"', body)
+            self.assertIn(f">{value}</textarea>", body, name)
+        self.assertEqual(self.file_hash(self.cases_file()), before)
+        self.assertEqual(len(cases.listed(self.fx.paths.content)), 30)
+        # a plain GET still shows the limit and no form
+        _, _, body = self.page("/create/cases")
+        self.assertNotIn("Уникальное название 31", body)
+        self.assertNotIn("Добавить кейс", body)
+
     def test_a_canary_key_is_stored_and_shown_masked(self):
         canary = CANARIES["GEMINI_API_KEY"]
         self.post("/create/cases/save", dict(pf.CASES[0], result="ключ " + canary))
@@ -565,6 +586,69 @@ class UnreadableCasesTest(CasesPanel):
         self.assertTrue(why)
         self.assertNotIn("cases.json", why)
         self.assertEqual(self.transport.requests, [])
+
+
+class StaleButtonBound(CasesPanel):
+    """D46: a button sends the bound the page drew; cases added since that make the call cost
+    more refuse it before any reservation or request, and say the new bound."""
+
+    def shown(self, op):
+        return str(budget.button(op, NOW, []))
+
+    def test_updated_cases_do_not_exceed_the_rendered_topic_bound(self):
+        did = self.bare()
+        shown = self.shown("topics")
+        for _ in range(30):
+            cases.save(self.fx.paths.content, at_limits(), NOW)
+        now = budget.button("topics", NOW, cases.listed(self.fx.paths.content))
+        self.assertGreater(now, Decimal(shown))
+        status, reply = self.call(f"/create/{did}/topics", {"bound": shown})
+        self.assertEqual(status, 409)
+        self.assertEqual(reply["bound"], f"до ${now:.2f}")
+        self.assertIn(f"до ${now:.2f}", reply["error"])
+        self.assertEqual((self.rows(), self.transport.requests), ([], []))
+        self.assertIsNone(self.store.load(did)["error"])   # not stored: a reload shows the new bound
+        # the second, explicit press carries the new bound and goes through
+        self.transport.add(lambda req: pf.gemini_reply({"topics": pf.TOPICS}))
+        status, _ = self.call(f"/create/{did}/topics", {"bound": f"{now:.2f}"})
+        self.assertEqual(status, 200)
+        reserved = [r for r in self.rows() if r["status"] == "reserved"]
+        self.assertLessEqual(Decimal(reserved[-1]["price"]), now)
+
+    def test_texts_refuse_the_same_way(self):
+        # from 2027-01-01 the thirty cases lift «Перегенерировать» from $0.09 to $0.10
+        self.panel_clock.now = dt.datetime(2027, 1, 2, 9, 0, tzinfo=dt.timezone.utc)
+        did = self.bare()
+        self.call(f"/create/{did}/topic", {"topic": "t"})
+        shown = {op: str(budget.button(op, self.panel_clock.now, [])) for op in ("expand", "regenerate")}
+        self.transport.add(lambda req: pf.gemini_reply(pf.TEXTS))
+        self.assertEqual(self.call(f"/create/{did}/expand", {"bound": shown["expand"]})[0], 200)
+        for _ in range(30):
+            cases.save(self.fx.paths.content, at_limits(), NOW)
+        before = (len(self.rows()), len(self.transport.requests))
+        status, reply = self.call(f"/create/{did}/regenerate", {"network": "x", "bound": shown["regenerate"]})
+        self.assertEqual((status, reply["bound"]), (409, "до $0.10"), reply)
+        self.assertEqual((len(self.rows()), len(self.transport.requests)), before)
+        # «Развернуть» did not get dearer: its old bound still holds
+        self.transport.add(lambda req: pf.gemini_reply(pf.TEXTS))
+        self.assertEqual(self.call(f"/create/{did}/expand", {"bound": shown["expand"]})[0], 200)
+
+    def test_an_unchanged_bound_and_a_missing_one_pass_and_a_bad_one_is_400(self):
+        did = self.bare()
+        self.transport.add(lambda req: pf.gemini_reply({"topics": pf.TOPICS}))
+        self.assertEqual(self.call(f"/create/{did}/topics", {"bound": self.shown("topics")})[0], 200)
+        self.transport.add(lambda req: pf.gemini_reply({"topics": pf.TOPICS}))
+        self.assertEqual(self.call(f"/create/{did}/topics", {})[0], 200)
+        before = len(self.rows())
+        for bad in (2, ["0.02"], "abc", "NaN", "-1", "1" * 20, "Infinity"):
+            status, _ = self.call(f"/create/{did}/topics", {"bound": bad})
+            self.assertEqual(status, 400, bad)
+        self.assertEqual(len(self.rows()), before)
+
+    def test_the_page_script_sends_the_shown_bound(self):
+        _, _, script = self.page("/static/create.js")
+        self.assertIn('Object.assign({}, data, {bound: shownBound(op)})', script)
+        self.assertIn("if (err.bound) { C.bounds[op] = err.bound; refreshBounds(); }", script)
 
 
 class CaseBudgetTest(CasesPanel):
