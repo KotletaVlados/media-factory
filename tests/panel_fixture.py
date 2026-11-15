@@ -810,7 +810,7 @@ def case_topics(cid: str) -> list:
 
 # topics 1, 3 and 5 name the fixture cases; 2 and 4 draw on the author's themes
 CASE_TOPICS = [dict(t, case=(CASE_IDS[i // 2] if i % 2 == 0 else "")) for i, t in enumerate(TOPICS)]
-CASES_LIVE = ("attach",)
+CASES_LIVE = ("attach", "attachsave", "caseremove")
 
 
 def save_cases(fx: Fixture, cases=None) -> list:
@@ -835,7 +835,9 @@ def build_cases(root: str, *, cases=True, live_widths=(), sent=False) -> Fixture
       `topics` draft;
     - `sent`: only `textonly-published` (no photo, published to three targets). It has its
       own fixture: a sent draft moves «Черновики» above the photos on «Создать» (§17.6);
-    - `live_widths`: per width, `attach-<w>` (no photo, texts) for the attach probe.
+    - `live_widths`: per width, `attach-<w>` (no photo, texts) for the attach probe, `attachsave-<w>`
+      (the same, for the save-before-attach flow) and `caseremove-<w>` (no photo, case A, cards on
+      A, B and none) for the «убрать» ordering flow.
     """
     from unittest import mock
     from factory.authoring import drafts
@@ -857,13 +859,13 @@ def build_cases(root: str, *, cases=True, live_widths=(), sent=False) -> Fixture
     for i, name in enumerate(names):
         kind = name.rsplit("-", 1)[0] if live_widths else name
         photo = (None, None) if kind not in ("photocase", "topics") else ("my-photos", ids[i % len(ids)])
-        case = CASE_IDS[0] if kind in ("fromcase", "photocase") else "c-deadbeef" if kind == "gone" else None
+        case = CASE_IDS[0] if kind in ("fromcase", "photocase", "caseremove") else "c-deadbeef" if kind == "gone" else None
         with mock.patch("factory.authoring.drafts.secrets.token_hex", return_value=f"{0xc000 + i:04x}"):
             d = store.create(fx.paths.stock, photo[0], photo[1], True, case)
 
         def fill(d, kind=kind):
             d["topics_auto"] = "done"
-            if kind in ("nophoto", "photocase"):
+            if kind in ("nophoto", "photocase", "caseremove"):   # caseremove: case A, cards on A, B and none
                 d["topics"], d["topic"] = json.loads(json.dumps(CASE_TOPICS)), chosen
             elif kind == "fromcase":
                 d["topics"], d["topic"] = case_topics(CASE_IDS[0]), ""
@@ -871,7 +873,7 @@ def build_cases(root: str, *, cases=True, live_widths=(), sent=False) -> Fixture
                 d["topics"], d["topic"] = TOPICS, TOPICS[1]["title"] + " — " + TOPICS[1]["angle"]
             elif kind == "gone":
                 d["topics"], d["topic"] = case_topics("c-deadbeef"), case_topics("c-deadbeef")[0]["title"]
-            if kind in ("textonly", "textonly-published", "attach"):
+            if kind in ("textonly", "textonly-published", "attach", "attachsave"):
                 d["topic"] = TOPICS[1]["title"] + " — " + TOPICS[1]["angle"]
                 d["variants"] = {n: {"text": t, "lang": drafts.LANGS[n], "source": "gemini"} for n, t in TEXTS.items()}
         store.update(d["id"], fill)

@@ -573,7 +573,7 @@ CASE_STATES = ("cases-page", "cases-empty", "cases-saved", "cases-refused", "cas
                "create-start-cases", "draft-nophoto", "draft-case", "draft-fromcase", "draft-case-gone",
                "draft-photo-right", "review-text-only", "review-text-only-confirm", "review-text-only-published")
 CASE_DRAFT_STATES = ("draft-nophoto", "draft-case", "draft-fromcase", "draft-case-gone", "draft-photo-right")
-CASE_FLOWS = ("draft-attach", "start-nophoto", "start-fromcase")
+CASE_FLOWS = ("draft-attach", "draft-attach-save", "case-remove-order", "start-nophoto", "start-fromcase")
 
 
 def case_problems(state, result) -> list:
@@ -691,6 +691,132 @@ def case_flow_problems(chrome, fx, servers, fake, widths, out) -> list:
                 problems.append(f"start-fromcase-{w}: new drafts {new}, {len(reqs)} topics requests, record sent: {record_a in prompt}")
         except RuntimeError as exc:
             problems.append(f"start-fromcase-{w}: {exc}")
+    return problems
+
+
+# A fetch wrapper that logs every request ("start" the moment it is made, "end" with the status)
+# and can hold the saves of the draft's topic and texts behind a gate the check opens itself, so
+# the order of the replies never depends on the machine's speed (§19.7).
+GATE = r"""(() => {
+  const log = window.mfLog = [], gate = window.mfGate = {hold: [], waiting: [], fail: false};
+  gate.release = fail => { gate.fail = !!fail; gate.hold = []; gate.waiting.splice(0).forEach(r => r()); };
+  const f = window.fetch;
+  window.fetch = async (u, o) => {
+    const path = String(u).split("?")[0], body = o && typeof o.body === "string" ? o.body : null;
+    log.push(["start", path, body]);
+    if (gate.hold.some(s => path.endsWith(s))) {
+      await new Promise(r => gate.waiting.push(r));
+      if (gate.fail) {
+        log.push(["end", path, 500]);
+        return new Response(JSON.stringify({error: "held save refused"}), {status: 500, headers: {"Content-Type": "application/json"}});
+      }
+    }
+    const resp = await f(u, o);
+    log.push(["end", path, resp.status]);
+    return resp;
+  };
+  return true;
+})()"""
+
+
+def gated_flows(chrome, fx, servers, widths, out) -> list:
+    """`draft-attach-save` and `case-remove-order` (§19.7): the page reload after «Добавить фото»
+    waits for every typed edit to be saved, and an accepted «убрать» is the last word whatever
+    order the earlier saves are answered in."""
+    from factory.authoring import drafts
+    problems = []
+    store = drafts.Store(fx.paths.content, fx.clock, fx.machine_tz)
+    for w in widths:
+        h = WIDTHS.get(w, 900)
+        # draft-attach-save: typed topic and text, then a photo, while the saves are held
+        did = fx.case_ids[f"attachsave-{w}"]
+        base = f"http://127.0.0.1:{servers[f'cases-live-attachsave-{w}'].port}"
+        name = f"attachsave-{w}.jpg"
+        path = os.path.join(out, "t", name)
+        with open(path, "wb") as fh:
+            fh.write(panel_fixture.make_photo(640, 480, 9500 + w))
+        try:
+            with Live(chrome, f"{base}/create/{did}", w, h) as page:
+                page.wait_true("document.getElementById('attach-file') && window.MFCreate && "
+                               "document.querySelector('.text-editor')", 30, "the attach block")
+                network = page.evaluate("document.querySelector('.text-editor').closest('.create-text').dataset.network")
+                page.evaluate(GATE)
+                page.evaluate("window.MFCreate.reload(() => { window.mfReloads = (window.mfReloads || 0) + 1; }); true")
+                root = page.send("DOM.getDocument", {"depth": 0})["root"]["nodeId"]
+                node = page.send("DOM.querySelector", {"nodeId": root, "selector": "#attach-file"})["nodeId"]
+
+                def type_both(topic, text):
+                    page.evaluate("(() => { const t = document.getElementById('topic'), e = document.querySelector('.text-editor');"
+                                  f" t.value = {json.dumps(topic)}; t.dispatchEvent(new Event('input', {{bubbles: true}}));"
+                                  f" e.value = {json.dumps(text)}; e.dispatchEvent(new Event('input', {{bubbles: true}})); return true; }})()")
+
+                def starts(*suffixes):
+                    return page.evaluate("window.mfLog.filter(e => e[0] === 'start' && [" +
+                                         ",".join(json.dumps(x) for x in suffixes) + "].some(s => e[1].endsWith(s))).length")
+                # a refused save: the page stays, nothing is uploaded, the typed text stays
+                type_both("Тема, которую не приняли", "Текст, который не приняли")
+                page.evaluate("window.mfGate.hold = ['/topic', '/text']; true")
+                page.send("DOM.setFileInputFiles", {"files": [path], "nodeId": node})
+                page.wait_true("window.mfGate.waiting.length === 2", 30, "both saves held")
+                if starts("/files/photos", "/photo"):
+                    problems.append(f"draft-attach-save-{w}: the photo went out while the typed edits were not saved")
+                if not page.evaluate("document.getElementById('topic').readOnly && document.querySelector('.text-editor').readOnly"):
+                    problems.append(f"draft-attach-save-{w}: the fields stay editable while the attach waits for the saves")
+                page.evaluate("window.mfGate.release(true); true")
+                page.wait_true("document.querySelector('.create-error') && !document.querySelector('.create-error').hidden "
+                               "&& document.querySelector('[data-create]').getAttribute('aria-busy') === 'false'", 30, "the refusal shown")
+                kept = page.evaluate("[document.getElementById('topic').value, document.querySelector('.text-editor').value, "
+                                     "document.getElementById('topic').readOnly, window.mfReloads || 0]")
+                if kept != ["Тема, которую не приняли", "Текст, который не приняли", False, 0] or starts("/files/photos", "/photo"):
+                    problems.append(f"draft-attach-save-{w}: after a refused save the page holds {kept} and sent the photo")
+                # the saves accepted: both reach the draft before the photo does, then the reload
+                type_both("Тема, принятая до фото", "Текст, принятый до фото")
+                page.evaluate("window.mfLog.length = 0; window.mfGate.hold = ['/topic', '/text']; true")
+                page.send("DOM.setFileInputFiles", {"files": [path], "nodeId": node})
+                page.wait_true("window.mfGate.waiting.length === 2", 30, "both saves held")
+                if starts("/files/photos", "/photo"):
+                    problems.append(f"draft-attach-save-{w}: the photo went out before the held saves were answered")
+                page.evaluate("window.mfGate.release(false); true")
+                page.wait_true("window.mfReloads === 1", 30, "the reload after the attach")
+                log = page.evaluate("window.mfLog")
+                where = lambda kind, suffix: next((i for i, e in enumerate(log) if e[0] == kind and e[1].endswith(suffix)), -1)
+                last_end = max(max((i for i, e in enumerate(log) if e[0] == "end" and e[1].endswith(s)), default=-1)
+                               for s in ("/topic", "/text"))
+                if not 0 <= last_end < where("start", "/photo") or where("start", "/files/photos") < last_end:
+                    problems.append(f"draft-attach-save-{w}: the order of requests is {[(e[0], e[1]) for e in log]}")
+            d = store.load(did)
+            if d["topic"] != "Тема, принятая до фото" or d["variants"][network]["text"] != "Текст, принятый до фото" or d["photo"] is None:
+                problems.append(f"draft-attach-save-{w}: the stored draft holds topic «{d['topic']}», photo {d['photo']}")
+        except RuntimeError as exc:
+            problems.append(f"draft-attach-save-{w}: {exc}")
+        # case-remove-order: a card of case B is held, «убрать» is pressed, then the card's reply comes
+        did = fx.case_ids[f"caseremove-{w}"]
+        base = f"http://127.0.0.1:{servers[f'cases-live-caseremove-{w}'].port}"
+        card = f".topic-card[data-case=\"{panel_fixture.CASE_IDS[1]}\"]"
+        try:
+            with Live(chrome, f"{base}/create/{did}", w, h) as page:
+                page.wait_true(f"document.querySelector('{card}') && window.MFCreate && "
+                               "!document.querySelector('.case-line').hidden", 30, "the case line and the cards")
+                page.evaluate(GATE)
+                page.evaluate("window.mfGate.hold = ['/topic']; true")
+                page.click(card)
+                page.wait_true("window.mfGate.waiting.length === 1", 30, "the card's save held")
+                page.click("[data-case-remove]")
+                sent = page.evaluate("window.mfLog.filter(e => e[0] === 'start' && e[1].endsWith('/topic')).length")
+                if sent != 1:
+                    problems.append(f"case-remove-order-{w}: «убрать» sent its request while an earlier save was open ({sent} topic posts)")
+                page.evaluate("window.mfGate.release(false); true")
+                page.wait_true("document.querySelector('.case-line').hidden && "
+                               "window.mfLog.filter(e => e[0] === 'end' && e[1].endsWith('/topic')).length === 2", 30, "the removal")
+                log = page.evaluate("window.mfLog.filter(e => e[1].endsWith('/topic'))")
+                shape = [(e[0], '"case":""' in (e[2] or "") if e[0] == "start" else e[2]) for e in log]
+                if shape != [("start", False), ("end", 200), ("start", True), ("end", 200)]:
+                    problems.append(f"case-remove-order-{w}: the topic requests (start, removal?/end, status) are {shape}")
+                page.screenshot(os.path.join(out, f"case-remove-order-{w}.png"))
+            if store.load(did).get("case"):
+                problems.append(f"case-remove-order-{w}: the draft holds case {store.load(did).get('case')} after «убрать»")
+        except RuntimeError as exc:
+            problems.append(f"case-remove-order-{w}: {exc}")
     return problems
 
 
@@ -1149,7 +1275,7 @@ def main(argv=None) -> int:
     for name, fx in (("cases", cases_fx), ("cases-empty", cases_empty), ("cases-sent", cases_sent)):
         servers[name] = start(fx, fake_cases)
     for w in widths:   # one panel per flow and width: each creates or changes its own draft
-        for kind in ("attach", "nophoto", "fromcase"):
+        for kind in ("attach", "attachsave", "caseremove", "nophoto", "fromcase"):
             servers[f"cases-live-{kind}-{w}"] = start(cases_live, fake_cases_live)
     t0 = time.perf_counter()
     snap = servers["data"].panel.holder.get()
@@ -1491,6 +1617,9 @@ def main(argv=None) -> int:
             print(f"IMAGES: {problem}")
     if any(s[0] in CASE_FLOWS for s in states):
         for problem in case_flow_problems(chrome, cases_live, servers, fake_cases_live, widths, out):
+            failed = True
+            print(f"CASES FLOW: {problem}")
+        for problem in gated_flows(chrome, cases_live, servers, widths, out):
             failed = True
             print(f"CASES FLOW: {problem}")
     if any(s[0] in CASE_STATES for s in states):

@@ -2981,7 +2981,11 @@ scripts `send.js` only for the delete dialog). In one column, at most 960 px wid
   the muted words «необязательно — без фото пост уйдёт в Facebook, LinkedIn и X; Instagram —
   только с фото». A pick or a drop runs `MFAuthor.uploadFile("my-photos", csrf, file)`, then
   `POST /create/<id>/photo`, then a reload. While this runs, the status line reads «Загрузка
-  фото…». The refusals and the several-files message are B′'s (§8.2).
+  фото…». The refusals and the several-files message are B′'s (§8.2). The reload would drop
+  anything typed and not yet saved, so the run first locks the topic box and the text boxes
+  (read-only) and waits for every pending autosave; the upload starts only after they were
+  accepted. A refused save ends the run with its error shown: no upload, no reload, the typed
+  text stays and the boxes are editable again.
 - **Topic cards** with a non-empty `case` gain a third row «кейс: <title>», small and muted. It
   is one line with an ellipsis, and the full title is in the DOM and in `title`, as the
   «Черновики» rows do it (`panel.css:507`, the probe's clamp rule `probe.js:110-130`). A card
@@ -2995,7 +2999,9 @@ scripts `send.js` only for the delete dialog). In one column, at most 960 px wid
 - **A card tap** posts `/topic` with `{topic, case}`. The card's `case` (`""` included) becomes
   the draft's case, and the case line updates without a reload. The page data (`data-create`,
   `views.py:1100-1104`) carries `cases` as id → title for that. Typing posts `{topic}` only and
-  leaves the case alone.
+  leaves the case alone. «убрать» joins the topic box's save queue: it is sent after every save
+  already started and before any later one, so an accepted removal stays final whatever order
+  the replies come in.
 
 **Review page:** the text-only action block of §19.6, and cards without the crop box.
 
@@ -3237,6 +3243,9 @@ The critic also checks that:
 - For a draft with a photo, D′ and C keep:
   - the crops, ratios, frame, quote, styles, focus, `seen`, the package with images, publish,
     retry, the queue, the offered rule, delete and status;
+  - the photo styles and the voice never read `cases.json`: an unreadable file blocks only
+    «Предложить темы», «Развернуть» and «Перегенерировать», before any reservation, while the
+    styles keep their own checks and the same budget guard (`Service.availability`);
   - `tests/test_author_send.py` and `tests/test_author_images.py`, unedited.
 - The visual check's existing states and their defining text. The probe changes only D43's
   column comparison (`probe.js:908-911`).

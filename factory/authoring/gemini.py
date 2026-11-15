@@ -326,7 +326,11 @@ class Service:
             return budget.NO_KEY_IMAGE if op == "highlight" else budget.NO_KEY
         try:
             limit = budget.cap(env)
-            amount = budget.button(op, self.clock(), self.cases() if cases is None else cases)
+            if cases is None:
+                # only the text operations carry cases (§19.10): highlight and voice never
+                # read the file, so a broken cases.json cannot block them
+                cases = self.cases() if op in ("topics", "expand", "regenerate") else ()
+            amount = budget.button(op, self.clock(), cases)
             if self.ledger.month_total() + amount > limit:
                 return self.ledger.refusal(amount, limit, op=op)
         except Refusal as exc:
