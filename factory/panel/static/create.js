@@ -8,6 +8,7 @@
   const all = (selector, inRoot = root) => Array.from(inRoot.querySelectorAll(selector));
   let busy = false, recording = false, disposed = false;
   let navigate = url => window.location.assign(url);
+  let reload = () => window.location.reload();
   const report = (el, message) => { el.textContent = message; };
   function error(message, retry, op) {
     let el = $(".create-error") || $(".create-status");
@@ -47,13 +48,13 @@
     all("button, input", root).forEach(b => {
       if (b.matches("[data-op]")) {
         b.disabled = value || (recording && b.dataset.op !== "voice") || !!C.why[b.dataset.op] || (b.dataset.op === "expand" && !$("#topic").value.trim());
-      } else if (b.matches(".topic-card, [data-recent], #create-file")) { b.disabled = value; }
+      } else if (b.matches(".topic-card, [data-recent], #create-file, [data-nophoto], #attach-file, [data-case-remove]")) { b.disabled = value; }
     });
     root.setAttribute("aria-busy", String(value));
     if (C.draft) { goRow(); }   // the start page has no draft (D is not initialised there)
     const hint = $(".topic-hint");
     if (hint) { hint.hidden = !!$("#topic").value.trim(); }
-    const drop = $(".create-drop");
+    const drop = $(".create-drop") || $(".create-attach");
     if (drop) { drop.classList.toggle("busy", value); }
   }
   async function newDraft(folder, photo) {
@@ -72,7 +73,18 @@
     } catch (err) { error(err.message); }
     finally { setBusy(false); }
   }
-  window.MFCreate = {drop, navigate: fn => { navigate = fn; }};
+  window.MFCreate = {drop, navigate: fn => { navigate = fn; }, reload: fn => { reload = fn; }};
+  // One file on «Перетащите»/«Выбрать» (B′) or on «Добавить фото» (§19.7); the same refusals.
+  function zoneFiles(zone, input, take) {
+    window.addEventListener("dragover", e => e.preventDefault());
+    window.addEventListener("drop", e => e.preventDefault());
+    zone.addEventListener("dragover", e => { e.preventDefault(); if (!busy) { zone.classList.add("dragover"); } });
+    zone.addEventListener("dragleave", () => zone.classList.remove("dragover"));
+    zone.addEventListener("drop", e => {
+      e.preventDefault(); zone.classList.remove("dragover"); take(Array.from(e.dataTransfer.files));
+    });
+    input.addEventListener("change", () => { if (input.files.length) { take(Array.from(input.files)); } input.value = ""; });
+  }
   if (!C.draft) {
     const zone = $(".create-drop"), file = $("#create-file"), hint = $(".drop-hint");
     const originalHint = hint.innerHTML;
@@ -94,6 +106,17 @@
       try { await newDraft(b.dataset.folder, b.dataset.recent); } catch (err) { error(err.message); }
       finally { setBusy(false); }
     }));
+    // «Пост без фото» (§19.7): a draft without a photo; its topics come from the themes and cases
+    const bare = $("[data-nophoto]");
+    if (bare) {
+      bare.addEventListener("click", async () => {
+        if (busy) { return; }
+        setBusy(true); report($(".create-status"), T.drafting);
+        try { const result = await post("/create/new", {}); navigate(result.url); }
+        catch (err) { error(err.message); }
+        finally { setBusy(false); }
+      });
+    }
     return;
   }
   let activeError = C.draft.error && C.draft.error.op;
@@ -102,11 +125,11 @@
   const pending = new Set();
   const savers = new Map();
   function resize(el) { el.style.height = "auto"; el.style.height = el.scrollHeight + 2 + "px"; }
-  function saver(el, path, payload, status, after) {
+  function saver(el, path, payload, status, after, dirty) {
     let timer, serial = Promise.resolve();
     async function flush() {
       clearTimeout(timer); timer = null;
-      if (el.value === el.dataset.saved) { return serial; }
+      if (el.value === el.dataset.saved && !(dirty && dirty())) { return serial; }
       const value = el.value;
       report(status, T.saving);
       serial = serial.catch(() => {}).then(async () => {
@@ -129,7 +152,31 @@
     resize(el);
     return flush;
   }
-  const saveTopic = saver(topic, "/topic", value => ({topic: value}), $(".topic-save"));
+  // A card tap sends its case with the topic ("" included); typing sends the topic alone (§19.4).
+  let tappedCase = null;
+  const caseLine = $(".case-line");
+  function showCase() {
+    const cid = D.case || "";
+    caseLine.hidden = !cid;
+    caseLine.classList.toggle("k-bad", !!cid && C.caseGone);
+    $(".case-words", caseLine).textContent = !cid ? "" : C.caseGone ? T.case_gone :
+      T.case_line.replace("{title}", C.cases[cid]);
+  }
+  function caseFixed() {
+    // D39: once the dangling case is gone from the draft, the three text calls are allowed again
+    if (!C.caseGone) { return; }
+    C.caseGone = false;
+    ["topics", "expand", "regenerate"].forEach(op => {
+      if (C.why[op] === T.case_gone) { delete C.why[op]; }
+      all('[data-op="' + op + '"]').forEach(b => { if (b.title === T.case_gone) { b.removeAttribute("title"); } });
+    });
+  }
+  C.caseGone = !!C.case_gone; D.case = D.case || "";
+  const saveTopic = saver(topic, "/topic", value => tappedCase === null ? {topic: value} : {topic: value, case: tappedCase},
+    $(".topic-save"), result => {
+      tappedCase = null;
+      if (result.case !== D.case) { D.case = result.case; caseFixed(); showCase(); setBusy(busy); }
+    }, () => tappedCase !== null);
   topic.addEventListener("input", () => {
     const count = $(".topic-count"); count.hidden = topic.value.length < 1800;
     count.textContent = topic.value.length + "/2000"; markChosen(); setBusy(busy);
@@ -156,19 +203,36 @@
   function bindTopic(b) {
     b.addEventListener("click", async () => {
       topic.value = b.dataset.topic; resize(topic); markChosen(); setBusy(busy); revealExpand();
-      try { await saveTopic(); } catch (_) { /* the saver keeps the text and reason */ }
+      tappedCase = b.dataset.case || "";
+      // the saver keeps the text and the reason; a refused case is not sent again with typing
+      try { await saveTopic(); } catch (_) { tappedCase = null; }
     });
   }
+  $("[data-case-remove]", caseLine).addEventListener("click", async () => {
+    if (busy) { return; }
+    const status = $(".topic-save");
+    try {
+      const result = await post(base + "/topic", {case: ""});
+      D.case = result.case; caseFixed(); showCase(); setBusy(busy);
+    } catch (err) { report(status, err.message); status.classList.add("k-bad"); }
+  });
   function renderTopics(topics) {
     D.topics = topics;
     const container = $(".topic-cards"); container.replaceChildren();
     topics.forEach(item => {
       const b = document.createElement("button"); b.type = "button"; b.className = "topic-card";
       b.dataset.topic = item.title + " — " + item.angle;
+      b.dataset.case = item.case || "";
       [["strong", item.title], ["span", item.angle], ["span", ""]].forEach(([tag, text], i) => {
         const span = document.createElement(tag); span.textContent = text;
         if (i === 2) { span.className = "chosen"; } b.appendChild(span);
       });
+      if (item.case) {   // «кейс: <title>», one line; the whole title in `title` (§19.7)
+        const row = document.createElement("span"); row.className = "topic-case small muted";
+        if (C.cases[item.case]) { row.textContent = T.case_card.replace("{title}", C.cases[item.case]); row.title = row.textContent; }
+        else { row.textContent = T.case_card_gone; row.title = row.textContent; }
+        b.appendChild(row);
+      }
       container.appendChild(b); bindTopic(b);
     });
     $("[data-op=topics]").textContent = (topics.length ? T.more_topics : T.topics) + " · " + C.bounds.topics;
@@ -345,6 +409,23 @@
   window.MFCreate.ai = ai;
   window.MFCreate.flush = async () => { await Promise.all(Array.from(savers.values()).map(flush => flush())); await Promise.all(pending); };
   window.MFCreate.stopVoice = stopVoice;
-  if (D.topics_auto === "pending") { ai("topics", {auto: true}); }
+  // «Добавить фото» (§19.7): upload into «Мои фото», attach once, then reload with the photo
+  const attach = $(".create-attach");
+  if (attach) {
+    zoneFiles(attach, $("#attach-file"), async files => {
+      if (busy) { return; }
+      if (files.length !== 1) { error(T.many); return; }
+      const status = $(".attach-status");
+      setBusy(true); report(status, T.attaching);
+      try {
+        const p = await window.MFAuthor.uploadFile("my-photos", C.csrf, files[0]);
+        await post(base + "/photo", {folder: "my-photos", photo: p.id});
+        reload();
+      } catch (err) { report(status, ""); error(err.message); }
+      finally { setBusy(false); }
+    });
+  }
+  // a dangling case refuses before any spend: the automatic request waits for «убрать»
+  if (D.topics_auto === "pending" && !C.caseGone) { ai("topics", {auto: true}); }
   setBusy(busy);
 })();

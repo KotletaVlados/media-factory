@@ -29,6 +29,9 @@ STATUSES = ("published", "failed", "unknown", "interrupted")
 MAX_ATTEMPTS = 20
 MAX_LINE = 500
 SENT = "черновик уже отправлен"
+CASE_RE = re.compile(r"c-[0-9a-f]{8}\Z")             # authoring.md §19.3
+HAS_PHOTO = "у черновика уже есть фото"
+PHOTO_ONLY = ("focus", "look", "style_rev", "who", "highlight_error")   # §19.3: need a photo
 
 # Slice C (authoring.md §18.2): the base, each network's look, the quotes and the highlight.
 STYLES = ("blur", "glow", "outline")
@@ -211,10 +214,16 @@ def drop_changed(folder, before, after, networks):
 def validate(data):
     if not isinstance(data, dict) or data.get("schema") != 1 or data.get("state") not in STATES:
         raise Refusal("неверный черновик")
-    if not valid_id(data.get("id")) or not isinstance(data.get("folder"), str):
+    if not valid_id(data.get("id")):
         raise Refusal("неверный черновик")
-    if (not photos.fstock.NAME_RE.fullmatch(data["folder"]) or
+    if data.get("folder") is None and data.get("photo") is None and "folder" in data and "photo" in data:
+        # §19.3: a draft without a photo; the photo's own fields need one
+        if data.get("base", "orig") != "orig" or any(data.get(k) is not None for k in PHOTO_ONLY):
+            raise Refusal("неверный черновик")
+    elif (not isinstance(data.get("folder"), str) or not photos.fstock.NAME_RE.fullmatch(data["folder"]) or
             not isinstance(data.get("photo"), str) or not photos.ID_RE.fullmatch(data["photo"])):
+        raise Refusal("неверный черновик")
+    if "case" in data and (not isinstance(data["case"], str) or not CASE_RE.fullmatch(data["case"])):
         raise Refusal("неверный черновик")
     if data.get("topics_auto") not in ("pending", "done", "manual"):
         raise Refusal("неверный черновик")
@@ -227,6 +236,9 @@ def validate(data):
             raise Refusal("неверный черновик")
         text(item.get("title"), 1000, "название темы")
         text(item.get("angle"), 1000, "ракурс темы")
+        if "case" in item and (not isinstance(item["case"], str) or
+                               (item["case"] and not CASE_RE.fullmatch(item["case"]))):
+            raise Refusal("неверный черновик")
     variants = data.get("variants")
     if not isinstance(variants, dict) or any(n not in LANGS for n in variants):
         raise Refusal("неверный черновик")
@@ -294,7 +306,9 @@ class Store:
         except (OSError, ValueError):
             raise Refusal("черновик не найден", 404) from None
 
-    def create(self, stock, folder, photo, key):
+    @staticmethod
+    def check_photo(stock, folder, photo):
+        """The photo is indexed in that photo-lane folder, else 404 (B′; the attach of §19.4)."""
         if (not isinstance(folder, str) or not isinstance(photo, str) or
                 not photos.ID_RE.fullmatch(photo)):
             raise Refusal("фото не найдено", 404)
@@ -302,6 +316,16 @@ class Store:
         indexed = photos.read_index(os.path.join(real, photos.PHOTOS))
         if not any(p["id"] == photo for p in indexed):
             raise Refusal("фото не найдено", 404)
+
+    def create(self, stock, folder, photo, key, case=None):
+        """A draft of a photo, or with `folder` and `photo` both None a draft without one
+        (§19.3), id `<date>-post-<4 hex>`. `case` is stored as given: the server has checked
+        that it is a stored case."""
+        if folder is not None or photo is not None:
+            self.check_photo(stock, folder, photo)
+        if case is not None and (not isinstance(case, str) or not CASE_RE.fullmatch(case)):
+            raise Refusal("кейс не найден", 404)
+        label = folder if folder is not None else "post"
         directory(self.content, True)
         directory(self.root, True)
         with lock(os.path.join(self.root, ".create.lock")):
@@ -311,7 +335,7 @@ class Store:
             # Build under a dot-name so concurrent lists never see a half-created draft.
             # os.mkdir still claims the id, under the cross-process creation lock.
             for _ in range(100):
-                did = f"{date}-{folder}-{secrets.token_hex(2)}"
+                did = f"{date}-{label}-{secrets.token_hex(2)}"
                 if not valid_id(did):
                     raise Refusal("слишком длинное имя папки")
                 target = os.path.join(self.root, did)
@@ -326,12 +350,28 @@ class Store:
                 data = {"schema": 1, "id": did, "created": ts, "updated": ts,
                         "folder": folder, "photo": photo, "topics_auto": "pending" if key else "manual",
                         "topics": [], "topic": "", "variants": {}, "error": None, "state": "draft"}
+                if case is not None:
+                    data["case"] = case
                 atomic(os.path.join(prepared, "draft.json"), validate(data))
                 os.rename(prepared, target)
             finally:
                 if os.path.isdir(prepared):
                     shutil.rmtree(prepared)
             return data
+
+    def attach(self, stock, did, folder, photo):
+        """POST /create/<id>/photo (§19.4): attach a photo once to a draft without one. Under
+        `.lock`: a sent draft 409, a draft with a photo 409, a photo not indexed 404. The id,
+        topic, case and texts stay."""
+        with self.locked(did):
+            data = self.load(did)
+            if data["state"] != "draft":
+                raise Refusal(SENT)
+            if data["photo"] is not None:
+                raise Refusal(HAS_PHOTO)
+            self.check_photo(stock, folder, photo)
+            data.update(folder=folder, photo=photo)
+            return self.save(did, data)
 
     def locked(self, did):
         """The draft's short `.lock` (§7.2). flock belongs to the open file, so a holder

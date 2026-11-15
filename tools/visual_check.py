@@ -59,6 +59,16 @@ the same tab, and only the last stage writes the JSON (`review-template`, `revie
 `review-base`). Afterwards the stored crops, style files, draft errors and the static fixtures'
 unchanged files are checked here.
 
+The case states (authoring.md §19.9) run on three «cases» fixtures (static drafts with and without
+a photo or a case; one without cases; one with a text-only draft published to three networks) and
+«cases-live». Their probe checks run with `probe_case` over the real browser clock. Three flows are
+driven by the browser itself after the pool, one panel per width: `draft-attach` picks a generated
+JPEG on «Добавить фото» (DevTools DOM.setFileInputFiles) and needs three /files/photos posts, one
+/photo, one reload and the photo in place of the attach block; `start-nophoto` clicks «Пост без
+фото» and `start-fromcase` clicks «Пост по кейсу», each must land on a new draft whose automatic
+topics request reached FakeGemini once (with the case's record for the second). Afterwards the
+static fixtures must be unchanged.
+
 It also computes the WCAG contrast of every text colour pair from panel.css. It prints the
 snapshot build time (`snapshot_ms`, budget 1000 ms) and exits 1 on any finding.
 
@@ -198,7 +208,8 @@ class Chrome:
             page.screenshot(png)
             if "probe_create=create-voice" in url:
                 result["author_voice"] = page.evaluate("window.MFProbeVoiceFinish()", await_promise=True)
-            if "probe_send=review-confirm" in url or "probe_send=review-delete" in url:
+            if any(k in url for k in ("probe_send=review-confirm", "probe_send=review-delete",
+                                      "probe_case=cases-delete", "probe_case=review-text-only-confirm")):
                 result["keyboard"] = page.keyboard_in_dialog()
             full_h = min(max(h, int(result.get("height", h))), FULL_MAX)
             if full_png and full_h > h:
@@ -378,9 +389,11 @@ class Live:
     def click(self, selector: str) -> None:
         """A real mouse click at the centre of the element (a native form submit follows, with
         the Origin and cookies Chrome itself sends)."""
-        # a tile that decodes after the click point is measured moves the target: wait for the images
-        self.wait_true("Array.prototype.every.call(document.images, function (i) { return i.complete; })",
-                       30, "the images")
+        # a stylesheet or a tile that arrives after the click point is measured moves the
+        # target (measured unstyled at readyState "interactive"): wait for the load and the images
+        self.wait_true("document.readyState === 'complete' && "
+                       "Array.prototype.every.call(document.images, function (i) { return i.complete; })",
+                       30, "the page load and the images")
         box = self.evaluate("(function () { var e = document.querySelector(%s); if (!e) { return null; }"
                             " e.scrollIntoView({block: 'center'}); var r = e.getBoundingClientRect();"
                             " return [r.left + r.width / 2, r.top + r.height / 2]; })()" % json.dumps(selector))
@@ -556,10 +569,137 @@ def image_problems(state, result) -> list:
     return out
 
 
+CASE_STATES = ("cases-page", "cases-empty", "cases-saved", "cases-refused", "cases-edit", "cases-delete",
+               "create-start-cases", "draft-nophoto", "draft-case", "draft-fromcase", "draft-case-gone",
+               "draft-photo-right", "review-text-only", "review-text-only-confirm", "review-text-only-published")
+CASE_DRAFT_STATES = ("draft-nophoto", "draft-case", "draft-fromcase", "draft-case-gone", "draft-photo-right")
+CASE_FLOWS = ("draft-attach", "start-nophoto", "start-fromcase")
+
+
+def case_problems(state, result) -> list:
+    """The case probe's own problems, the keyboard in its dialogs, and for the draft states
+    B′'s layout checks of the draft page (§19.9)."""
+    c = result.get("cases") or {}
+    out = list(c.get("problems", [])) if c else ["no case probe result"]
+    if state in ("cases-delete", "review-text-only-confirm"):
+        k = result.get("keyboard") or {}
+        tabs = k.get("tabs") or []
+        if (any(t.startswith("page") for t in tabs) or tabs.count("dialog") < 2 or k.get("closed") is not True
+                or k.get("submits") != 0):
+            out.append(f"keyboard in the dialog: {k} (Tab must stay inside, Escape must close, nothing posted)")
+    if state in CASE_DRAFT_STATES:
+        out.extend(author_problems(state, result))
+    return out
+
+
+def case_flow_problems(chrome, fx, servers, fake, widths, out) -> list:
+    """The three browser-driven flows of §19.9 at each width (see the module docstring)."""
+    from factory.authoring import cases as fcases, drafts
+    problems = []
+    store = drafts.Store(fx.paths.content, fx.clock, fx.machine_tz)
+    record_a = fcases.record(fcases.find(fcases.listed(fx.paths.content), panel_fixture.CASE_IDS[0]))
+    count = ("(() => { const calls = JSON.parse(sessionStorage.getItem('mfcalls') || '[]');"
+             " const f = window.fetch; window.fetch = (u, o) => { calls.push([String(u).split('?')[0],"
+             " o && typeof o.body === 'string' ? o.body : null]); sessionStorage.setItem('mfcalls', JSON.stringify(calls));"
+             " return f(u, o); }; return true; })()")
+    calls = "JSON.parse(sessionStorage.getItem('mfcalls') || '[]')"
+    new_draft = r"/^\/create\/\d{4}-\d\d-\d\d-post-[0-9a-f]{4}$/.test(location.pathname)"
+    cards = ("document.querySelectorAll('.topic-card').length >= 3 && "
+             "document.querySelector('[data-create]').getAttribute('aria-busy') === 'false'")
+
+    def topics_requests(did):
+        return [r for r in fake.requests if r.fields.get("draft") == did and r.fields.get("op") == "topics"]
+    for w in widths:
+        h = WIDTHS.get(w, 900)
+        # draft-attach: «Добавить фото» → three uploads, /photo, one reload, the photo in its place
+        did = fx.case_ids[f"attach-{w}"]
+        base = f"http://127.0.0.1:{servers[f'cases-live-attach-{w}'].port}"
+        name = f"attach-{w}.jpg"
+        path = os.path.join(out, "t", name)
+        with open(path, "wb") as fh:
+            fh.write(panel_fixture.make_photo(640, 480, 9000 + w))
+        try:
+            with Live(chrome, f"{base}/create/{did}", w, h) as page:
+                page.wait_true("document.getElementById('attach-file') && window.MFCreate", 30, "the attach block")
+                page.evaluate("sessionStorage.clear(); true")
+                page.evaluate(count)
+                page.evaluate("window.MFCreate.reload(() => { window.mfReloads = (window.mfReloads || 0) + 1; }); true")
+                before = page.evaluate("document.querySelector('.create-photo').getBoundingClientRect().height")
+                root = page.send("DOM.getDocument", {"depth": 0})["root"]["nodeId"]
+                node = page.send("DOM.querySelector", {"nodeId": root, "selector": "#attach-file"})["nodeId"]
+                page.send("DOM.setFileInputFiles", {"files": [path], "nodeId": node})
+                page.wait_true("window.mfReloads === 1", 30, "the reload after the attach")
+                sent = page.evaluate(calls)
+                uploads = [c for c in sent if c[0] == "/files/photos"]
+                attach = [c for c in sent if c[0] == f"/create/{did}/photo"]
+                if (len(uploads), len(attach)) != (3, 1):
+                    problems.append(f"draft-attach-{w}: {len(uploads)} uploads and {len(attach)} /photo posts, expected 3 and 1: {sent}")
+                page.send("Page.reload")
+                page.wait_true("!document.getElementById('attach') && document.querySelector('.create-photo img') && "
+                               "document.querySelector('.create-photo img').complete && "
+                               "document.querySelector('.create-photo img').naturalWidth > 0", 30, "the photo in place")
+                after = page.evaluate("document.querySelector('.create-photo').getBoundingClientRect().height")
+                if abs(after - before) > 1:
+                    problems.append(f"draft-attach-{w}: the photo box is {after:.0f} px tall, the attach block was {before:.0f}")
+                page.screenshot(os.path.join(out, f"draft-attach-{w}.png"))
+            d = store.load(did)
+            rows = fphotos.read_index(os.path.join(fx.paths.stock, "my-photos", fphotos.PHOTOS))
+            row = next((r for r in rows if r["name"] == name), None)
+            if row is None or d["photo"] != row["id"] or d["folder"] != "my-photos" or d["id"] != did:
+                problems.append(f"draft-attach-{w}: the draft holds {d['folder']}/{d['photo']}, the index row {row}")
+        except RuntimeError as exc:
+            problems.append(f"draft-attach-{w}: {exc}")
+        # start-nophoto: «Пост без фото» → /create/new with {} → the new draft and its one topics request
+        base = f"http://127.0.0.1:{servers[f'cases-live-nophoto-{w}'].port}"
+        try:
+            with Live(chrome, f"{base}/create", w, h) as page:
+                page.wait_true("document.querySelector('[data-nophoto]') && window.MFCreate", 30, "«Пост без фото»")
+                page.evaluate("sessionStorage.clear(); true")
+                page.evaluate(count)
+                page.click("[data-nophoto]")
+                page.wait_true(new_draft, 30, "the new draft")
+                page.wait_true(cards, 30, "the automatic topics")
+                sent = [c for c in page.evaluate(calls) if c[0] == "/create/new"]
+                did = page.evaluate("location.pathname").split("/")[-1]
+                if sent != [["/create/new", "{}"]]:
+                    problems.append(f"start-nophoto-{w}: /create/new posts {sent}, expected one with {{}}")
+                d = store.load(did)
+                if (d["folder"], d["photo"]) != (None, None) or len(topics_requests(did)) != 1:
+                    problems.append(f"start-nophoto-{w}: draft {d['folder']}/{d['photo']}, "
+                                    f"{len(topics_requests(did))} topics requests")
+                page.screenshot(os.path.join(out, f"start-nophoto-{w}.png"))
+        except RuntimeError as exc:
+            problems.append(f"start-nophoto-{w}: {exc}")
+        # start-fromcase: «Пост по кейсу» (a native form submit) → 303 → the draft, the case's record sent
+        base = f"http://127.0.0.1:{servers[f'cases-live-fromcase-{w}'].port}"
+        drafts_before = {s["id"] for s in store.summaries()}
+        try:
+            with Live(chrome, f"{base}/create/cases", w, h) as page:
+                page.wait_true("document.querySelector('.case-actions .btn.green')", 30, "«Пост по кейсу»")
+                page.click(".case-actions .btn.green")
+                page.wait_true(new_draft, 30, "the new draft")
+                page.wait_true(cards, 30, "the angles on the case")
+                line = page.evaluate("document.querySelector('.case-line .case-words').textContent")
+                did = page.evaluate("location.pathname").split("/")[-1]
+                if line != "Кейс: " + panel_fixture.CASES[0]["title"]:
+                    problems.append(f"start-fromcase-{w}: the case line reads «{line}»")
+                page.screenshot(os.path.join(out, f"start-fromcase-{w}.png"))
+            new = {s["id"] for s in store.summaries()} - drafts_before
+            reqs = topics_requests(did)
+            prompt = json.loads(reqs[0].body)["input"][0]["text"] if reqs else ""
+            if new != {did} or len(reqs) != 1 or record_a not in prompt or store.load(did).get("case") != panel_fixture.CASE_IDS[0]:
+                problems.append(f"start-fromcase-{w}: new drafts {new}, {len(reqs)} topics requests, record sent: {record_a in prompt}")
+        except RuntimeError as exc:
+            problems.append(f"start-fromcase-{w}: {exc}")
+    return problems
+
+
 def content_hashes(fx) -> dict:
     out = {}
     for dirpath, _, files in os.walk(fx.paths.content):
         for f in files:
+            if f.endswith(".lock"):   # empty flock files, not data
+                continue
             path = os.path.join(dirpath, f)
             with open(path, "rb") as fh:
                 out[os.path.relpath(path, fx.paths.content)] = hashlib.sha256(fh.read()).hexdigest()
@@ -962,6 +1102,12 @@ def main(argv=None) -> int:
     images_budget = panel_fixture.build_images(os.path.join(fixtures_root, "images-budget"), ledger_usd="9.99")
     images_nokey = panel_fixture.build_images(os.path.join(fixtures_root, "images-nokey"), key=False)
     images_live = panel_fixture.build_images(os.path.join(fixtures_root, "images-live"), live_widths=widths)
+    cases_fx = panel_fixture.build_cases(os.path.join(fixtures_root, "cases"))
+    cases_empty = panel_fixture.build_cases(os.path.join(fixtures_root, "cases-empty"), cases=False)
+    cases_sent = panel_fixture.build_cases(os.path.join(fixtures_root, "cases-sent"), sent=True)
+    cases_live = panel_fixture.build_cases(os.path.join(fixtures_root, "cases-live"), live_widths=widths)
+    static_cases = {name: (fx, content_hashes(fx)) for name, fx in
+                    (("cases", cases_fx), ("cases-empty", cases_empty), ("cases-sent", cases_sent))}
     static_images = {name: (fx, content_hashes(fx)) for name, fx in
                      (("images", images), ("images-budget", images_budget), ("images-nokey", images_nokey))}
     fake_img = panel_fixture.FakeGemini()
@@ -998,6 +1144,13 @@ def main(argv=None) -> int:
     for w in widths:   # one panel per spending state and width: a held call takes no other's slot
         for state in IMAGE_LIVE_STATE:
             servers[f"images-live-{state}-{w}"] = start(images_live, fake_img)
+    fake_cases = panel_fixture.FakeGemini()
+    fake_cases_live = panel_fixture.FakeGemini()
+    for name, fx in (("cases", cases_fx), ("cases-empty", cases_empty), ("cases-sent", cases_sent)):
+        servers[name] = start(fx, fake_cases)
+    for w in widths:   # one panel per flow and width: each creates or changes its own draft
+        for kind in ("attach", "nophoto", "fromcase"):
+            servers[f"cases-live-{kind}-{w}"] = start(cases_live, fake_cases_live)
     t0 = time.perf_counter()
     snap = servers["data"].panel.holder.get()
     snapshot_ms = snap.build_ms
@@ -1123,6 +1276,30 @@ def main(argv=None) -> int:
     states += [(name, url(fixture, path)) for name, (fixture, path) in image_paths.items()]
     states += [(name, "") for name in IMAGE_LIVE_STATE]
     probe_urls["rule-refused"] = "file://" + refused_probe
+    # §19.9: the case states; the 409 of an 81-character title is a saved page, as rules-409
+    cids = panel_fixture.CASE_IDS
+    case_refused = os.path.join(pages, "cases-refused.html")
+    status = post_page(servers["cases-empty"], "/create/cases/save?probe=1",
+                       dict(panel_fixture.CASES[1], title="Т" * 81), case_refused)
+    print(f"cases-refused: POST /create/cases/save answered {status}")
+    if status != 409:
+        setup_problems.append(f"cases-refused answered {status}, expected 409")
+    ci = cases_fx.case_ids
+    case_paths = {
+        "cases-page": ("cases", "/create/cases"), "cases-empty": ("cases-empty", "/create/cases"),
+        "cases-saved": ("cases", f"/create/cases?saved={cids[1]}#case-{cids[1]}"),
+        "cases-edit": ("cases", f"/create/cases?edit={cids[1]}#case-{cids[1]}"),
+        "cases-delete": ("cases", "/create/cases"), "create-start-cases": ("cases", "/create"),
+        "draft-nophoto": ("cases", f"/create/{ci['nophoto']}"), "draft-case": ("cases", f"/create/{ci['photocase']}"),
+        "draft-fromcase": ("cases", f"/create/{ci['fromcase']}"), "draft-case-gone": ("cases", f"/create/{ci['gone']}"),
+        "draft-photo-right": ("cases", f"/create/{ci['topics']}"),
+        "review-text-only": ("cases", f"/create/{ci['textonly']}/review"),
+        "review-text-only-confirm": ("cases", f"/create/{ci['textonly']}/review"),
+        "review-text-only-published": ("cases-sent", f"/create/{cases_sent.case_ids['textonly-published']}/review"),
+    }
+    states += [(name, url(fixture, path)) for name, (fixture, path) in case_paths.items()]
+    states.append(("cases-refused", "file://" + case_refused))
+    states += [(name, "") for name in CASE_FLOWS]   # driven after the pool, see case_flow_problems
     if args.only:
         states = [s for s in states if args.only in s[0]]
 
@@ -1133,6 +1310,18 @@ def main(argv=None) -> int:
 
     def one(state, address, w):
         h = WIDTHS.get(w, 900)
+        if state in CASE_STATES:   # real time (§19.9)
+            parts = urllib.parse.urlsplit(address)
+            extra = "probe_case=" + state + ("&probe_create=" + state if state in CASE_DRAFT_STATES else "")
+            if not parts.query or "probe=1" not in parts.query:
+                extra = ("" if address.startswith("file:") else "probe=1&") + extra
+            query = parts.query + ("&" if parts.query else "") + extra
+            address = urllib.parse.urlunsplit(parts._replace(query=query))
+            result = chrome.live(address, w, h, os.path.join(out, f"{state}-{w}.png"),
+                                 os.path.join(out, f"{state}-{w}-full.png"))
+            with open(os.path.join(out, f"{state}-{w}-probe.json"), "w", encoding="utf-8") as fh:
+                json.dump(result, fh, ensure_ascii=False, indent=2)
+            return state, w, result, min(max(h, int(result.get("height", h))), FULL_MAX)
         if state in SEND_STATES:   # real time: canvas work, dialogs, held requests (§17.6)
             if not address:
                 did = send_live.send_ids[f"{state[len('review-'):]}-{w}"]
@@ -1198,7 +1387,7 @@ def main(argv=None) -> int:
             chrome.screenshot(address, os.path.join(out, f"{state}-{w}-full.png"), w, full_h)
         return state, w, result, full_h
 
-    jobs = [(s, a, w) for s, a in states for w in widths if not s.startswith("submit-")]
+    jobs = [(s, a, w) for s, a in states for w in widths if not s.startswith("submit-") and s not in CASE_FLOWS]
     with concurrent.futures.ThreadPoolExecutor(max_workers=args.jobs) as pool:
         for state, w, result, full_h in pool.map(lambda j: one(*j), jobs):
             heights[(state, w)] = full_h
@@ -1210,7 +1399,11 @@ def main(argv=None) -> int:
                         {"kind": "photo-copies", "el": "", "text": "", "detail": problem})
                 if w == widths[0]:
                     print(f"photos: {state}: {json.dumps(result.get('photos'), ensure_ascii=False)}")
-            if state in SEND_STATES:
+            if state in CASE_STATES:
+                for problem in case_problems(state, result):
+                    findings.setdefault(f"{state}-{w}", []).append(
+                        {"kind": "cases", "el": "", "text": "", "detail": problem})
+            elif state in SEND_STATES:
                 for problem in send_problems(state, result):
                     findings.setdefault(f"{state}-{w}", []).append(
                         {"kind": "send", "el": "", "text": "", "detail": problem})
@@ -1218,7 +1411,7 @@ def main(argv=None) -> int:
                 for problem in image_problems(state, result):
                     findings.setdefault(f"{state}-{w}", []).append(
                         {"kind": "images", "el": "", "text": "", "detail": problem})
-            elif state in author_paths or state.startswith("create-"):
+            elif state in author_paths or (state.startswith("create-") and state not in CASE_STATES):
                 for problem in author_problems(state, result):
                     findings.setdefault(f"{state}-{w}", []).append(
                         {"kind": "authoring", "el": "", "text": "", "detail": problem})
@@ -1296,6 +1489,18 @@ def main(argv=None) -> int:
                                    static_images if any(s in ran_images for s in image_paths) else {}):
             failed = True
             print(f"IMAGES: {problem}")
+    if any(s[0] in CASE_FLOWS for s in states):
+        for problem in case_flow_problems(chrome, cases_live, servers, fake_cases_live, widths, out):
+            failed = True
+            print(f"CASES FLOW: {problem}")
+    if any(s[0] in CASE_STATES for s in states):
+        for name, (sfx, before) in static_cases.items():
+            if content_hashes(sfx) != before:
+                failed = True
+                print(f"CASES: the {name} fixture changed during its GET-only states")
+        if fake_cases.requests:
+            failed = True
+            print(f"CASES: the static case states sent {len(fake_cases.requests)} Gemini requests, expected 0")
     send_hold.set()
     servers["send"].panel.sender.join(30)
     fake.release.set()

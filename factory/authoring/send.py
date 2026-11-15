@@ -65,6 +65,7 @@ HELD = "повторять нечего: {names} уже отмечены в жу
 UNKNOWN = "прошлая попытка закончилась неизвестно — проверьте аккаунт"
 RELOGIN = "войдите заново: python3 -m poster login linkedin"
 STYLE_FIRST = "сначала создайте этот стиль"
+NO_TARGETS = "Без фото отправить некуда: Instagram публикует только с картинкой — добавьте фото"
 QUOTE_EMPTY = "впишите цитату"
 
 
@@ -258,15 +259,18 @@ def review(draft: dict, targets: list, facts: Facts, crops: dict) -> Review:
             rv.general.append(f".env: {exc}")
     latest = planner.record_latest(facts.records)
     to_run = []
+    has_photo = draft.get("photo") is not None
+    if not targets:
+        rv.general.append(NO_TARGETS)
     for t in targets:
         variant = draft["variants"].get(t.network)
-        path = crops.get(t.network)
+        path = crops.get(t.network) if has_photo else None
         info = rules.sniff(path) if path else None
         card = Card(t, variant["text"] if variant else None, info)
         if variant:
             card.present = gemini.present(t.network, variant["text"])
         rv.cards.append(card)
-        if path is None:
+        if path is None and has_photo:   # §19.6: a draft without a photo expects no crop
             rv.missing.append(t.network)
         if settings is None:
             continue
@@ -298,7 +302,7 @@ def review(draft: dict, targets: list, facts: Facts, crops: dict) -> Review:
     for card in to_run:
         if card.target.network != "x":
             continue
-        est = xapi.estimate(card.text, True, settings)
+        est = xapi.estimate(card.text, has_photo, settings)
         after = facts.x_month + est
         card.x_line = S.SEND_X_LINE.format(est=f"{est:.3f}", month=month, after=f"{after:.3f}",
                                            cap=f"{settings.cap:.2f}")
@@ -483,6 +487,20 @@ class Sender:
     def networks(self) -> list:
         out = []
         for t in self.targets():
+            if t.network not in out:
+                out.append(t.network)
+        return out
+
+    def targets_for(self, draft: dict) -> list:
+        """§19.6 (D42): the draft's targets. With a photo, exactly `targets()`; without one,
+        every Instagram target is left out (Instagram publishes only with an image)."""
+        if draft.get("photo") is not None:
+            return self.targets()
+        return [t for t in self.targets() if t.network != "instagram"]
+
+    def networks_for(self, draft: dict) -> list:
+        out = []
+        for t in self.targets_for(draft):
             if t.network not in out:
                 out.append(t.network)
         return out
@@ -812,9 +830,11 @@ class Sender:
         (targets, crops)."""
         if draft["state"] != "draft":
             raise Refusal(drafts.SENT)
-        targets = self.targets()
-        crops = self.crops(draft["id"])
-        if any(t.network not in crops for t in targets):
+        targets = self.targets_for(draft)
+        if not targets:
+            raise Refusal(NO_TARGETS)
+        crops = self.crops(draft["id"]) if draft["photo"] is not None else {}
+        if draft["photo"] is not None and any(t.network not in crops for t in targets):
             raise Refusal(NOT_READY)
         if not isinstance(seen_value, str) or seen_value != seen(draft, targets, crops):
             raise Refusal(CHANGED)
@@ -841,29 +861,37 @@ class Sender:
         dot-file put in place with os.link, which refuses an existing name), then
         `poster.package.load`; a failure removes what this call wrote."""
         did = draft["id"]
-        media = _real_dir(os.path.join(folder, MEDIA), create=True)
-        final_media = os.path.join(media, did)
         final = os.path.join(folder, name)
-        if os.path.lexists(final_media) or os.path.lexists(final):
-            raise Refusal(DUPLICATE)
-        prepared = os.path.join(media, f".{did}-{secrets.token_hex(4)}")
-        os.mkdir(prepared, 0o700)
         variants = {}
-        try:
-            for t in targets:
-                n = t.network
-                with open(crops[n], "rb") as fh:
-                    _write_new(os.path.join(prepared, f"{n}.jpg"), fh.read())
-                variants[n] = {"text": draft["variants"][n]["text"],
-                               "image": f"{MEDIA}/{did}/{n}.jpg"}
-            os.rename(prepared, final_media)
-            prepared = None
-        finally:
-            if prepared:
-                shutil.rmtree(prepared, ignore_errors=True)
+        if draft["photo"] is None:   # §19.6: text-only variants, no media folder, no meta photo
+            if os.path.lexists(final):
+                raise Refusal(DUPLICATE)
+            final_media = None
+            variants = {t.network: {"text": draft["variants"][t.network]["text"]} for t in targets}
+        else:
+            media = _real_dir(os.path.join(folder, MEDIA), create=True)
+            final_media = os.path.join(media, did)
+            if os.path.lexists(final_media) or os.path.lexists(final):
+                raise Refusal(DUPLICATE)
+            prepared = os.path.join(media, f".{did}-{secrets.token_hex(4)}")
+            os.mkdir(prepared, 0o700)
+            try:
+                for t in targets:
+                    n = t.network
+                    with open(crops[n], "rb") as fh:
+                        _write_new(os.path.join(prepared, f"{n}.jpg"), fh.read())
+                    variants[n] = {"text": draft["variants"][n]["text"],
+                                   "image": f"{MEDIA}/{did}/{n}.jpg"}
+                os.rename(prepared, final_media)
+                prepared = None
+            finally:
+                if prepared:
+                    shutil.rmtree(prepared, ignore_errors=True)
         today = self.clock().astimezone(ZoneInfo(self.machine_tz)).date().isoformat()
-        doc = {"schema": 1, "id": did, "theme": draft["topic"], "variants": variants,
-               "meta": {"approved_by_operator": today, "source": "panel", "photo": draft["photo"]}}
+        meta = {"approved_by_operator": today, "source": "panel"}
+        if draft["photo"] is not None:
+            meta["photo"] = draft["photo"]
+        doc = {"schema": 1, "id": did, "theme": draft["topic"], "variants": variants, "meta": meta}
         tmp = os.path.join(folder, f".{name}.{secrets.token_hex(4)}")
         try:
             # the media directory is ours from the rename on: any failure before the package
@@ -877,13 +905,15 @@ class Sender:
             finally:
                 _unlink(tmp)
         except BaseException:
-            shutil.rmtree(final_media, ignore_errors=True)
+            if final_media:
+                shutil.rmtree(final_media, ignore_errors=True)
             raise
         try:
             poster_package.load(final, self.paths.library)
         except poster_package.PackageError as exc:
             _unlink(final)
-            shutil.rmtree(final_media, ignore_errors=True)
+            if final_media:
+                shutil.rmtree(final_media, ignore_errors=True)
             raise Refusal("пакет не прошёл проверку постера: "
                           + self.redact("; ".join(exc.problems[:3]))) from None
         return final, final_media
@@ -967,7 +997,8 @@ class Sender:
                     self.store.save(did, draft)
                 except BaseException:
                     _unlink(path)
-                    shutil.rmtree(media, ignore_errors=True)
+                    if media:
+                        shutil.rmtree(media, ignore_errors=True)
                     raise
             self._start(fd, did, path, ids)
             handed = True
@@ -1169,11 +1200,13 @@ class Sender:
         return [(name, snap.red(f.title or name)) for name, f in sorted(snap.inputs.stock.folders.items())
                 if f.lane == "photo" and not f.problems]
 
-    def rule_conflicts(self, folder: str) -> list:
+    def rule_conflicts(self, folder: str, networks=None) -> list:
         """(rule id, [target ids outside the review]) for every rule, active or draft, that
         reads `folder` and names a destination the review never showed (D24): the review and
         the package cover the fixed main-profile targets only. Reads the rules file itself,
-        not the snapshot, so a rule changed after the review is seen."""
+        not the snapshot, so a rule changed after the review is seen. With `networks` (the
+        package's), a rule target of another network is skipped: the planner never sends this
+        package there (§19.6, D45)."""
         try:
             ruleset = fruleset.load(self.paths.rules)
         except fruleset.RulesError:
@@ -1183,7 +1216,9 @@ class Sender:
         for rule in ruleset.rules:
             if rule.folder != folder:
                 continue
-            extra = [i for i in (config.parse_target(t).id for t in rule.targets) if i not in reviewed]
+            parsed = [config.parse_target(t) for t in rule.targets]
+            extra = [t.id for t in parsed if t.id not in reviewed
+                     and (networks is None or t.network in networks)]
             if extra:
                 out.append((rule.id, extra))
         return out
@@ -1204,7 +1239,7 @@ class Sender:
                 targets, crops = self._ready(draft, seen_value, self.facts(snap))
                 if folder not in titles:
                     raise Refusal("в эту папку ставить нельзя")
-                conflicts = self.rule_conflicts(folder)
+                conflicts = self.rule_conflicts(folder, [t.network for t in targets])
                 if conflicts:
                     raise Refusal(self.conflict_text(conflicts))
                 try:

@@ -477,7 +477,31 @@ dialog.day::backdrop { background: rgb(0 0 0 / .7); }
 
 /* ---------------------------------------------------------------- Создать */
 .main-create { overflow-wrap: anywhere; }
-.create-start, .create-profile { max-width: 960px; margin: 0 auto; }
+.create-start, .create-profile, .create-cases { max-width: 960px; margin: 0 auto; }
+/* «Кейсы» (§19.7): one column of records, then «Новый кейс» in the profile's grid */
+.create-cases > p { margin-bottom: 12px; }
+.case-list { display: flex; flex-direction: column; gap: 10px; margin-bottom: 24px; }
+.case { padding: 12px 16px; border: 1px solid var(--head); border-radius: 8px; background: var(--app);
+  display: flex; flex-direction: column; gap: 8px; }
+.main-create .case h3.case-title { font-size: 15px; margin: 0; overflow-wrap: anywhere; }
+.case-fields { display: flex; flex-direction: column; gap: 6px; margin: 0; }
+.case-pair { display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; }
+.case-pair dt { color: var(--muted); font-size: 12px; }
+.case-pair dd { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+/* from 600 px a label and its value share a line: three cases fit a desktop first screen */
+@media (min-width: 600px) {
+  .case-pair { grid-template-columns: 16em minmax(0, 1fr); gap: 0 12px; align-items: baseline; }
+  .case-pair dt { font-size: 13px; }
+}
+.case-form textarea[name="title"], .case-form textarea[name="tools"], .case-form textarea[name="when"] {
+  min-height: 2.6em; }
+.draft-links a { display: inline-flex; align-items: center; min-height: 24px; }
+.case-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.case-actions form { display: contents; }
+.case-actions .btn { min-height: 32px; }
+.case-buttons { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 16px; }
+.case-buttons .btn { min-height: 32px; }
+.case-empty { margin-bottom: 24px; }
 .main-create h2 { font-size: 16px; margin-bottom: 12px; }
 .main-create h3 { font-size: 14px; margin-bottom: 8px; }
 .main-create h2 .small { font-weight: 400; }
@@ -493,7 +517,7 @@ dialog.day::backdrop { background: rgb(0 0 0 / .7); }
 .create-drop.busy { opacity: .45; cursor: default; }
 .create-file:disabled { cursor: default; }
 .create-status { min-height: 24px; padding-top: 4px; }
-.profile-line { margin: 4px 0 20px; }
+.profile-line { margin: 4px 0 16px; }
 .profile-line a, .create-draft > p a { display: inline-flex; align-items: center; min-height: 24px; }
 .recent-photos { display: flex; flex-wrap: wrap; gap: 12px; }
 .recent-photo { width: 72px; height: 72px; padding: 0; background: var(--surface); border: 1px solid var(--head);
@@ -509,6 +533,23 @@ dialog.day::backdrop { background: rgb(0 0 0 / .7); }
 .create-columns > * { min-width: 0; }
 .create-photo { height: clamp(96px, 12vh, 280px); background: var(--surface); border-radius: 8px; }
 .create-photo img { width: 100%; height: 100%; object-fit: contain; }
+/* «Добавить фото» stands where the photo will (§19.7): at least the photo's height */
+/* «Добавить фото» stands where the photo will, at the photo's height: the button and the hint
+   share a row, so the hint never pushes the block taller than the photo box */
+.main-create label.create-attach { display: flex; position: relative; flex-flow: row wrap; align-items: center;
+  align-content: center; justify-content: center; gap: 4px 12px; margin: 0; padding: 6px 12px; text-align: left;
+  border: 2px dashed var(--muted); cursor: pointer; }
+.create-attach .btn { flex: none; }
+.create-attach .attach-hint { flex: 1 1 12em; max-width: 34em; min-width: 0; }
+.create-attach.dragover, .create-attach:focus-within { border-color: var(--green); }
+.create-attach.busy { opacity: .45; cursor: default; }
+.attach-status:empty { display: none; }
+.create-alt { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin: 8px 0 0; }
+.create-alt .btn { min-height: 32px; }
+.create-alt .create-status { flex: 1 1 auto; min-height: 0; padding: 0; }
+.create-alt .create-status:empty { display: none; }
+.draft-nophoto { display: flex; align-items: center; justify-content: center; width: 48px; height: 48px;
+  text-align: center; line-height: 1.2; background: var(--surface); border: 1px solid var(--head); border-radius: 4px; }
 .topic-cards { display: grid; gap: 8px; margin-bottom: 12px; }
 .topic-card { display: grid; gap: 4px; padding: 12px; width: 100%; text-align: left; background: var(--surface);
   align-content: start; align-items: start;
@@ -541,10 +582,12 @@ dialog.day::backdrop { background: rgb(0 0 0 / .7); }
 .create-error p { margin-bottom: 8px; }
 @media (min-width: 900px) { .recent-photo { width: 96px; height: 96px; } }
 @media (min-width: 1000px) {
-  /* photo and «Тема» on the left, «Тексты» on the right (design §8.3) */
+  /* «Тема» on the left; the photo (or «Добавить фото») above «Тексты» on the right (§19.7, D43):
+     the photo only illustrates the post. The DOM order stays photo, «Тема», «Тексты». */
   .create-columns { grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
-    grid-template-areas: "photo texts" "topic texts"; grid-template-rows: auto 1fr; align-items: start; }
+    grid-template-areas: "topic photo" "topic texts"; grid-template-rows: auto 1fr; align-items: start; }
   .create-photo { grid-area: photo; height: clamp(80px, 12vh, 180px); }
+  .main-create label.create-attach { height: clamp(80px, 12vh, 180px); }
   .create-topic { grid-area: topic; }
   .create-texts { grid-area: texts; scroll-margin-top: 200px; }   /* already on the first screen: no scroll */
   .topic-cards { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
@@ -581,6 +624,15 @@ dialog.day::backdrop { background: rgb(0 0 0 / .7); }
 .topic-card strong { grid-area: title; overflow-wrap: anywhere; }
 .topic-card > span:not(.chosen) { grid-area: angle; }
 .topic-card .chosen { grid-area: chosen; min-height: 0; }
+/* «кейс: <title>»: its own row under the angle, one line, the whole title in `title` (§19.7) */
+.topic-card:has(.topic-case) { grid-template-areas: "title chosen" "angle angle" "case case"; }
+.topic-card > span.topic-case { grid-area: case; display: block; min-width: 0; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; }
+/* «Кейс: <title>» wraps; «убрать» follows its last word and keeps its width */
+.case-line { margin: 6px 0 0; overflow-wrap: anywhere; }
+.case-line[hidden] { display: none; }
+.case-line .linkbtn { display: inline-flex; align-items: center; vertical-align: baseline; white-space: nowrap;
+  margin-left: 4px; font-size: 13px; }
 
 .topic-cards { margin-bottom: 8px; }
 .topic-label { display: flex; align-items: baseline; gap: 0 12px; }
@@ -610,6 +662,7 @@ dialog.day::backdrop { background: rgb(0 0 0 / .7); }
 .send-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
 .send-head h2 { font-size: 16px; margin-right: auto; }
 .send-crops[hidden] { display: none; }
+.send-nophoto a { display: inline-flex; align-items: center; min-height: 24px; }
 .send-crops .btn, .send-refusal .btn { margin-left: 4px; }
 .send-problems, .send-refused { display: flex; flex-direction: column; gap: 6px; }
 .send-problems ul, .send-refused ul, .send-refusal ul { display: flex; flex-direction: column; gap: 4px;

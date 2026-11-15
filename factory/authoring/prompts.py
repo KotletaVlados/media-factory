@@ -2,7 +2,7 @@
 import math
 
 from poster import rules
-from factory.authoring import profile
+from factory.authoring import cases as fcases, profile
 
 TEXT_MODEL = "gemini-3.8-flash"
 VOICE_MODEL = "gemini-3.5-flash-lite"
@@ -17,9 +17,28 @@ IMAGE_OUTPUT = {"highlight": 1680 + 1000}
 IMAGE_TOKENS = {"highlight": 2240}
 QUOTE_MAX = 140                      # a stored quote (authoring.md §18.2)
 INSTRUCTIONS = (
-    "You help the author write social posts built around this photo. The photo shows the "
-    "author or their world. Never invent facts beyond the topic, the author profile and what "
-    "the photo shows. Never name people in the photo. Do not describe the photo's technical qualities."
+    "You help the author write social posts about their own themes and their own cases: what "
+    "they automated, with which AI tools, and what came of it. The subject of a post is the "
+    "topic below. A photo, when one is attached, only illustrates the post: never take the "
+    "subject from it. Never invent facts beyond the topic, the author profile, the case below "
+    "and what the photo shows: no invented cases, clients, numbers, dates, tools or results. "
+    "When a fact is not given, leave it out. Never name people in the photo. Do not describe "
+    "the photo's technical qualities."
+)
+# §19.5: the topics tasks, on a draft without a case and on one that carries a case
+TOPICS_TASK = (
+    "Suggest 3 to 5 distinct post topics. Each topic draws either on the author's themes (the "
+    "profile line \"Author's themes\") or on exactly one of the cases listed above; never combine "
+    "cases and never suggest a case that is not listed. title: at most 80 characters, in "
+    "Russian. angle: one sentence in Russian saying what the post would say and for whom (at "
+    "most 1000 characters). case: the id of the case the topic draws on, or an empty string "
+    "when it draws on the author's themes."
+)
+ANGLES_TASK = (
+    "Suggest 3 to 5 distinct angles for a post about the case above. Every topic draws on that "
+    "case only, so case is its id. title: at most 80 characters, in Russian. angle: one "
+    "sentence in Russian saying what the post would say and for whom (at most 1000 "
+    "characters)."
 )
 RULES = {
     "x": (f"English; short and sharp, at most 240 weighted characters (Latin and Cyrillic 1, "
@@ -42,21 +61,31 @@ def obj(properties):
 STRING = {"type": "string"}
 SCHEMAS = {
     "topics": obj({"topics": {"type": "array", "minItems": 3, "maxItems": 5,
-                              "items": obj({"title": STRING, "angle": STRING})}}),
+                              "items": obj({"title": STRING, "angle": STRING, "case": STRING})}}),
     "expand": obj(dict({n: STRING for n in RULES}, quotes=obj({n: STRING for n in RULES}))),
     "regenerate": obj({"text": STRING}),
 }
 
 
-def build(op, author, draft, network="", wish=""):
+def case_block(op, draft, cases=()):
+    """The case block of §19.5 for this call: the draft's case record when it carries a stored
+    one; otherwise the gist of every stored case (topics) or «none chosen» (texts)."""
+    case = fcases.find(cases, draft.get("case"))
+    if case is not None:
+        return case, fcases.record(case)
+    if op == "topics":
+        return None, fcases.gist(cases)
+    return None, fcases.NONE_CHOSEN
+
+
+def build(op, author, draft, network="", wish="", cases=()):
     if op == "voice":
         task = ("Transcribe this voice note verbatim in the language spoken (Russian, Ukrainian "
                 "or English). Output only the transcript, no comments.")
         return task
+    case, block = case_block(op, draft, cases)
     if op == "topics":
-        task = ("Suggest 3 to 5 distinct post topics that fit this photo and the author's themes "
-                "and audiences. title: at most 80 characters, in Russian. angle: one sentence "
-                "in Russian saying what the post would say and for whom (at most 1000 characters).")
+        task = ANGLES_TASK if case is not None else TOPICS_TASK
     else:
         task = "Write one post per network, in the first person as the author, on the topic below."
         if op == "regenerate":
@@ -69,7 +98,7 @@ def build(op, author, draft, network="", wish=""):
                      "characters, in that network's language, with no hashtags and no links.")
         task += "\nTopic: " + draft.get("topic", "")
         task += "\nReturn every text whole, at most 5000 characters per text."
-    return INSTRUCTIONS + "\n" + profile.prompt(author) + "\n" + task
+    return INSTRUCTIONS + "\n" + profile.prompt(author) + "\n" + block + "\n" + task
 
 
 # ---------------------------------------------------------------- slice C: highlight (§9.2)

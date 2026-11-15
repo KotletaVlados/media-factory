@@ -14,7 +14,7 @@ import unicodedata
 from contextlib import contextmanager
 
 from poster import config, http, rules
-from factory.authoring import budget, drafts, photos, prices, profile, prompts
+from factory.authoring import budget, cases as fcases, drafts, photos, prices, profile, prompts
 from factory.authoring.common import Refusal, jpeg_exif, text
 
 URL = "https://generativelanguage.googleapis.com/v1beta/interactions"
@@ -42,6 +42,17 @@ NO_IMAGE = "Gemini не вернул картинку"
 NOT_JPEG = "Gemini вернул картинку не в JPEG — повторите"
 TOO_BIG = "Gemini вернул слишком большую картинку — повторите"
 HAS_EXIF = "Gemini вернул картинку с EXIF — повторите"
+# §19.4 (D39): a draft whose case is no longer stored writes no texts until «убрать»
+CASE_GONE = "кейс этого черновика удалён — нажмите «убрать»"
+NO_PHOTO = "у черновика нет фото"
+
+
+class CaseGone(Refusal):
+    """A text call on a draft whose case is not stored: 409 before admission and reservation,
+    never stored as the draft's `error` (the case line already says it)."""
+
+    def __init__(self):
+        super().__init__(CASE_GONE)
 
 
 class NoImage(Refusal):
@@ -118,7 +129,10 @@ def parse(op, data):
             if not isinstance(topics, list) or not 3 <= len(topics) <= 5:
                 raise ValueError()
             for item in topics:
-                if not isinstance(item, dict) or set(item) != {"title", "angle"}:
+                # §19.5: `case` is in the schema; a reply without it keeps B′'s shape
+                if not isinstance(item, dict) or set(item) not in ({"title", "angle"}, {"title", "angle", "case"}):
+                    raise ValueError()
+                if "case" in item and (not isinstance(item["case"], str) or len(item["case"]) > 20):
                     raise ValueError()
                 for k, limit in (("title", 1000), ("angle", 1000)):
                     if not isinstance(item[k], str) or not item[k].strip() or len(item[k]) > limit:
@@ -215,14 +229,20 @@ def highlight_request(key, prompt, media, aspect):
 
 
 def request(op, key, prompt, media, mime):
-    block = {"type": "audio" if op == "voice" else "image", "mime_type": mime,
-             "data": base64.b64encode(media).decode("ascii")}
-    if op != "voice":
-        block["resolution"] = "high"
+    """One text-model request. The media block (the photo's view copy or the voice note) is
+    added only when `media` is given: a topics request and a draft without a photo send the
+    text alone (§19.5, D37)."""
+    blocks = [{"type": "text", "text": prompt}]
+    if media is not None:
+        block = {"type": "audio" if op == "voice" else "image", "mime_type": mime,
+                 "data": base64.b64encode(media).decode("ascii")}
+        if op != "voice":
+            block["resolution"] = "high"
+        blocks.append(block)
     body = {"model": budget.model(op), "store": False,
             "generation_config": {"thinking_level": "minimal" if op == "voice" else "low",
                                   "max_output_tokens": prompts.OUTPUT[op]},
-            "input": [{"type": "text", "text": prompt}, block]}
+            "input": blocks}
     if op != "voice":
         body["response_format"] = {"type": "text", "mime_type": "application/json", "schema": prompts.SCHEMAS[op]}
     headers = {"x-goog-api-key": key}
@@ -297,13 +317,16 @@ class Service:
             finally:
                 self.slots.release()
 
-    def availability(self, op, env=None):
+    def cases(self):
+        return fcases.listed(self.paths.content)
+
+    def availability(self, op, env=None, cases=None):
         env = self.env() if env is None else env
         if not env.get("GEMINI_API_KEY", "").strip():
             return budget.NO_KEY_IMAGE if op == "highlight" else budget.NO_KEY
         try:
             limit = budget.cap(env)
-            amount = budget.button(op, self.clock())
+            amount = budget.button(op, self.clock(), self.cases() if cases is None else cases)
             if self.ledger.month_total() + amount > limit:
                 return self.ledger.refusal(amount, limit, op=op)
         except Refusal as exc:
@@ -315,6 +338,11 @@ class Service:
             current = self.store.load(did)
             if current["topics_auto"] != "pending":
                 return {"topics": current["topics"], "skipped": True}
+        if op != "voice":
+            # D39: a dangling case refuses before admission and reservation; nothing is sent
+            current = self.store.load(did)
+            if current.get("case") and fcases.find(self.cases(), current["case"]) is None:
+                raise CaseGone()
         with self.admission(did):
             draft = self.store.load(did)
             if op == "topics" and auto:
@@ -323,7 +351,10 @@ class Service:
                 # Mark once before reservation, including refusals, so reload cannot spend.
                 draft = self.store.update(did, lambda d: d.update(topics_auto="done"))
             env = self.env()
-            why = self.availability(op, env)
+            stored = self.cases() if op != "voice" else []
+            if op != "voice" and draft.get("case") and fcases.find(stored, draft["case"]) is None:
+                raise CaseGone()   # deleted while this call waited for admission
+            why = self.availability(op, env, stored)
             if why:
                 raise Refusal(why)
             if op in ("expand", "regenerate") and not draft["topic"].strip():
@@ -335,13 +366,20 @@ class Service:
                         (mime == "audio/ogg" and audio.startswith(b"OggS"))):
                     raise Refusal("неверная запись голоса", 415)
                 media = audio
+            elif draft["photo"] is None:
+                media, mime = None, ""   # §19.5: a draft without a photo sends the text alone
             else:
+                # B′'s view-copy checks still refuse a broken copy before any spend; topics
+                # never send it (D37: the photo does not drive the topic)
                 media, mime = image(self.paths.stock, draft), "image/jpeg"
+                if op == "topics":
+                    media, mime = None, ""
             author = profile.load(self.paths.content)
-            prompt = prompts.build(op, author, draft, network, wish)
+            prompt = prompts.build(op, author, draft, network, wish, stored)
             now = self.clock()  # The price period belongs to reservation, not the later reply.
             amount = budget.bound(op, prompt, now, len(audio))
-            rid = self.ledger.reserve(op, amount, budget.cap(env), did, admission=budget.button(op, now))
+            rid = self.ledger.reserve(op, amount, budget.cap(env), did,
+                                      admission=budget.button(op, now, stored))
             try:
                 req = request(op, env["GEMINI_API_KEY"], prompt, media, mime)
                 req.fields = {"op": op, "draft": did}
@@ -368,6 +406,16 @@ class Service:
             # Redact before storing, including a malicious model echo of a credential.
             value = json.loads(self.redactor().redact(json.dumps(value, ensure_ascii=False)))
             quotes = value.pop("quotes", {}) if op == "expand" else {}
+
+            if op == "topics":
+                # D40: a topic keeps its case only when that case is stored; on a draft that
+                # carries a case every topic names it
+                ids = {c["id"] for c in stored}
+                for item in value["topics"]:
+                    if draft.get("case"):
+                        item["case"] = draft["case"]
+                    elif "case" in item and item["case"] not in ids:
+                        item["case"] = ""
 
             def apply(d):
                 if op == "topics":
@@ -422,6 +470,8 @@ class Service:
             draft = self.store.load(did)
             if draft["state"] != "draft":
                 raise Refusal(drafts.SENT)
+            if draft["photo"] is None:
+                raise Refusal(NO_PHOTO)
             if (draft.get("who") or "") != who:
                 def keep(d):
                     if who:
