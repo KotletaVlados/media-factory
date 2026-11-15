@@ -531,6 +531,42 @@ class DanglingCaseTest(CasesPanel):
 
 # ---------------------------------------------------------------- the budget guard (item 13)
 
+class UnreadableCasesTest(CasesPanel):
+    """§19.10: a broken cases.json blocks only the three text calls, before any reservation; the
+    photo styles and the voice keep their own checks and the same budget guard."""
+
+    def test_highlight_and_voice_do_not_read_the_cases_file(self):
+        with open(self.cases_file(), "w", encoding="utf-8") as fh:
+            fh.write("{")
+        ai = self.srv.panel.ai
+        self.assertEqual(ai.availability("highlight"), "")
+        self.assertEqual(ai.availability("voice"), "")
+        for op in ("topics", "expand", "regenerate"):
+            self.assertIn("content/cases.json", ai.availability(op), op)
+        did = self.store.create(self.fx.paths.stock, "my-photos", self.pid, True)["id"]
+        self.transport.add(pf.image_reply(pf.style_jpeg()))
+        status, reply = self.call(f"/create/{did}/highlight", {"style": "blur", "who": ""})
+        self.assertEqual(status, 200, reply)
+        self.assertEqual(len(self.transport.requests), 1)
+        self.assertEqual(self.rows()[0]["op"], "highlight")
+        # a text call on the same broken store still refuses before any reservation
+        before = len(self.rows())
+        status, reply = self.call(f"/create/{did}/topics", {})
+        self.assertEqual(status, 409)
+        self.assertIn("content/cases.json", reply["error"])
+        self.assertEqual((len(self.transport.requests), len(self.rows())), (1, before))
+
+    def test_the_styles_still_obey_the_budget_guard_with_a_broken_cases_file(self):
+        with open(self.cases_file(), "w", encoding="utf-8") as fh:
+            fh.write("{")
+        with open(self.fx.paths.env_file, "a", encoding="utf-8") as fh:
+            fh.write("AI_MONTHLY_CAP_USD=0.01\n")   # below the 0.09 bound of the styles
+        why = self.srv.panel.ai.availability("highlight")
+        self.assertTrue(why)
+        self.assertNotIn("cases.json", why)
+        self.assertEqual(self.transport.requests, [])
+
+
 class CaseBudgetTest(CasesPanel):
     def test_no_cases_read_the_published_bounds(self):
         for when, want in ((NOW, ("0.02", "0.05", "0.05")),

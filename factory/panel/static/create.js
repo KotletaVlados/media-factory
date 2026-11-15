@@ -143,6 +143,15 @@
       tracked.finally(() => pending.delete(tracked)).catch(() => {});
       return serial;
     }
+    // another write to the same draft joins this saver's serial line, so it lands after every
+    // save already started and before any later one, whatever order the replies come in
+    flush.queue = task => {
+      serial = serial.catch(() => {}).then(task);
+      const tracked = serial;
+      pending.add(tracked);
+      tracked.finally(() => pending.delete(tracked)).catch(() => {});
+      return serial;
+    };
     el.dataset.saved = el.value;
     el.addEventListener("input", () => {
       resize(el); clearTimeout(timer); status.classList.remove("k-bad");
@@ -211,10 +220,14 @@
   $("[data-case-remove]", caseLine).addEventListener("click", async () => {
     if (busy) { return; }
     const status = $(".topic-save");
-    try {
-      const result = await post(base + "/topic", {case: ""});
-      D.case = result.case; caseFixed(); showCase(); setBusy(busy);
-    } catch (err) { report(status, err.message); status.classList.add("k-bad"); }
+    // «убрать» waits behind every topic save already started: the accepted removal is the last word
+    await saveTopic.queue(async () => {
+      try {
+        const result = await post(base + "/topic", {case: ""});
+        tappedCase = null;
+        D.case = result.case; caseFixed(); showCase(); setBusy(busy);
+      } catch (err) { report(status, err.message); status.classList.add("k-bad"); }
+    });
   });
   function renderTopics(topics) {
     D.topics = topics;
@@ -417,12 +430,17 @@
       if (files.length !== 1) { error(T.many); return; }
       const status = $(".attach-status");
       setBusy(true); report(status, T.attaching);
+      // the page reloads after the photo: every typed edit is saved first, and none can be typed
+      // meanwhile (read-only); a refused save keeps the page and the typed text as they are
+      const fields = Array.from(savers.keys());
+      fields.forEach(el => { el.readOnly = true; });
       try {
+        await window.MFCreate.flush();
         const p = await window.MFAuthor.uploadFile("my-photos", C.csrf, files[0]);
         await post(base + "/photo", {folder: "my-photos", photo: p.id});
         reload();
       } catch (err) { report(status, ""); error(err.message); }
-      finally { setBusy(false); }
+      finally { setBusy(false); fields.forEach(el => { el.readOnly = false; }); }
     });
   }
   // a dangling case refuses before any spend: the automatic request waits for «убрать»
