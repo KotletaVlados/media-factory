@@ -175,6 +175,7 @@
     caseLine.classList.toggle("k-bad", !!cid && C.caseGone);
     $(".case-words", caseLine).textContent = !cid ? "" : C.caseGone ? T.case_gone :
       T.case_line.replace("{title}", C.cases[cid]);
+    syncCaseRows();
   }
   function caseFixed() {
     // D39: once the dangling case is gone from the draft, the three text calls are allowed again
@@ -199,6 +200,24 @@
       const chosen = b.dataset.topic === topic.value;
       b.setAttribute("aria-pressed", String(chosen)); $(".chosen", b).textContent = chosen ? T.chosen : "";
     });
+    syncCaseRows();
+  }
+  // A card's case row says each fact once (§19.7): none when the card's case is the draft's own (the
+  // case line says it); «без кейса» on the chosen card once the case was taken off the draft;
+  // «кейс удалён» for a case no longer stored. views._case_row draws the same rules on load.
+  // a tapped card is not «без кейса» while its own save, which carries its case, is still on the way
+  let taps = 0;
+  function syncCaseRows() {
+    all(".topic-card").forEach(b => {
+      const cid = b.dataset.case || "", old = $(".topic-case", b);
+      const words = !cid || cid === (D.case || "") ? "" :
+        b.getAttribute("aria-pressed") === "true" && !D.case && !taps ? T.case_card_off :
+        C.cases[cid] ? T.case_card.replace("{title}", C.cases[cid]) : T.case_card_gone;
+      if (!words) { if (old) { old.remove(); } return; }
+      const row = old || document.createElement("span");
+      row.className = "topic-case small muted"; row.textContent = words; row.title = words;
+      if (!old) { b.appendChild(row); }
+    });
   }
   // After a tap the box and «Развернуть» are the next thing to read: bring them into view
   // (no scroll when they already are; the sticky bar and the margins keep them clear of the edges).
@@ -215,9 +234,11 @@
   }
   function bindTopic(b) {
     b.addEventListener("click", async () => {
+      taps += 1;
       topic.value = b.dataset.topic; resize(topic); markChosen(); setBusy(busy); revealExpand();
       // the saver keeps the text and the reason; the case rides with this tap's save only
       try { await saveTopic(b.dataset.case || ""); } catch (_) { /* shown by the saver */ }
+      finally { taps -= 1; syncCaseRows(); }
     });
   }
   $("[data-case-remove]", caseLine).addEventListener("click", async () => {
@@ -242,14 +263,9 @@
         const span = document.createElement(tag); span.textContent = text;
         if (i === 2) { span.className = "chosen"; } b.appendChild(span);
       });
-      if (item.case) {   // «кейс: <title>», one line; the whole title in `title` (§19.7)
-        const row = document.createElement("span"); row.className = "topic-case small muted";
-        if (C.cases[item.case]) { row.textContent = T.case_card.replace("{title}", C.cases[item.case]); row.title = row.textContent; }
-        else { row.textContent = T.case_card_gone; row.title = row.textContent; }
-        b.appendChild(row);
-      }
       container.appendChild(b); bindTopic(b);
     });
+    syncCaseRows();
     $("[data-op=topics]").textContent = (topics.length ? T.more_topics : T.topics) + " · " + C.bounds.topics;
     markChosen();
   }

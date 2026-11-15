@@ -1218,15 +1218,17 @@ def _text_card(network, value, why, bounds):
             f'{_spend_button("regenerate", S.CREATE_JS["regenerate"] + " · " + bounds["regenerate"], why["regenerate"])}</div></article>')
 
 
-def _case_row(item, titles):
-    """A topic card's «кейс: <title>» row (§19.7), one line with an ellipsis and the whole
-    title in `title`; «кейс удалён» when the case is no longer stored; nothing without one."""
+def _case_row(item, titles, draft_case="", chosen=False):
+    """A topic card's case row (§19.7), one line with an ellipsis and the whole title in
+    `title`. Each fact about a case stands once: no row on a card whose case is the draft's own
+    (the case line under the topic box says it); «без кейса» on the chosen card once the case
+    was taken off the draft; «кейс удалён» when the case is no longer stored; nothing without
+    a case. `create.js` `syncCaseRows` applies the same rules after a tap or «убрать»."""
     cid = item.get("case") or ""
-    if not cid:
+    if not cid or cid == draft_case:
         return ""
-    if cid not in titles:
-        return f'<span class="topic-case small muted" title="{esc(S.CASE_CARD_GONE)}">{esc(S.CASE_CARD_GONE)}</span>'
-    words = S.CASE_CARD.format(title=titles[cid])
+    words = (S.CASE_CARD_OFF if chosen and not draft_case else
+             S.CASE_CARD.format(title=titles[cid]) if cid in titles else S.CASE_CARD_GONE)
     return f'<span class="topic-case small muted" title="{esc(words)}">{esc(words)}</span>'
 
 
@@ -1256,7 +1258,7 @@ def create_draft(ctx: Ctx) -> str:
         topics.append(f'<button class="topic-card" type="button" aria-pressed="{str(chosen).lower()}" '
                       f'data-topic="{esc(topic)}" data-case="{esc(item.get("case") or "")}"><strong>{esc(item["title"])}</strong>'
                       f'<span>{esc(item["angle"])}</span><span class="chosen">{"выбрано" if chosen else ""}</span>'
-                      f'{_case_row(item, titles)}</button>')
+                      f'{_case_row(item, titles, draft.get("case") or "", chosen)}</button>')
     topic_button = S.CREATE_JS["more_topics"] if topics else S.CREATE_JS["topics"]
     expand = S.CREATE_JS["expand_again"] if any(v["source"] == "edited" for v in draft["variants"].values()) else S.CREATE_JS["expand"]
     error = draft["error"]
@@ -1306,8 +1308,8 @@ def create_draft(ctx: Ctx) -> str:
             f'<p class="send-go-row"{"" if ready else " hidden"}><a class="btn green send-go" '
             f'href="/create/{esc(draft["id"])}/review">{esc(S.SEND_GO)}</a></p>'
             f'<div class="text-cards">{texts}</div></section></div>'
-            f'<p class="draft-links"><a href="/create">Новый пост</a> · <a href="/create/profile">Профиль автора</a> · '
-            f'<a href="/create/cases">{esc(S.CASES_TITLE)}</a> · '
+            f'<p class="draft-links"><a href="/create">Новый пост</a><a href="/create/profile">Профиль автора</a>'
+            f'<a href="/create/cases">{esc(S.CASES_TITLE)}</a>'
             f'<button class="linkbtn" type="button" data-open="dlg-delete">{esc(S.SEND_DELETE)}</button></p>'
             f'{_delete_dialog(ctx, draft["id"])}'
             f'<noscript><p>{esc(S.CREATE_NEED_JS)}</p></noscript></div>')
@@ -1415,10 +1417,10 @@ def create_cases(ctx: Ctx, refusal=None) -> str:
             new += _case_form(ctx, values)
     else:
         new = _case_form(ctx, values)
-    body = (f'<section class="create-cases"><h2>{esc(S.CASES_TITLE)}</h2><p>{esc(S.CASES_HINT)}</p>'
+    body = (f'<section class="create-cases"><div class="cases-heading"><h2>{esc(S.CASES_COUNT.format(n=len(stored), max=fcases.MAX))}</h2><a href="#case-new">{esc(S.CASES_JUMP)}</a></div><p>{esc(S.CASES_HINT)}</p>'
             f'{"".join(notices)}{listing}<section class="case-new" id="case-new" aria-labelledby="case-new-h">'
             f'<h2 id="case-new-h">{esc(S.CASES_NEW)}</h2>{new}</section>'
-            f'<p class="draft-links"><a href="/create">Создать пост</a> · <a href="/create/profile">Профиль автора</a></p>'
+            f'<p class="draft-links"><a href="/create">Создать пост</a><a href="/create/profile">Профиль автора</a></p>'
             f'</section>')
     return page(ctx, "create", body, sub=esc(S.CASES_TITLE), sub_right=month, scripts=("send.js",))
 

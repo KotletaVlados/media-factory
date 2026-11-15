@@ -831,8 +831,8 @@ def build_cases(root: str, *, cases=True, live_widths=(), sent=False) -> Fixture
 
     - static: `nophoto` (no photo, no case, CASE_TOPICS, the second chosen), `fromcase` (no
       photo, case A, five angles on A), `photocase` (a photo, case A, CASE_TOPICS),
-      `gone` (no photo, a case id not stored), `textonly` (no photo, four texts) and B′'s
-      `topics` draft;
+      `gone` (no photo, a case id not stored), `textonly` (no photo, four texts), `caseoff` (no
+      photo, no case, the chosen card is of case A: the state after «убрать») and B′'s `topics` draft;
     - `sent`: only `textonly-published` (no photo, published to three targets). It has its
       own fixture: a sent draft moves «Черновики» above the photos on «Создать» (§17.6);
     - `live_widths`: per width, `attach-<w>` (no photo, texts) for the attach probe, `attachsave-<w>`
@@ -855,7 +855,7 @@ def build_cases(root: str, *, cases=True, live_widths=(), sent=False) -> Fixture
     fx.case_ids = {}
     names = ([f"{state}-{w}" for w in live_widths for state in CASES_LIVE] if live_widths else
              ["textonly-published"] if sent else
-             ["nophoto", "fromcase", "photocase", "gone", "textonly", "topics"])
+             ["nophoto", "fromcase", "photocase", "gone", "textonly", "topics", "caseoff"])
     chosen = CASE_TOPICS[1]["title"] + " — " + CASE_TOPICS[1]["angle"]
     for i, name in enumerate(names):
         kind = name.rsplit("-", 1)[0] if live_widths else name
@@ -868,6 +868,8 @@ def build_cases(root: str, *, cases=True, live_widths=(), sent=False) -> Fixture
             d["topics_auto"] = "done"
             if kind in ("nophoto", "photocase", "caseremove", "casetap"):   # caseremove: case A, cards on A, B and none
                 d["topics"], d["topic"] = json.loads(json.dumps(CASE_TOPICS)), chosen
+            elif kind == "caseoff":   # «убрать» was pressed: no case, the chosen card is one of case A
+                d["topics"], d["topic"] = json.loads(json.dumps(CASE_TOPICS)), CASE_TOPICS[0]["title"] + " — " + CASE_TOPICS[0]["angle"]
             elif kind == "fromcase":
                 d["topics"], d["topic"] = case_topics(CASE_IDS[0]), ""
             elif kind == "topics":
