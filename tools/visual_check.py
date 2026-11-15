@@ -635,8 +635,12 @@ def case_flow_problems(chrome, fx, servers, fake, widths, out) -> list:
                 attach = [c for c in sent if c[0] == f"/create/{did}/photo"]
                 if (len(uploads), len(attach)) != (3, 1):
                     problems.append(f"draft-attach-{w}: {len(uploads)} uploads and {len(attach)} /photo posts, expected 3 and 1: {sent}")
+                # the old document still answers until the navigation lands: wait for a fresh one
+                page.evaluate("window.mfBeforeReload = true")
                 page.send("Page.reload")
-                page.wait_true("!document.getElementById('attach') && document.querySelector('.create-photo img') && "
+                page.wait_true("window.mfBeforeReload === undefined && document.readyState === 'complete' && "
+                               "!document.getElementById('attach') && "
+                               "document.querySelector('.create-photo img') && "
                                "document.querySelector('.create-photo img').complete && "
                                "document.querySelector('.create-photo img').naturalWidth > 0", 30, "the photo in place")
                 after = page.evaluate("document.querySelector('.create-photo').getBoundingClientRect().height")
