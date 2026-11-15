@@ -817,6 +817,50 @@ def gated_flows(chrome, fx, servers, widths, out) -> list:
                 problems.append(f"case-remove-order-{w}: the draft holds case {store.load(did).get('case')} after «убрать»")
         except RuntimeError as exc:
             problems.append(f"case-remove-order-{w}: {exc}")
+        # case-tap-refused: the card of case A is held, the card of case B is tapped, A is refused,
+        # B is accepted: B's save went out with B's own topic and case and the draft holds B
+        did = fx.case_ids[f"casetap-{w}"]
+        base = f"http://127.0.0.1:{servers[f'cases-live-casetap-{w}'].port}"
+        card_a = f".topic-card[data-case=\"{panel_fixture.CASE_IDS[0]}\"]"
+        card_b = f".topic-card[data-case=\"{panel_fixture.CASE_IDS[1]}\"]"
+        try:
+            with Live(chrome, f"{base}/create/{did}", w, h) as page:
+                page.wait_true(f"document.querySelector('{card_a}') && document.querySelector('{card_b}') && window.MFCreate",
+                               30, "the cards of both cases")
+                topic_b = page.evaluate(f"document.querySelector('{card_b}').dataset.topic")
+                page.evaluate(GATE)
+                page.evaluate("window.mfGate.hold = ['/topic']; true")
+                page.click(card_a)
+                page.wait_true("window.mfGate.waiting.length === 1", 30, "the card A save held")
+                page.click(card_b)
+                page.evaluate("window.mfGate.release(true); true")   # A is refused, B goes out after it
+                page.wait_true("window.mfLog.filter(e => e[0] === 'end' && e[1].endsWith('/topic')).length === 2 && "
+                               "document.querySelector('[data-create]').getAttribute('aria-busy') === 'false'", 30, "both saves answered")
+                log = page.evaluate("window.mfLog.filter(e => e[1].endsWith('/topic'))")
+                topic_a = page.evaluate(f"document.querySelector('{card_a}').dataset.topic")
+                compact = lambda topic, cid: json.dumps({"topic": topic, "case": cid}, ensure_ascii=False, separators=(",", ":"))
+                shape = [(e[0], e[2]) for e in log]
+                if shape != [("start", compact(topic_a, panel_fixture.CASE_IDS[0])), ("end", 500),
+                             ("start", compact(topic_b, panel_fixture.CASE_IDS[1])), ("end", 200)]:
+                    problems.append(f"case-tap-refused-{w}: the topic requests are {shape}")
+                line = page.evaluate("document.querySelector('.case-line .case-words').textContent")
+                if line != "Кейс: " + panel_fixture.CASES[1]["title"]:
+                    problems.append(f"case-tap-refused-{w}: the case line reads «{line}» after B was accepted")
+                page.screenshot(os.path.join(out, f"case-tap-refused-{w}.png"))
+                # D46: a spending button sends the bound it shows
+                label = page.evaluate("document.querySelector('[data-op=topics]').textContent")
+                shown = re.search(r"\$(\d+\.\d+)", label)
+                page.evaluate("window.mfLog.length = 0; true")
+                page.click("[data-op=topics]")
+                page.wait_true("window.mfLog.some(e => e[0] === 'end' && e[1].endsWith('/topics'))", 30, "the topics reply")
+                sent = [e[2] for e in page.evaluate("window.mfLog") if e[0] == "start" and e[1].endswith("/topics")]
+                if not shown or sent != [json.dumps({"bound": shown.group(1)}, separators=(",", ":"))]:
+                    problems.append(f"case-tap-refused-{w}: «{label}» posted {sent}, expected the shown bound")
+            d = store.load(did)
+            if d.get("case") != panel_fixture.CASE_IDS[1] or d["topic"] != topic_b:
+                problems.append(f"case-tap-refused-{w}: the draft holds case {d.get('case')} and topic «{d['topic']}», expected B")
+        except RuntimeError as exc:
+            problems.append(f"case-tap-refused-{w}: {exc}")
     return problems
 
 
@@ -1275,7 +1319,7 @@ def main(argv=None) -> int:
     for name, fx in (("cases", cases_fx), ("cases-empty", cases_empty), ("cases-sent", cases_sent)):
         servers[name] = start(fx, fake_cases)
     for w in widths:   # one panel per flow and width: each creates or changes its own draft
-        for kind in ("attach", "attachsave", "caseremove", "nophoto", "fromcase"):
+        for kind in ("attach", "attachsave", "caseremove", "casetap", "nophoto", "fromcase"):
             servers[f"cases-live-{kind}-{w}"] = start(cases_live, fake_cases_live)
     t0 = time.perf_counter()
     snap = servers["data"].panel.holder.get()

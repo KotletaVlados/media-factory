@@ -810,7 +810,7 @@ def case_topics(cid: str) -> list:
 
 # topics 1, 3 and 5 name the fixture cases; 2 and 4 draw on the author's themes
 CASE_TOPICS = [dict(t, case=(CASE_IDS[i // 2] if i % 2 == 0 else "")) for i, t in enumerate(TOPICS)]
-CASES_LIVE = ("attach", "attachsave", "caseremove")
+CASES_LIVE = ("attach", "attachsave", "caseremove", "casetap")
 
 
 def save_cases(fx: Fixture, cases=None) -> list:
@@ -837,7 +837,8 @@ def build_cases(root: str, *, cases=True, live_widths=(), sent=False) -> Fixture
       own fixture: a sent draft moves «Черновики» above the photos on «Создать» (§17.6);
     - `live_widths`: per width, `attach-<w>` (no photo, texts) for the attach probe, `attachsave-<w>`
       (the same, for the save-before-attach flow) and `caseremove-<w>` (no photo, case A, cards on
-      A, B and none) for the «убрать» ordering flow.
+      A, B and none) for the «убрать» ordering flow, and `casetap-<w>` (no photo, no case, the same
+      cards) for the refused-tap flow.
     """
     from unittest import mock
     from factory.authoring import drafts
@@ -865,7 +866,7 @@ def build_cases(root: str, *, cases=True, live_widths=(), sent=False) -> Fixture
 
         def fill(d, kind=kind):
             d["topics_auto"] = "done"
-            if kind in ("nophoto", "photocase", "caseremove"):   # caseremove: case A, cards on A, B and none
+            if kind in ("nophoto", "photocase", "caseremove", "casetap"):   # caseremove: case A, cards on A, B and none
                 d["topics"], d["topic"] = json.loads(json.dumps(CASE_TOPICS)), chosen
             elif kind == "fromcase":
                 d["topics"], d["topic"] = case_topics(CASE_IDS[0]), ""

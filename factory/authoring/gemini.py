@@ -55,6 +55,16 @@ class CaseGone(Refusal):
         super().__init__(CASE_GONE)
 
 
+class StaleBound(Refusal):
+    """The cases changed after the page showed the button's bound and the call would now cost
+    more than it said: 409 before any reservation or request. `amount` is the new bound; the
+    page shows it and the operator presses the button again (D46)."""
+
+    def __init__(self, amount):
+        self.amount = amount
+        super().__init__(f"Цена изменилась после правки кейсов: теперь до ${amount:.2f}. Нажмите кнопку ещё раз.")
+
+
 class NoImage(Refusal):
     """A completed reply without an image block; `model_text` is the model's text part."""
 
@@ -337,7 +347,7 @@ class Service:
             return exc.message
         return ""
 
-    def run(self, did, op, *, auto=False, network="", wish="", audio=b"", mime=""):
+    def run(self, did, op, *, auto=False, network="", wish="", audio=b"", mime="", shown=None):
         if op == "topics" and auto:
             current = self.store.load(did)
             if current["topics_auto"] != "pending":
@@ -379,8 +389,14 @@ class Service:
                 if op == "topics":
                     media, mime = None, ""
             author = profile.load(self.paths.content)
-            prompt = prompts.build(op, author, draft, network, wish, stored)
             now = self.clock()  # The price period belongs to reservation, not the later reply.
+            if shown is not None and op != "voice":
+                # D46: the stored cases may have grown since the page drew its button; a call
+                # above the bound the operator saw is refused before any reservation
+                current = budget.button(op, now, stored)
+                if current > shown:
+                    raise StaleBound(current)
+            prompt = prompts.build(op, author, draft, network, wish, stored)
             amount = budget.bound(op, prompt, now, len(audio))
             rid = self.ledger.reserve(op, amount, budget.cap(env), did,
                                       admission=budget.button(op, now, stored))
