@@ -1283,7 +1283,7 @@ def main(argv=None) -> int:
     cases_fx = panel_fixture.build_cases(os.path.join(fixtures_root, "cases"))
     cases_empty = panel_fixture.build_cases(os.path.join(fixtures_root, "cases-empty"), cases=False)
     cases_sent = panel_fixture.build_cases(os.path.join(fixtures_root, "cases-sent"), sent=True)
-    # the limit: 30 cases, so «Кейсы · 30 из 30» and the way to the form must stand on the first screen
+    # the limit: 30 cases, so «Кейсы · 30 из 30» and the limit in words must stand on the first screen, with no link to a form
     cases_full = panel_fixture.build_cases(os.path.join(fixtures_root, "cases-full"), cases=False)
     from factory.authoring import cases as fcases_full
     for n in range(30):
