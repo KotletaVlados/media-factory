@@ -419,7 +419,7 @@ CREATE_CASES_ADD = "Кейсы · добавить"
 DRAFT_NO_PHOTO = "без фото"
 CASES_TITLE = "Кейсы"
 CASES_HINT = ("Из кейсов Gemini берёт темы и факты для текстов — только то, что здесь записано. "
-              "Хранятся только на этом компьютере (content/cases.json).")
+              "Хранятся только на этом компьютере.")
 CASES_EMPTY = "Кейсов пока нет — добавьте первый: что автоматизировали, чем и что вышло."
 CASES_SAVED = "Кейс сохранён"
 CASES_DELETED = "Кейс удалён"
@@ -439,6 +439,9 @@ CASE_GONE_LINE = "Кейс удалён — нажмите «убрать», ч�
 CASE_REMOVE = "убрать"
 CASE_CARD = "кейс: {title}"
 CASE_CARD_GONE = "кейс удалён"
+CASE_CARD_OFF = "без кейса"
+CASES_COUNT = "Кейсы · {n} из {max}"
+CASES_JUMP = "Новый кейс ↓"
 ATTACH_BUTTON = "Добавить фото"
 ATTACH_HINT = "необязательно — без фото пост уйдёт в Facebook, LinkedIn и X; Instagram — только с фото"
 SEND_NO_PHOTO = "Без фото: Instagram пропущен — он публикует только с картинкой."
@@ -460,7 +463,7 @@ CREATE_JS = {
     "wish": "пожелание: короче, без хештегов…", "repeat": "Повторить", "text_long": "текст длиннее 5 000 знаков",
     "topic_long": "тема: не больше 2000 знаков", "before_texts": "Тексты появятся после «Развернуть»",
     "case_line": CASE_LINE, "case_gone": CASE_GONE_LINE, "case_card": CASE_CARD,
-    "case_card_gone": CASE_CARD_GONE, "remove": CASE_REMOVE, "attaching": "Загрузка фото…",
+    "case_card_gone": CASE_CARD_GONE, "case_card_off": CASE_CARD_OFF, "remove": CASE_REMOVE, "attaching": "Загрузка фото…",
 }
 CREATE_NETWORKS = {"x": "X · англ.", "linkedin": "LinkedIn · англ.",
                    "instagram": "Instagram · укр.", "facebook": "Facebook · укр."}

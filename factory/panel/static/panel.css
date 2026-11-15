@@ -480,6 +480,9 @@ dialog.day::backdrop { background: rgb(0 0 0 / .7); }
 .create-start, .create-profile, .create-cases { max-width: 960px; margin: 0 auto; }
 /* «Кейсы» (§19.7): one column of records, then «Новый кейс» in the profile's grid */
 .create-cases > p { margin-bottom: 12px; }
+.cases-heading { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 16px; margin-bottom: 8px; }
+.cases-heading h2 { margin: 0; }
+.cases-heading a { display: inline-flex; align-items: center; min-height: 24px; }
 .case-list { display: flex; flex-direction: column; gap: 10px; margin-bottom: 24px; }
 .case { padding: 12px 16px; border: 1px solid var(--head); border-radius: 8px; background: var(--app);
   display: flex; flex-direction: column; gap: 8px; }
@@ -632,7 +635,7 @@ dialog.day::backdrop { background: rgb(0 0 0 / .7); }
 .case-line { margin: 6px 0 0; overflow-wrap: anywhere; }
 .case-line[hidden] { display: none; }
 .case-line .linkbtn { display: inline-flex; align-items: center; vertical-align: baseline; white-space: nowrap;
-  margin-left: 4px; font-size: 13px; }
+  padding-left: 0; font-size: 13px; }
 
 .topic-cards { margin-bottom: 8px; }
 .topic-label { display: flex; align-items: baseline; gap: 0 12px; }
@@ -653,7 +656,7 @@ dialog.day::backdrop { background: rgb(0 0 0 / .7); }
 .send-go-row { margin: 0 0 12px; }
 .send-go-row[hidden] { display: none; }
 .send-go-row.send-go-wait { visibility: hidden; }
-.draft-links { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
+.draft-links { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 16px; }
 .draft-links .linkbtn { font-size: 13px; }
 .send { max-width: 1240px; margin: 0 auto; }
 .main-create .send section { margin-bottom: 20px; }
@@ -728,7 +731,7 @@ select[data-c]:disabled, input[data-c]:disabled, textarea[data-c]:disabled { opa
   border: 2px solid var(--green); box-shadow: 0 0 0 2px var(--on-green); pointer-events: none; }
 .send-ring[hidden] { display: none; }
 .send-cards h2 { margin-bottom: 12px; }
-.send-grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr));
+.send-grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
   align-items: start; }
 .send-card { display: flex; flex-direction: column; gap: 8px; padding: 12px; min-width: 0;
   border: 1px solid var(--head); border-radius: 8px; background: var(--app); }

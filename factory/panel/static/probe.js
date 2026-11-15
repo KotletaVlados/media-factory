@@ -1781,11 +1781,50 @@
       if (r.width < 24 || r.height < 24) { out.problems.push("«убрать» is " + Math.round(r.width) + "x" + Math.round(r.height)); }
       if (offScreen(r, b)) { out.problems.push("«убрать» off screen at " + box(r)); }
     }
+    // a fact about a case stands once on a draft page: the case line, or the card rows of other cases
+    function caseOnce(title) {
+      var n = Array.prototype.filter.call(document.querySelectorAll(".topic-case, .case-line .case-words"), function (e) {
+        return shown(e) && e.textContent.toLowerCase().indexOf(title.toLowerCase()) >= 0;
+      }).length;
+      if (n !== 1) { out.problems.push("«" + title.slice(0, 40) + "…» is shown " + n + " times, expected once"); }
+    }
+    // a wrapped row of links: every row starts at the container's left edge and none ends in a separator
+    function linksAligned() {
+      var row = document.querySelector(".draft-links");
+      if (!row) { out.problems.push("missing the links row"); return; }
+      var left = row.getBoundingClientRect().left;
+      Array.prototype.forEach.call(row.children, function (el) {
+        var r = el.getBoundingClientRect();
+        if (r.left < left - 0.5) { out.problems.push("a link starts outside the row: " + box(r)); }
+      });
+      if (/[·•|]/.test(row.textContent)) { out.problems.push("the links row holds a separator: " + words(row)); }
+      var firsts = {};
+      Array.prototype.forEach.call(row.children, function (el) {
+        var t = Math.round(el.getBoundingClientRect().top);
+        if (firsts[t] === undefined || el.getBoundingClientRect().left < firsts[t]) { firsts[t] = el.getBoundingClientRect().left; }
+      });
+      Object.keys(firsts).forEach(function (t) {
+        if (Math.abs(firsts[t] - left) > 3) { out.problems.push("a wrapped row of links is indented by " + Math.round(firsts[t] - left) + " px"); }
+      });
+    }
+    // the case line wraps with «убрать» on the text's left edge when it falls to its own row
+    function lineAligned() {
+      var line = document.querySelector(".case-line"), b = line && line.querySelector("[data-case-remove]");
+      if (!line || line.hidden || !b) { return; }
+      var text = document.createRange(); text.selectNodeContents(line.querySelector(".case-words"));
+      var t = text.getBoundingClientRect(), r = b.getBoundingClientRect();
+      if (r.top >= t.bottom - 1 && Math.abs(r.left - t.left) > 1.5) {
+        out.problems.push("«убрать» on its own row starts at " + Math.round(r.left) + ", the text at " + Math.round(t.left));
+      }
+    }
     var C = (function () { var root = document.querySelector("[data-create]"); return root ? JSON.parse(root.dataset.create) : {}; })();
     var titles = C.cases ? Object.keys(C.cases).map(function (k) { return C.cases[k]; }) : [];
     try {
       if (state === "cases-page") {
-        see(".create-cases > h2", "Кейсы");
+        see(".create-cases > .cases-heading h2", "Кейсы · 3 из 30");
+        see(".cases-heading a", "Новый кейс ↓");
+        if (/content\/|cases\.json/.test(document.querySelector(".create-cases").textContent)) { out.problems.push("the page names a file"); }
+        linksAligned();
         ["Пост по кейсу", "Изменить", "Удалить"].forEach(function (t) { see(".case-actions .btn", t); });
         // from 900 px the three titles stand on the first screen; on a phone the first one does and
         // the others are whole once scrolled to
@@ -1806,7 +1845,18 @@
           }
         });
         scrollTo(0, y);
+      } else if (state === "cases-full") {
+        // at the limit the count and the way to the form stand on the first screen, above 30 records
+        see(".cases-heading h2", "Кейсы · 30 из 30");
+        see(".cases-heading a", "Новый кейс ↓");
+        if (document.querySelectorAll(".case-title").length !== 30) { out.problems.push("not thirty cases"); }
+        document.querySelector(".cases-heading a").click();
+        await sleep(100);
+        see(".case-full", "кейсов уже 30 — удалите ненужные");
+        if (document.querySelector("#case-new form")) { out.problems.push("a form at the limit"); }
+        scrollTo(0, 0);
       } else if (state === "cases-empty") {
+        see(".cases-heading h2", "Кейсы · 0 из 30");
         see(".case-empty", "Кейсов пока нет — добавьте первый: что автоматизировали, чем и что вышло.");
         see("#case-new label", "Название");
         // one column below 600 px, as on «Профиль автора»: the button is reached by scrolling
@@ -1880,13 +1930,18 @@
         photoRight();
         if (innerWidth >= 1000) { see('[data-op="expand"]', "Развернуть · до $0.05"); }
         else if (document.querySelector('[data-op="expand"]').textContent !== "Развернуть · до $0.05") { out.problems.push("expand label"); }
-        caseRows(3, titles);
+        // case A is the draft's own: its card has no row, the cards of B and C keep theirs
+        caseRows(2, titles).forEach(function (row) {
+          if (row.getAttribute("title") === "кейс: " + C.cases[C.draft.case]) { out.problems.push("a card repeats the draft's case"); }
+        });
+        caseOnce(C.cases[C.draft.case]);
+        lineAligned(); linksAligned();
         if (line && line.closest(".case-line").classList.contains("k-bad")) { out.problems.push("the case line is marked as an error"); }
       } else if (state === "draft-fromcase") {
         caseLine("Кейс: " + C.cases[C.draft.case]);
-        caseRows(5, titles).forEach(function (row) {
-          if (row.getAttribute("title") !== "кейс: " + C.cases[C.draft.case]) { out.problems.push("a card names another case"); }
-        });
+        caseRows(0, titles);   // all five cards are on that case: the line says it once
+        caseOnce(C.cases[C.draft.case]);
+        lineAligned(); linksAligned();
       } else if (state === "draft-case-gone") {
         caseLine("Кейс удалён — нажмите «убрать», чтобы писать тексты");
         ["expand", "topics"].forEach(function (op) {
@@ -1897,11 +1952,34 @@
           }
         });
         if (document.querySelector(".create-notice")) { out.problems.push("the dangling case is said twice"); }
+        caseRows(0, titles);   // the cards are on the deleted id: «кейс удалён» is the line's alone
+        var goneWords = Array.prototype.filter.call(document.querySelectorAll(".topic-case, .case-line .case-words"), shown)
+          .filter(function (e) { return /кейс удалён/i.test(e.textContent); }).length;
+        if (goneWords !== 1) { out.problems.push("«кейс удалён» is shown " + goneWords + " times, expected once"); }
+        lineAligned(); linksAligned();
+      } else if (state === "draft-case-off") {
+        // «убрать» was pressed: no case line, and the chosen card says in words that no case is used
+        var chosenCard = document.querySelector('.topic-card[aria-pressed="true"]');
+        var offRow = chosenCard && chosenCard.querySelector(".topic-case");
+        if (!offRow || offRow.textContent !== "без кейса") { out.problems.push("the chosen card does not say «без кейса»: " + (offRow && offRow.textContent)); }
+        else { out.defining.push({selector: ".topic-card[aria-pressed] .topic-case", text: offRow.textContent, at: box(offRow.getBoundingClientRect())}); }
+        if (shown(document.querySelector(".case-line"))) { out.problems.push("the case line is shown without a case"); }
+        see('.topic-card[aria-pressed="true"] .chosen', "выбрано");
+        caseRows(3, titles.concat(["без кейса"]));
+        linksAligned();
       } else if (state === "review-text-only") {
         ["Проверка перед отправкой", "Без фото: Instagram пропущен — он публикует только с картинкой.", "Добавить фото",
          "Проблем нет · 3 сети", "Опубликовать сейчас", "В очередь"].forEach(function (t) {
           see(".send-action h2, .send-action p, .send-action a, .send-action button", t);
         });
+        // three cards fill the grid: the right edge of the last one is the grid's (and the action block's) right edge
+        var grid = document.querySelector(".send-grid"), cards3 = document.querySelectorAll(".send-card");
+        var lastRight = cards3[cards3.length - 1].getBoundingClientRect().right;
+        var firstTop = cards3[0].getBoundingClientRect().top, lastTop = cards3[cards3.length - 1].getBoundingClientRect().top;
+        if (firstTop === lastTop && Math.abs(lastRight - document.querySelector(".send-action").getBoundingClientRect().right) > 1.5) {
+          out.problems.push("the cards stop at " + Math.round(lastRight) + ", the action block at " +
+                            Math.round(document.querySelector(".send-action").getBoundingClientRect().right) + " (an empty column)");
+        }
         var nophoto = document.body.innerText.split("Без фото: Instagram пропущен").length - 1;
         if (nophoto !== 1) { out.problems.push("the Instagram line shows " + nophoto + " times"); }
         if (document.querySelector(".send-crop, #photo, .look")) { out.problems.push("a crop box or photo control on a text-only review"); }

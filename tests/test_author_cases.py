@@ -312,6 +312,23 @@ class CasesRouteTest(CasesPanel):
         _, _, body = self.page("/create/cases")
         self.assertIn('<p class="muted case-full">кейсов уже 30 — удалите ненужные</p>', body)
         self.assertNotIn("Добавить кейс", body)
+        # the count and the way to the form stand beside the heading, above the list
+        head = body[:body.index('class="case-list"')]
+        self.assertIn('<h2>Кейсы · 30 из 30</h2><a href="#case-new">Новый кейс ↓</a>', head)
+        self.assertIn('id="case-new"', body)
+
+    def test_the_cases_page_names_no_file_and_its_links_carry_no_separators(self):
+        self.with_cases()
+        _, _, body = self.page("/create/cases")
+        self.assertIn("<h2>Кейсы · 3 из 30</h2>", body)
+        self.assertNotIn("content/", body)
+        self.assertNotIn("cases.json", body)
+        self.assertIn('<p class="draft-links"><a href="/create">Создать пост</a><a href="/create/profile">Профиль автора</a></p>', body)
+        did = self.bare()
+        _, _, body = self.page(f"/create/{did}")
+        links = body[body.index('<p class="draft-links">'):]
+        links = links[:links.index("</p>")]
+        self.assertNotIn("·", re.sub(r"<[^>]+>", "", links))
 
     def test_the_31st_case_keeps_the_operators_fields(self):
         """§19.8 item 2: a refusal over the limit gives all five fields back; the file stays."""
@@ -376,7 +393,8 @@ class CasesRouteTest(CasesPanel):
         self.assertNotIn(pf.CASES[0]["title"], prompt)
         self.assertEqual({t["case"] for t in data["topics"]}, {B})
         _, _, body = self.page(f"/create/{did}")
-        self.assertEqual(body.count(f'<span class="topic-case small muted" title="кейс: {pf.CASES[1]["title"]}">'), 5)
+        # the case line says the case once; the five cards (all on that case) do not repeat it
+        self.assertEqual(body.count('class="topic-case'), 0)
         self.assertIn(f'<span class="case-words">Кейс: {pf.CASES[1]["title"]}</span>', body)
 
 
@@ -450,6 +468,41 @@ class PromptTest(CasesPanel):
         cases.delete(self.fx.paths.content, C, NOW)
         _, _, body = self.page(f"/create/{did}")
         self.assertIn('<span class="topic-case small muted" title="кейс удалён">кейс удалён</span>', body)
+
+    def card_rows(self, body):
+        return re.findall(r'<span class="topic-case small muted" title="([^"]*)">', body)
+
+    def test_each_fact_about_a_case_stands_once_on_a_draft_page(self):
+        self.with_cases()
+        # the draft's own case is said by the case line; only cards of another case keep a row
+        own = self.bare(A)
+        mixed = [dict(t, case=c) for t, c in zip(pf.TOPICS, (A, A, C, "", B))]   # as fixture «caseremove» stores them
+        self.store.update(own, lambda d: d.update(topics=mixed))
+        _, _, body = self.page(f"/create/{own}")
+        self.assertEqual(self.card_rows(body), [f"кейс: {pf.CASES[2]['title']}", f"кейс: {pf.CASES[1]['title']}"])
+        self.assertEqual(body.count(f"Кейс: {pf.CASES[0]['title']}"), 1)
+        # a draft whose case is gone: the red line says it, the cards of that id add no «кейс удалён»
+        cases.delete(self.fx.paths.content, A, NOW)
+        _, _, body = self.page(f"/create/{own}")
+        self.assertEqual(body.count("кейс удалён"), 1)
+        self.assertEqual(self.card_rows(body), [f"кейс: {pf.CASES[2]['title']}", f"кейс: {pf.CASES[1]['title']}"])
+
+    def test_the_chosen_card_says_without_a_case_once_the_case_was_taken_off(self):
+        self.with_cases()
+        did = self.bare()
+        self.topics_for(did, [dict(t, case=c) for t, c in zip(pf.TOPICS, (A, B, C, "", B))])
+        card = pf.TOPICS[1]["title"] + " — " + pf.TOPICS[1]["angle"]
+        self.assertEqual(self.call(f"/create/{did}/topic", {"topic": card, "case": B})[0], 200)
+        _, _, with_case = self.page(f"/create/{did}")
+        self.assertEqual(len(self.card_rows(with_case)), 2)           # cards A and C; B is the line
+        self.assertIn(f'<p class="case-line"><span class="case-words">Кейс: {pf.CASES[1]["title"]}</span>', with_case)
+        self.assertEqual(self.call(f"/create/{did}/topic", {"case": ""})[0], 200)
+        _, _, without = self.page(f"/create/{did}")
+        self.assertIn('<p class="case-line" hidden>', without)
+        rows = self.card_rows(without)
+        self.assertEqual(rows.count("без кейса"), 1)                  # the chosen card, in words
+        self.assertEqual(len(rows), 4)
+        self.assertRegex(without, r'aria-pressed="true"[^>]*data-case="%s">.*?выбрано.*?title="без кейса"' % B)
 
     def test_a_reply_case_longer_than_20_or_not_a_string_is_refused(self):
         for bad in ("c" * 21, 7, None):

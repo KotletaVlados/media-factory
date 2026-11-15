@@ -569,10 +569,11 @@ def image_problems(state, result) -> list:
     return out
 
 
-CASE_STATES = ("cases-page", "cases-empty", "cases-saved", "cases-refused", "cases-edit", "cases-delete",
+CASE_STATES = ("cases-page", "cases-empty", "cases-full", "cases-saved", "cases-refused", "cases-edit", "cases-delete",
                "create-start-cases", "draft-nophoto", "draft-case", "draft-fromcase", "draft-case-gone",
-               "draft-photo-right", "review-text-only", "review-text-only-confirm", "review-text-only-published")
-CASE_DRAFT_STATES = ("draft-nophoto", "draft-case", "draft-fromcase", "draft-case-gone", "draft-photo-right")
+               "draft-case-off", "draft-photo-right", "review-text-only", "review-text-only-confirm", "review-text-only-published")
+CASE_DRAFT_STATES = ("draft-nophoto", "draft-case", "draft-fromcase", "draft-case-gone", "draft-case-off",
+                     "draft-photo-right")
 CASE_FLOWS = ("draft-attach", "draft-attach-save", "case-remove-order", "start-nophoto", "start-fromcase")
 
 
@@ -812,6 +813,10 @@ def gated_flows(chrome, fx, servers, widths, out) -> list:
                 shape = [(e[0], '"case":""' in (e[2] or "") if e[0] == "start" else e[2]) for e in log]
                 if shape != [("start", False), ("end", 200), ("start", True), ("end", 200)]:
                     problems.append(f"case-remove-order-{w}: the topic requests (start, removal?/end, status) are {shape}")
+                # the tapped card stays chosen: it must say in words that no case is used now
+                off = page.evaluate(f"(document.querySelector('{card} .topic-case') || {{}}).textContent")
+                if off != "без кейса":
+                    problems.append(f"case-remove-order-{w}: the chosen card reads «{off}» after «убрать», expected «без кейса»")
                 page.screenshot(os.path.join(out, f"case-remove-order-{w}.png"))
             if store.load(did).get("case"):
                 problems.append(f"case-remove-order-{w}: the draft holds case {store.load(did).get('case')} after «убрать»")
@@ -846,6 +851,9 @@ def gated_flows(chrome, fx, servers, widths, out) -> list:
                 line = page.evaluate("document.querySelector('.case-line .case-words').textContent")
                 if line != "Кейс: " + panel_fixture.CASES[1]["title"]:
                     problems.append(f"case-tap-refused-{w}: the case line reads «{line}» after B was accepted")
+                own_row = page.evaluate(f"!!document.querySelector('{card_b} .topic-case')")
+                if own_row:
+                    problems.append(f"case-tap-refused-{w}: the card of the draft's own case repeats it in a row")
                 page.screenshot(os.path.join(out, f"case-tap-refused-{w}.png"))
                 # D46: a spending button sends the bound it shows
                 label = page.evaluate("document.querySelector('[data-op=topics]').textContent")
@@ -1275,9 +1283,17 @@ def main(argv=None) -> int:
     cases_fx = panel_fixture.build_cases(os.path.join(fixtures_root, "cases"))
     cases_empty = panel_fixture.build_cases(os.path.join(fixtures_root, "cases-empty"), cases=False)
     cases_sent = panel_fixture.build_cases(os.path.join(fixtures_root, "cases-sent"), sent=True)
+    # the limit: 30 cases, so «Кейсы · 30 из 30» and the way to the form must stand on the first screen
+    cases_full = panel_fixture.build_cases(os.path.join(fixtures_root, "cases-full"), cases=False)
+    from factory.authoring import cases as fcases_full
+    for n in range(30):
+        base_case = panel_fixture.CASES[n % 3]
+        fcases_full.save(cases_full.paths.content, dict(base_case, title=f"{n + 1:02d}. {base_case['title'][:70]}"),
+                         cases_full.now)
     cases_live = panel_fixture.build_cases(os.path.join(fixtures_root, "cases-live"), live_widths=widths)
     static_cases = {name: (fx, content_hashes(fx)) for name, fx in
-                    (("cases", cases_fx), ("cases-empty", cases_empty), ("cases-sent", cases_sent))}
+                    (("cases", cases_fx), ("cases-empty", cases_empty), ("cases-sent", cases_sent),
+                     ("cases-full", cases_full))}
     static_images = {name: (fx, content_hashes(fx)) for name, fx in
                      (("images", images), ("images-budget", images_budget), ("images-nokey", images_nokey))}
     fake_img = panel_fixture.FakeGemini()
@@ -1316,7 +1332,8 @@ def main(argv=None) -> int:
             servers[f"images-live-{state}-{w}"] = start(images_live, fake_img)
     fake_cases = panel_fixture.FakeGemini()
     fake_cases_live = panel_fixture.FakeGemini()
-    for name, fx in (("cases", cases_fx), ("cases-empty", cases_empty), ("cases-sent", cases_sent)):
+    for name, fx in (("cases", cases_fx), ("cases-empty", cases_empty), ("cases-sent", cases_sent),
+                     ("cases-full", cases_full)):
         servers[name] = start(fx, fake_cases)
     for w in widths:   # one panel per flow and width: each creates or changes its own draft
         for kind in ("attach", "attachsave", "caseremove", "casetap", "nophoto", "fromcase"):
@@ -1457,11 +1474,13 @@ def main(argv=None) -> int:
     ci = cases_fx.case_ids
     case_paths = {
         "cases-page": ("cases", "/create/cases"), "cases-empty": ("cases-empty", "/create/cases"),
+        "cases-full": ("cases-full", "/create/cases"),
         "cases-saved": ("cases", f"/create/cases?saved={cids[1]}#case-{cids[1]}"),
         "cases-edit": ("cases", f"/create/cases?edit={cids[1]}#case-{cids[1]}"),
         "cases-delete": ("cases", "/create/cases"), "create-start-cases": ("cases", "/create"),
         "draft-nophoto": ("cases", f"/create/{ci['nophoto']}"), "draft-case": ("cases", f"/create/{ci['photocase']}"),
         "draft-fromcase": ("cases", f"/create/{ci['fromcase']}"), "draft-case-gone": ("cases", f"/create/{ci['gone']}"),
+        "draft-case-off": ("cases", f"/create/{ci['caseoff']}"),
         "draft-photo-right": ("cases", f"/create/{ci['topics']}"),
         "review-text-only": ("cases", f"/create/{ci['textonly']}/review"),
         "review-text-only-confirm": ("cases", f"/create/{ci['textonly']}/review"),

@@ -1608,7 +1608,7 @@ in this order:
    сдвинуть центр кадра (Instagram и X)». A tap maps the point through the contained box
    to (fx, fy), posts `/focus`, and reloads.
 3. **«Что уйдёт в сети»**: one card per target in poster order, in a grid of
-   `repeat(auto-fill, minmax(min(100%, 280px), 1fr))`. Each card holds:
+   `repeat(auto-fit, minmax(min(100%, 280px), 1fr))`. Each card holds:
    - the head «Facebook · fb:kotleta · укр.»;
    - the crop from `/create/<id>/file?name=<network>`, in a box 240 px tall
      (`object-fit: contain`, no layout shift);
@@ -2947,6 +2947,11 @@ Review and send without a photo:
   (the `newDraft` path, `create.js:59-63`).
 - The profile line (`views.py:1167`) becomes two links: «Профиль автора · заполнен» (or B′'s
   «не заполнен» line) and «Кейсы · N». With no case the second link reads «Кейсы · добавить».
+- The row of links under the draft («Новый пост», «Профиль автора», «Кейсы», «Удалить черновик»)
+  has no «·» separators: a wrapped row would leave one hanging at a line's end. The gap
+  between the links (16 px) separates them, and every row starts at the left edge. «убрать»
+  has no left margin of its own: after the text's last word it follows the space, and on a row
+  of its own it stands at the text's left edge.
 - In «Черновики», a draft without a photo shows a 48 px box with the muted words «без фото»
   instead of its thumb (`views.py:1147`).
 - `CREATE_PROFILE_HINT` (`strings.py:412`) becomes «Профиль и кейсы уходят в запросы к
@@ -2955,8 +2960,10 @@ Review and send without a photo:
 **«Кейсы»** (`GET /create/cases`, tab «Создать», sub row «Кейсы» with the AI month, the
 scripts `send.js` only for the delete dialog). In one column, at most 960 px wide:
 
-1. The heading «Кейсы» and the explainer «Из кейсов Gemini берёт темы и факты для текстов —
-   только то, что здесь записано. Хранятся только на этом компьютере (content/cases.json).»
+1. The heading with the count, «Кейсы · <n> из 30», and beside it the link «Новый кейс ↓» to
+   `#case-new`, so that at 30 cases the limit and the way to the form are on the first screen
+   without scrolling the list; then the explainer «Из кейсов Gemini берёт темы и факты для текстов —
+   только то, что здесь записано. Хранятся только на этом компьютере.»
 2. The notices «Кейс сохранён» or «Кейс удалён» (`role="status"`), or the refusal
    (`role="alert"`).
 3. The list, or «Кейсов пока нет — добавьте первый: что автоматизировали, чем и что вышло.».
@@ -2990,7 +2997,11 @@ scripts `send.js` only for the delete dialog). In one column, at most 960 px wid
 - **Topic cards** with a non-empty `case` gain a third row «кейс: <title>», small and muted. It
   is one line with an ellipsis, and the full title is in the DOM and in `title`, as the
   «Черновики» rows do it (`panel.css:507`, the probe's clamp rule `probe.js:110-130`). A card
-  whose case is no longer stored shows «кейс удалён». The row is placed by its own grid area,
+  whose case is no longer stored shows «кейс удалён». Each fact about a case stands once on the
+  screen: a card whose case is the draft's own has no row (the case line under the topic box
+  says it), and the chosen card whose case was taken off the draft by «убрать» (or never set)
+  reads «без кейса» in the row's place, so the two states differ in words. A tapped card keeps
+  its own row until its save is answered. The row is placed by its own grid area,
   because `.topic-card > span:not(.chosen)` would put it on the angle's row (`panel.css:582`).
 - **Case line**: when the draft carries a case, one row directly under the topic box reads
   «Кейс: <title>», whole and wrapping, with «убрать» (a `linkbtn`, at least 24 px, which keeps
@@ -3218,7 +3229,7 @@ stay as they are. FakeGemini runs in process.
 | `create-start-cases` | «cases», `/create` | «Бросьте фото сюда», «Пост без фото», «Кейсы · 3», «Недавние фото», «Черновики · N», «без фото» on a row |
 | `draft-nophoto` | «cases», `nophoto` | «Добавить фото», «необязательно — без фото пост уйдёт в Facebook, LinkedIn и X; Instagram — только с фото», «кейс: …» on three cards, «выбрано», «Развернуть · до $0.05» (from 1 000 px on the first screen; at 390 and 900 after a card tap, as §16.2) |
 | `draft-case` | «cases», `photocase` | the photo at the top of the right column from 1 000 px, «Кейс: <80-character title>» whole, «убрать», «Развернуть · до $0.05» on the first screen at 1 000 × 700, 1 100 × 700 and every wider width (D43) |
-| `draft-fromcase` | «cases», `fromcase` | «Кейс: <title>», five cards each with that case |
+| `draft-fromcase` | «cases», `fromcase` | «Кейс: <title>» once, five cards each on that case with no «кейс: …» row of their own |
 | `draft-case-gone` | «cases», `gone` | «Кейс удалён — нажмите «убрать», чтобы писать тексты», «убрать»; «Развернуть» dimmed and disabled |
 | `draft-photo-right` | «cases», B′'s `topics` draft | B′'s defining text of `create-topics`, with the photo at the top of the right column from 1 000 px and «Тексты» under it |
 | `draft-attach` (functional, then framed) | «cases-live», `attach-<w>`: probe passes a generated JPEG `attach-<w>.jpg` to the attach input | probe JSON: three upload posts, one `/photo`, one reload, one new index row with that name. Frame: the photo in place of the attach block |
